@@ -39,6 +39,9 @@ import 'pages/scan.dart';
 import 'pages/blank.dart';
 import 'pages/showqr.dart';
 import 'pages/splash.dart';
+import 'pages/splash_page.dart';
+import 'pages/create_wallet_page.dart';
+import 'pages/restore_wallet_page.dart';
 import 'pages/welcome.dart';
 import 'pages/settings.dart';
 import 'pages/messages.dart';
@@ -58,8 +61,8 @@ final rootNavigatorKey = GlobalKey<NavigatorState>();
 final _accountNavigatorKey = GlobalKey<NavigatorState>();
 
 // Allow overriding the initial route (e.g., for design reviews) via env var.
-// Example: YW_INITIAL_ROUTE="/debug/sending"
-final _initialLocation = Platform.environment['YW_INITIAL_ROUTE'] ?? '/account';
+// Set by main.dart before runApp() based on wallet existence.
+String initialLocation = Platform.environment['YW_INITIAL_ROUTE'] ?? '/account';
 
 final helpRouteMap = {
   "/account": "/accounts",
@@ -70,7 +73,7 @@ final helpRouteMap = {
 
 final router = GoRouter(
   navigatorKey: rootNavigatorKey,
-  initialLocation: _initialLocation,
+  initialLocation: initialLocation,
   debugLogDiagnostics: true,
   routes: [
     GoRoute(path: '/', redirect: (context, state) => '/account'),
@@ -654,13 +657,48 @@ final router = GoRouter(
     GoRoute(path: '/disclaimer', builder: (context, state) => DisclaimerPage()),
     GoRoute(
       path: '/splash',
-      builder: (context, state) => SplashPage(),
-      redirect: (context, state) {
-        final c = coins.first;
-        if (isMobile()) return null; // db encryption is only for desktop
-        if (!File(c.dbFullPath).existsSync()) return null; // fresh install
-        return null; // CLOAK doesn't use encrypted DB files
-      },
+      parentNavigatorKey: rootNavigatorKey,
+      pageBuilder: (context, state) => CustomTransitionPage(
+        key: state.pageKey,
+        child: const CloakSplashPage(),
+        transitionDuration: const Duration(milliseconds: 300),
+        reverseTransitionDuration: const Duration(milliseconds: 300),
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          return FadeTransition(opacity: animation, child: child);
+        },
+      ),
+      routes: [
+        GoRoute(
+          path: 'create',
+          parentNavigatorKey: rootNavigatorKey,
+          pageBuilder: (context, state) => CustomTransitionPage(
+            key: state.pageKey,
+            child: const CreateWalletPage(),
+            transitionDuration: const Duration(milliseconds: 300),
+            reverseTransitionDuration: const Duration(milliseconds: 300),
+            transitionsBuilder: (context, animation, secondaryAnimation, child) {
+              final curved = CurvedAnimation(parent: animation, curve: Curves.easeOutCubic, reverseCurve: Curves.easeInCubic);
+              final offset = Tween<Offset>(begin: const Offset(1.0, 0.0), end: Offset.zero).animate(curved);
+              return RepaintBoundary(child: SlideTransition(position: offset, child: child));
+            },
+          ),
+        ),
+        GoRoute(
+          path: 'restore',
+          parentNavigatorKey: rootNavigatorKey,
+          pageBuilder: (context, state) => CustomTransitionPage(
+            key: state.pageKey,
+            child: const RestoreWalletPage(),
+            transitionDuration: const Duration(milliseconds: 300),
+            reverseTransitionDuration: const Duration(milliseconds: 300),
+            transitionsBuilder: (context, animation, secondaryAnimation, child) {
+              final curved = CurvedAnimation(parent: animation, curve: Curves.easeOutCubic, reverseCurve: Curves.easeInCubic);
+              final offset = Tween<Offset>(begin: const Offset(1.0, 0.0), end: Offset.zero).animate(curved);
+              return RepaintBoundary(child: SlideTransition(position: offset, child: child));
+            },
+          ),
+        ),
+      ],
     ),
     GoRoute(
       path: '/welcome',
