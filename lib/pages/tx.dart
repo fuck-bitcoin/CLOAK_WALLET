@@ -7,8 +7,6 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'package:gap/gap.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
-import 'package:warp_api/warp_api.dart';
-
 import '../accounts.dart';
 import '../cloak/cloak_db.dart';
 import '../cloak/cloak_wallet_manager.dart';
@@ -100,15 +98,7 @@ class TxPageState extends State<TxPage> {
   void initState() {
     super.initState();
     _loadSavedFilters();
-    if (!CloakWalletManager.isCloak(aa.coin)) {
-      syncStatus2.latestHeight?.let((height) {
-        Future(() async {
-          final txListUpdated =
-              await WarpApi.transparentSync(aa.coin, aa.id, height);
-          if (txListUpdated) aa.update(height); // reload if updated
-        });
-      });
-    }
+    // CLOAK uses table-based sync, no transparent sync needed
   }
 
   Future<void> _loadSavedFilters() async {

@@ -2,8 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:material_design_icons_flutter/material_design_icons_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:warp_api/data_fb_generated.dart';
-import 'package:warp_api/warp_api.dart';
+import '../../cloak/cloak_types.dart';
 
 import '../../accounts.dart';
 import '../../coin/coins.dart';
@@ -64,7 +63,7 @@ class _AccountManagerState extends State<AccountManagerPage> {
 
   onEdit(String name) {
     final a = accounts[selected!];
-    WarpApi.updateAccountName(a.coin, a.id, name);
+    // TODO: Implement CLOAK account rename via CloakDb
     _refresh();
     editing = false;
     setState(() {});
@@ -94,7 +93,7 @@ class _AccountManagerState extends State<AccountManagerPage> {
     final confirmed = await showConfirmDialog(
         context, s.deleteAccount(a.name!), s.confirmDeleteAccount);
     if (confirmed) {
-      WarpApi.deleteAccount(a.coin, a.id);
+      // TODO: Implement CLOAK account deletion via CloakDb
       _refresh();
       if (count == 1) {
         setActiveAccount(0, 0);
@@ -110,7 +109,7 @@ class _AccountManagerState extends State<AccountManagerPage> {
     final confirmed = await showConfirmDialog(
         context, s.convertToWatchonly, s.confirmWatchOnly);
     if (!confirmed) return;
-    WarpApi.convertToWatchOnly(aa.coin, aa.id);
+    // TODO: Implement CLOAK watch-only conversion
     // If converting the active account from the manager, refresh AA so UI updates
     setActiveAccount(aa.coin, aa.id);
     _refresh();

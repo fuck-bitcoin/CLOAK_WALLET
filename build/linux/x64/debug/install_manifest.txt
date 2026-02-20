@@ -9,11 +9,7 @@
 /home/kameron/Projects/CLOAK Wallet/zwallet/build/linux/x64/debug/bundle/lib/libsqlcipher_flutter_libs_plugin.so
 /home/kameron/Projects/CLOAK Wallet/zwallet/build/linux/x64/debug/bundle/lib/liburl_launcher_linux_plugin.so
 /home/kameron/Projects/CLOAK Wallet/zwallet/build/linux/x64/debug/bundle/lib/libwindow_manager_plugin.so
-/home/kameron/Projects/CLOAK Wallet/zwallet/build/linux/x64/debug/bundle/lib/librust_lib_YWallet.so
-/home/kameron/Projects/CLOAK Wallet/zwallet/build/linux/x64/debug/bundle/lib/libwarp_api_ffi.so
 /home/kameron/Projects/CLOAK Wallet/zwallet/build/linux/x64/debug/bundle/lib/libzeos_caterpillar.so
-/home/kameron/Projects/CLOAK Wallet/zwallet/build/linux/x64/debug/bundle/data/flutter_assets/assets/sapling-spend.params
-/home/kameron/Projects/CLOAK Wallet/zwallet/build/linux/x64/debug/bundle/data/flutter_assets/assets/sapling-output.params
 /home/kameron/Projects/CLOAK Wallet/zwallet/build/linux/x64/debug/bundle/data/flutter_assets/assets/welcome.png
 /home/kameron/Projects/CLOAK Wallet/zwallet/build/linux/x64/debug/bundle/data/flutter_assets/assets/self-custody.png
 /home/kameron/Projects/CLOAK Wallet/zwallet/build/linux/x64/debug/bundle/data/flutter_assets/assets/icon.png
@@ -21,8 +17,6 @@
 /home/kameron/Projects/CLOAK Wallet/zwallet/build/linux/x64/debug/bundle/data/flutter_assets/assets/wallet.svg
 /home/kameron/Projects/CLOAK Wallet/zwallet/build/linux/x64/debug/bundle/data/flutter_assets/assets/contacts.svg
 /home/kameron/Projects/CLOAK Wallet/zwallet/build/linux/x64/debug/bundle/data/flutter_assets/assets/multipay.svg
-/home/kameron/Projects/CLOAK Wallet/zwallet/build/linux/x64/debug/bundle/data/flutter_assets/assets/ycash.png
-/home/kameron/Projects/CLOAK Wallet/zwallet/build/linux/x64/debug/bundle/data/flutter_assets/assets/zcash.png
 /home/kameron/Projects/CLOAK Wallet/zwallet/build/linux/x64/debug/bundle/data/flutter_assets/assets/cloak.png
 /home/kameron/Projects/CLOAK Wallet/zwallet/build/linux/x64/debug/bundle/data/flutter_assets/assets/success.mp3
 /home/kameron/Projects/CLOAK Wallet/zwallet/build/linux/x64/debug/bundle/data/flutter_assets/assets/fail.mp3
@@ -31,7 +25,6 @@
 /home/kameron/Projects/CLOAK Wallet/zwallet/build/linux/x64/debug/bundle/data/flutter_assets/assets/icons/receive_quick.svg
 /home/kameron/Projects/CLOAK Wallet/zwallet/build/linux/x64/debug/bundle/data/flutter_assets/assets/icons/scan_quick.svg
 /home/kameron/Projects/CLOAK Wallet/zwallet/build/linux/x64/debug/bundle/data/flutter_assets/assets/icons/more_quick.svg
-/home/kameron/Projects/CLOAK Wallet/zwallet/build/linux/x64/debug/bundle/data/flutter_assets/assets/icons/zec_glyph.svg
 /home/kameron/Projects/CLOAK Wallet/zwallet/build/linux/x64/debug/bundle/data/flutter_assets/assets/icons/cloak_glyph.svg
 /home/kameron/Projects/CLOAK Wallet/zwallet/build/linux/x64/debug/bundle/data/flutter_assets/assets/icons/shield_check.svg
 /home/kameron/Projects/CLOAK Wallet/zwallet/build/linux/x64/debug/bundle/data/flutter_assets/assets/ledger.png

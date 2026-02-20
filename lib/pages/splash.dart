@@ -11,7 +11,6 @@ import 'package:go_router/go_router.dart';
 import 'package:quick_actions/quick_actions.dart';
 import 'package:sensors_plus/sensors_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:warp_api/warp_api.dart';
 import 'package:workmanager/workmanager.dart';
 
 import '../../accounts.dart';
@@ -121,62 +120,27 @@ class _SplashState extends State<SplashPage> {
       final coin = c.coin;
       _setProgress(0.5 + 0.1 * coin, 'Initializing ${c.ticker}');
       
-      // CLOAK uses CloakWalletManager instead of WarpApi
-      if (CloakWalletManager.isCloak(coin)) {
-        print('[init] Initializing CLOAK wallet');
-        await CloakWalletManager.init(dbPassword: appStore.dbPassword);
-        if (await CloakWalletManager.walletExists()) {
+      print('[init] Initializing CLOAK wallet');
+      await CloakWalletManager.init(dbPassword: appStore.dbPassword);
+      if (await CloakWalletManager.walletExists()) {
+        await CloakWalletManager.loadWallet();
+        await refreshCloakAccountsCache();
+        print('[init] CLOAK wallet loaded');
+      } else {
+        // Auto-restore if we have a seed in the DB but no wallet file
+        final account = await CloakDb.getFirstAccount();
+        if (account != null && account['seed'] != null && (account['seed'] as String).isNotEmpty) {
+          print('[init] Wallet file missing but seed found - auto-restoring');
+          await CloakWalletManager.restoreWallet(
+            account['name'] as String,
+            account['seed'] as String,
+          );
           await CloakWalletManager.loadWallet();
           await refreshCloakAccountsCache();
-          print('[init] CLOAK wallet loaded');
+          print('[init] CLOAK wallet auto-restored from seed');
         } else {
-          // Auto-restore if we have a seed in the DB but no wallet file
-          final account = await CloakDb.getFirstAccount();
-          if (account != null && account['seed'] != null && (account['seed'] as String).isNotEmpty) {
-            print('[init] Wallet file missing but seed found - auto-restoring');
-            await CloakWalletManager.restoreWallet(
-              account['name'] as String,
-              account['seed'] as String,
-            );
-            await CloakWalletManager.loadWallet();
-            await refreshCloakAccountsCache();
-            print('[init] CLOAK wallet auto-restored from seed');
-          } else {
-            print('[init] No CLOAK wallet found');
-          }
+          print('[init] No CLOAK wallet found');
         }
-        continue; // Skip WarpApi for CLOAK
-      }
-      
-      print('[init] setDbPasswd coin=$coin');
-      WarpApi.setDbPasswd(coin, appStore.dbPassword);
-      print('[init] initWallet coin=$coin path=${c.dbFullPath}');
-      WarpApi.initWallet(coin, c.dbFullPath);
-      print('[init] initWallet done coin=$coin');
-      final p = WarpApi.getProperty(coin, 'settings');
-      final settings = p.isNotEmpty
-          ? CoinSettings.fromBuffer(base64Decode(p))
-          : CoinSettings();
-      var url = resolveURL(c, settings);
-      if (url.isEmpty) {
-        // Hard fallback to first known server for this coin
-        if (c.lwd.isNotEmpty) {
-          url = c.lwd.first.url;
-          print('[init] fallback LWD for coin=$coin url=$url');
-        }
-      }
-      print('[init] updateLWD coin=$coin url=$url');
-      WarpApi.updateLWD(coin, url);
-      if (isMobile()) {
-        try {
-          print('[init] migrateData start coin=$coin');
-          WarpApi.migrateData(c.coin);
-          print('[init] migrateData done coin=$coin');
-        } catch (e) {
-          print('[init] migrateData error coin=$coin e=$e');
-        }
-      } else {
-        print('[init] skip migrateData on desktop');
       }
     }
   }

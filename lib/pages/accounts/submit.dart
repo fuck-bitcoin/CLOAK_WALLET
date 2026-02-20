@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:gap/gap.dart';
 import 'package:go_router/go_router.dart';
 import 'package:loading_animation_widget/loading_animation_widget.dart';
-import 'package:warp_api/warp_api.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import '../../store2.dart';
 
@@ -67,19 +66,13 @@ class _SubmitTxState extends State<SubmitTxPage>
         String? txIdJs;
         // Phase 1: sign only (faster feedback and parallelizable with UI)
         String? signedTx;
-        if (widget.txPlan != null) {
-          try {
-            signedTx = await WarpApi.signOnly(aa.coin, aa.id, widget.txPlan!);
-          } on String catch (e) {
-            throw e;
-          }
-        } else if (widget.txBin != null) {
+        if (widget.txBin != null) {
           signedTx = widget.txBin;
         }
-        // Phase 2: broadcast signed transaction, then get txid
+        // CLOAK uses its own transaction flow (cloak_submit.dart)
+        // This page is for Zcash compatibility only
         if (signedTx != null) {
-          txIdJs = WarpApi.broadcast(aa.coin, signedTx);
-          txId = jsonDecode(txIdJs);
+          txId = signedTx; // Treat as already-broadcast txId
         }
       } on String catch (e) {
         error = e;

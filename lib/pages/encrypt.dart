@@ -3,8 +3,6 @@ import 'package:flutter_form_builder/flutter_form_builder.dart';
 import 'package:go_router/go_router.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:warp_api/warp_api.dart';
-
 import '../accounts.dart';
 import '../coin/coins.dart';
 import '../generated/intl/messages.dart';
@@ -44,9 +42,7 @@ class _EncryptDbState extends State<EncryptDbPage> with WithLoadingAnimation {
                   controller: oldController,
                   obscureText: true,
                   validator: (v) {
-                    final c = coins[aa.coin];
-                    if (!WarpApi.decryptDb(c.dbFullPath, v!))
-                      return s.invalidPassword;
+                    // CLOAK doesn't use encrypted DB
                     return null;
                   },
                 ),
@@ -78,11 +74,8 @@ class _EncryptDbState extends State<EncryptDbPage> with WithLoadingAnimation {
     if (form.validate()) {
       form.save();
       await load(() async {
-        final tempDir = await getTemporaryDirectory();
-        final passwd = newController.text;
-        final path = await WarpApi.zipDbs(passwd, tempDir.path);
+        // CLOAK doesn't use WarpApi.zipDbs — no-op
         final prefs = await SharedPreferences.getInstance();
-        await prefs.setString('backup', path);
       });
       await showMessageBox2(context, s.restart, s.pleaseQuitAndRestartTheAppNow,
           dismissable: false);

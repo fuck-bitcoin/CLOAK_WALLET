@@ -8,7 +8,6 @@ import 'dart:ui';
 import 'package:YWallet/cloak/cloak_wallet_manager.dart';
 import 'package:YWallet/cloak/cloak_db.dart';
 import 'package:YWallet/main.dart';
-import 'package:flat_buffers/flat_buffers.dart' as fb;
 import 'package:awesome_notifications/awesome_notifications.dart';
 import 'package:binary/binary.dart';
 import 'package:collection/collection.dart';
@@ -32,13 +31,12 @@ import 'package:reflectable/reflectable.dart';
 import 'package:sensors_plus/sensors_plus.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:warp_api/data_fb_generated.dart';
-import 'package:warp_api/warp_api.dart';
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert' as convert;
 
+import '../cloak/cloak_types.dart';
 import '../accounts.dart';
 import '../appsettings.dart';
 import '../coin/coins.dart';
@@ -54,6 +52,8 @@ const APP_NAME = "YWallet";
 const ZECUNIT = 100000000.0;
 const ZECUNIT_INT = 100000000;
 const MAX_PRECISION = 8;
+const DAY_SEC = 24 * 60 * 60;
+const DAY_MS = DAY_SEC * 1000;
 
 final DateFormat noteDateFormat = DateFormat("yy-MM-dd HH:mm");
 final DateFormat txDateFormat = DateFormat("MM-dd HH:mm");
@@ -223,25 +223,16 @@ String? addressValidator(String? v) {
   final s = S.of(rootNavigatorKey.currentContext!);
   if (v == null || v.isEmpty) return s.addressIsEmpty;
   // CLOAK uses za1... shielded addresses or Telos account names
-  if (CloakWalletManager.isCloak(aa.coin)) {
-    if (v.startsWith('za1') && v.length >= 70 && v.length <= 120) return null;
-    if (v.length <= 12 && RegExp(r'^[a-z1-5.]{1,12}$').hasMatch(v)) return null;
-    return s.invalidAddress;
-  }
-  try {
-    WarpApi.parseTexAddress(aa.coin, v);
-    return null;
-  } on String {}
-  final valid = WarpApi.validAddress(aa.coin, v);
-  if (!valid) return s.invalidAddress;
-  return null;
+  if (v.startsWith('za1') && v.length >= 70 && v.length <= 120) return null;
+  if (v.length <= 12 && RegExp(r'^[a-z1-5.]{1,12}$').hasMatch(v)) return null;
+  return s.invalidAddress;
 }
 
 String? paymentURIValidator(String? v) {
   final s = S.of(rootNavigatorKey.currentContext!);
   if (v == null || v.isEmpty) return s.required;
-  if (WarpApi.decodePaymentURI(aa.coin, v!) == null) return s.invalidPaymentURI;
-  return null;
+  // CLOAK doesn't use Zcash payment URIs
+  return s.invalidPaymentURI;
 }
 
 ColorPalette getPalette(Color color, int n) => ColorPalette.polyad(
@@ -490,7 +481,7 @@ Future<void> shareQrImage(BuildContext originContext,
   }
 }
 
-int getSpendable(int pools, PoolBalanceT balances) {
+int getSpendable(int pools, CloakBalance balances) {
   return (pools & 1 != 0 ? balances.transparent : 0) +
       (pools & 2 != 0 ? balances.sapling : 0) +
       (pools & 4 != 0 ? balances.orchard : 0);
@@ -740,8 +731,6 @@ class Note extends HasHeight {
     return Note(id, height, confirmations, timestamp, value, orchard, excluded,
         selected);
   }
-  factory Note.fromShieldedNote(ShieldedNoteT n) => Note(n.id, n.height, 0,
-      toDateTime(n.timestamp), n.value / ZECUNIT, n.orchard, n.excluded, false);
 
   Note(this.id, this.height, this.confirmations, this.timestamp, this.value,
       this.orchard, this.excluded, this.selected);
@@ -1135,53 +1124,34 @@ class PoolBitSet {
   static int fromSet(Set<int> poolSet) => poolSet.map((p) => 1 << p).sum;
 }
 
-List<Account> getAllAccounts() {
-  final List<Account> accounts = [];
+List<CloakAccount> getAllAccounts() {
+  final List<CloakAccount> accounts = [];
   for (final c in coins) {
-    if (CloakWalletManager.isCloak(c.coin)) {
-      // CLOAK uses cloak.db - we need to build Account objects synchronously
-      // Since CloakDb is async, we use a cached list that gets updated
-      accounts.addAll(_getCloakAccountsSync());
-    } else {
-      accounts.addAll(WarpApi.getAccountList(c.coin));
-    }
+    accounts.addAll(_getCloakAccountsSync());
   }
   return accounts;
 }
 
 // Cached CLOAK accounts for synchronous access
-List<Account> _cloakAccountsCache = [];
+List<CloakAccount> _cloakAccountsCache = [];
 
 /// Call this after creating/loading CLOAK accounts to update the cache
 Future<void> refreshCloakAccountsCache() async {
   try {
     final dbAccounts = await CloakDb.getAllAccounts();
-    
+
     _cloakAccountsCache = dbAccounts.map((row) {
-      // Each Account needs its own builder (FlatBuffers can't be reused)
-      final builder = fb.Builder(initialSize: 256);
-      
-      // Build a FlatBuffer Account object
-      final nameOffset = builder.writeString(row['name'] as String);
-      final addressOffset = builder.writeString(row['address'] as String? ?? '');
-      
-      builder.startTable(7);
-      builder.addUint8(0, CLOAK_COIN); // coin
-      builder.addUint32(1, row['id_account'] as int); // id
-      builder.addOffset(2, nameOffset); // name
-      builder.addUint8(3, 0); // keyType (0 = normal)
-      builder.addUint64(4, 0); // balance (will be updated separately)
-      builder.addOffset(5, addressOffset); // address
-      builder.addBool(6, true); // saved
-      final accountOffset = builder.endTable();
-      
-      builder.finish(accountOffset);
-      // Copy the buffer since builder may be reused
-      final bytes = Uint8List.fromList(builder.buffer);
-      
-      return Account(bytes);
+      return CloakAccount(
+        coin: CLOAK_COIN,
+        id: row['id_account'] as int,
+        name: row['name'] as String,
+        keyType: 0,
+        balance: 0,
+        address: row['address'] as String? ?? '',
+        saved: true,
+      );
     }).toList();
-    
+
     print('refreshCloakAccountsCache: loaded ${_cloakAccountsCache.length} accounts');
   } catch (e, st) {
     print('refreshCloakAccountsCache ERROR: $e');
@@ -1190,7 +1160,7 @@ Future<void> refreshCloakAccountsCache() async {
   }
 }
 
-List<Account> _getCloakAccountsSync() {
+List<CloakAccount> _getCloakAccountsSync() {
   return _cloakAccountsCache;
 }
 
@@ -1431,9 +1401,7 @@ void showLocalNotification({required int id, String? title, String? body}) {
   ));
 }
 
-extension PoolBalanceExtension on PoolBalanceT {
-  int get total => transparent + sapling + orchard;
-}
+// CloakBalance already has .total getter in cloak_types.dart
 
 String? isValidUA(int uaType) {
   if (uaType == 1) return GetIt.I<S>().invalidAddress;

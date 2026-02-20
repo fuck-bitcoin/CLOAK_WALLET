@@ -14,8 +14,7 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:loading_animation_widget/loading_animation_widget.dart';
 import 'package:qr_flutter/qr_flutter.dart';
-import 'package:warp_api/data_fb_generated.dart';
-import 'package:warp_api/warp_api.dart';
+import '../cloak/cloak_types.dart';
 
 import '../accounts.dart';
 import '../appsettings.dart';
@@ -418,7 +417,7 @@ class InputTextQRState extends State<InputTextQR> {
 }
 
 class PoolSelection extends StatefulWidget {
-  final PoolBalanceT balances;
+  final CloakBalance balances;
   final void Function(int? pools)? onChanged;
   final int initialValue;
   PoolSelection(this.initialValue,
@@ -948,8 +947,7 @@ class AnimatedQR extends StatefulWidget {
             title,
             caption,
             data,
-            WarpApi.splitData(DateTime.now().millisecondsSinceEpoch ~/ 1000,
-                base64Encode(ZLibCodec().encode(utf8.encode(data)))));
+            [base64Encode(ZLibCodec().encode(utf8.encode(data)))]);
 
   AnimatedQR(this.title, this.caption, this.data, this.chunks);
 

@@ -1,9 +1,6 @@
-import 'package:warp_api/data_fb_generated.dart';
-import 'package:warp_api/warp_api.dart';
 import '../store2.dart';
 import '../accounts.dart';
 import '../pages/utils.dart';
-import '../cloak/cloak_wallet_manager.dart';
 import '../cloak/cloak_db.dart';
 
 // Internal: extract conversation_id from a ZMessage body header if present
@@ -161,43 +158,20 @@ List<ZMessage> buildUnionList() {
   }
 }
 
-// Helper to get property for any coin (CLOAK uses CloakDb, others use WarpApi)
+// Helper to get property for any coin
 Future<String> _getPropertyAsync(int coin, String key) async {
-  if (CloakWalletManager.isCloak(coin)) {
-    return await CloakDb.getProperty(key) ?? '';
-  } else {
-    try {
-      return WarpApi.getProperty(coin, key);
-    } catch (_) {
-      return '';
-    }
-  }
+  return await CloakDb.getProperty(key) ?? '';
 }
 
 // Helper to set property for any coin
 Future<void> _setPropertyAsync(int coin, String key, String value) async {
-  if (CloakWalletManager.isCloak(coin)) {
-    await CloakDb.setProperty(key, value);
-  } else {
-    try {
-      WarpApi.setProperty(coin, key, value);
-    } catch (_) {}
-  }
+  await CloakDb.setProperty(key, value);
 }
 
 // Synchronous version for use in sync contexts
+// Returns empty; callers should prefer _getPropertyAsync when possible
 String _getPropertySync(int coin, String key) {
-  if (CloakWalletManager.isCloak(coin)) {
-    // For CLOAK, we need async access but this is called in sync context
-    // Return empty and let async version handle it
-    return '';
-  } else {
-    try {
-      return WarpApi.getProperty(coin, key);
-    } catch (_) {
-      return '';
-    }
-  }
+  return '';
 }
 
 // Unified thread detection function that combines all detection criteria
@@ -332,14 +306,8 @@ ThreadDetectionResult findThreadForContact(int contactId, String address, int co
     // Also store CID when we find it matching messages, even if address matching failed
     if (foundCid != null && foundCid.isNotEmpty && storedCid.isEmpty) {
       final cidKey = 'contact_cid_' + contactId.toString();
-      if (CloakWalletManager.isCloak(coin)) {
-        // Fire-and-forget async for CLOAK
-        CloakDb.setProperty(cidKey, foundCid);
-      } else {
-        try {
-          WarpApi.setProperty(coin, cidKey, foundCid);
-        } catch (_) {}
-      }
+      // Fire-and-forget async
+      CloakDb.setProperty(cidKey, foundCid);
       // Update storedCid for subsequent checks
       storedCid = foundCid;
     }

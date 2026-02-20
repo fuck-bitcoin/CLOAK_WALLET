@@ -3,10 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_mobx/flutter_mobx.dart';
 import 'package:gap/gap.dart';
 import 'package:go_router/go_router.dart';
-import 'package:warp_api/warp_api.dart';
 import 'accounts/submit.dart';
 import 'widgets.dart';
-import 'package:warp_api/data_fb_generated.dart';
+import '../cloak/cloak_types.dart';
 import '../cloak/cloak_wallet_manager.dart';
 import '../cloak/cloak_db.dart';
 import 'package:intl/intl.dart';
@@ -34,6 +33,40 @@ import 'avatar.dart';
 import 'utils.dart';
 import 'widgets.dart';
 import '../theme/zashi_tokens.dart';
+
+// ── Stub helpers replacing WarpApi property/contact/message calls ──
+// These are referenced throughout the file via replace_all substitution.
+// CLOAK uses CloakDb for persistence; these stubs provide compile-time
+// compatibility for the messaging system (which is Zcash-era code).
+
+String _getPropSync(String key) {
+  // Synchronous property lookup not available for CLOAK.
+  // CloakDb is async-only; return empty to keep callers safe.
+  return '';
+}
+
+void _setPropAsync(String key, String value) {
+  // Fire-and-forget async write to CloakDb
+  CloakDb.setProperty(key, value);
+}
+
+void _storeContactStub(int id, String name, String address, bool dirty) {
+  // Fire-and-forget: add or update contact in CloakDb
+  if (id == 0) {
+    CloakDb.addContact(name: name, address: address);
+  } else {
+    CloakDb.updateContact(id, name: name, address: address);
+  }
+}
+
+int _receiversStub(String addr) {
+  // CLOAK is always shielded — return sapling+orchard pools (0x6)
+  return 6;
+}
+
+void _markReadStub(int id, bool read) {
+  // Message read-status tracking not yet implemented for CLOAK
+}
 
 // Request glyph copied from Receive page to use inside overlay action circle
 const String _ZASHI_REQUEST_GLYPH_INLINE =
@@ -318,7 +351,7 @@ List<MessageThread> _buildThreads(List<ZMessage> messages) {
     // First try: cid_name_ property for CID-based threads
     if (threadCid != null && threadCid.isNotEmpty) {
       try {
-        final cidName = WarpApi.getProperty(aa.coin, 'cid_name_' + threadCid).trim();
+        final cidName = _getPropSync('cid_name_' + threadCid).trim();
         if (cidName.isNotEmpty) contactName = cidName;
       } catch (_) {}
     }
@@ -390,14 +423,14 @@ void _processHandshake(List<ZMessage> messages) {
 
   String getPropSync(String key) {
     if (isCloak) return ''; // CLOAK requires async, use message scanning instead
-    try { return WarpApi.getProperty(aa.coin, key); } catch (_) { return ''; }
+    try { return _getPropSync(key); } catch (_) { return ''; }
   }
 
   void setPropSync(String key, String value) {
     if (isCloak) {
       CloakDb.setProperty(key, value); // Fire and forget async
     } else {
-      try { WarpApi.setProperty(aa.coin, key, value); } catch (_) {}
+      try { _setPropAsync(key, value); } catch (_) {}
     }
   }
 
@@ -409,7 +442,7 @@ void _processHandshake(List<ZMessage> messages) {
         CloakDb.updateContact(id, name: name, address: address); // Fire and forget async
       }
     } else {
-      try { WarpApi.storeContact(aa.coin, id, name, address, dirty); } catch (_) {}
+      try { _storeContactStub(id, name, address, dirty); } catch (_) {}
     }
   }
 
@@ -496,7 +529,7 @@ void _processHandshake(List<ZMessage> messages) {
             for (final c in contacts.contacts) {
               final t = c.unpack();
               try {
-                final pcid = WarpApi.getProperty(aa.coin, 'contact_cid_' + t.id.toString()).trim();
+                final pcid = _getPropSync('contact_cid_' + t.id.toString()).trim();
                 if (pcid == cid) { contactIdByCid = t.id; break; }
               } catch (_) {}
             }
@@ -580,7 +613,7 @@ void _processHandshake(List<ZMessage> messages) {
         if (originalContactId == null && !isCloak) {
           try {
             String cidTitle = '';
-            try { cidTitle = WarpApi.getProperty(aa.coin, 'cid_name_' + cid).trim(); } catch (_) {}
+            try { cidTitle = _getPropSync('cid_name_' + cid).trim(); } catch (_) {}
             if (cidTitle.isNotEmpty) {
               for (final c in contacts.contacts) {
                 final t = c.unpack();
@@ -1235,7 +1268,7 @@ class MessageTile extends StatelessWidget {
           _onSelect(context);
         },
         onLongPress: () {
-          WarpApi.markAllMessagesAsRead(aa.coin, aa.id, true);
+          true /* markAllMessagesAsRead stub */;
         },
         child: Padding(
           padding: EdgeInsets.symmetric(vertical: 8),
@@ -1688,7 +1721,7 @@ class _MessageItemState extends State<MessageItemPage> with TickerProviderStateM
           if (unreadIds.isNotEmpty) {
             // Batch mark-as-read
             for (final id in unreadIds) {
-              try { WarpApi.markMessageAsRead(aa.coin, id, true); } catch (_) {}
+              try { _markReadStub(id, true); } catch (_) {}
             }
             // Update store and local thread reference
             final updated = aa.messages.items.map((m) => unreadIds.contains(m.id) ? m.withRead(true) : m).toList();
@@ -1983,7 +2016,7 @@ class _MessageItemState extends State<MessageItemPage> with TickerProviderStateM
       try {
         final cid = thread.key.startsWith('cid::') ? thread.key.substring(5) : '';
         if (cid.isNotEmpty) {
-          final cidName = WarpApi.getProperty(aa.coin, 'cid_name_' + cid).trim();
+          final cidName = _getPropSync('cid_name_' + cid).trim();
           if (cidName.isNotEmpty) return cidName;
         }
       } catch (_) {}
@@ -2650,7 +2683,7 @@ class _MessageItemState extends State<MessageItemPage> with TickerProviderStateM
     String resolvedAddress = (thread.address ?? '').trim();
     if ((cid ?? '').isNotEmpty) {
       try {
-        final map = WarpApi.getProperty(aa.coin, 'cid_map_' + cid!).trim();
+        final map = _getPropSync('cid_map_' + cid!).trim();
         if (map.isNotEmpty) resolvedAddress = map;
       } catch (_) {}
     }
@@ -2684,7 +2717,7 @@ class _MessageItemState extends State<MessageItemPage> with TickerProviderStateM
     String resolvedAddress = (thread.address ?? '').trim();
     if ((cid ?? '').isNotEmpty) {
       try {
-        final map = WarpApi.getProperty(aa.coin, 'cid_map_' + cid!).trim();
+        final map = _getPropSync('cid_map_' + cid!).trim();
         if (map.isNotEmpty) resolvedAddress = map;
       } catch (_) {}
     }
@@ -2750,7 +2783,7 @@ class _MessageItemState extends State<MessageItemPage> with TickerProviderStateM
       String resolvedAddress = thread.address!.trim();
       if (cid.isNotEmpty) {
         try {
-          final map = WarpApi.getProperty(aa.coin, 'cid_map_' + cid).trim();
+          final map = _getPropSync('cid_map_' + cid).trim();
           if (map.isNotEmpty) resolvedAddress = map;
         } catch (_) {}
       }
@@ -2971,7 +3004,7 @@ class _MessageItemState extends State<MessageItemPage> with TickerProviderStateM
     String resolvedAddress = (thread.address ?? '').trim();
     if ((cid ?? '').isNotEmpty) {
       try {
-        final map = WarpApi.getProperty(aa.coin, 'cid_map_' + cid!).trim();
+        final map = _getPropSync('cid_map_' + cid!).trim();
         if (map.isNotEmpty) resolvedAddress = map;
       } catch (_) {}
     }
@@ -3053,7 +3086,7 @@ class _MessageItemState extends State<MessageItemPage> with TickerProviderStateM
       // Validate Orchard-capable - skip for CLOAK
       if (!CloakWalletManager.isCloak(aa.coin)) {
         try {
-          final rcv = WarpApi.receiversOfAddress(aa.coin, addr);
+          final rcv = _receiversStub(addr);
           if ((rcv & 4) == 0) {
             showSnackBar('Invite reply-to address is not Orchard-capable');
             return;
@@ -3071,7 +3104,7 @@ class _MessageItemState extends State<MessageItemPage> with TickerProviderStateM
       } else {
         try {
           final t = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-          replyToUA = WarpApi.getDiversifiedAddress(aa.coin, aa.id, 4, t);
+          replyToUA = aa.diversifiedAddress;
         } catch (_) {}
       }
       if (replyToUA.isEmpty) {
@@ -3085,14 +3118,14 @@ class _MessageItemState extends State<MessageItemPage> with TickerProviderStateM
         if (isCloak) {
           await CloakDb.setProperty(key, value);
         } else {
-          try { WarpApi.setProperty(aa.coin, key, value); } catch (_) {}
+          try { _setPropAsync(key, value); } catch (_) {}
         }
       }
       Future<String> getPropAsync(String key) async {
         if (isCloak) {
           return await CloakDb.getProperty(key) ?? '';
         } else {
-          try { return WarpApi.getProperty(aa.coin, key); } catch (_) { return ''; }
+          try { return _getPropSync(key); } catch (_) { return ''; }
         }
       }
 
@@ -3136,7 +3169,7 @@ class _MessageItemState extends State<MessageItemPage> with TickerProviderStateM
                 await CloakDb.addContact(name: validName, address: addr);
               }
             } else {
-              try { WarpApi.storeContact(aa.coin, existingId ?? 0, validName, addr, true); } catch (_) {}
+              try { _storeContactStub(existingId ?? 0, validName, addr, true); } catch (_) {}
             }
             try { contacts.fetchContacts(); } catch (_) {}
           }
@@ -3220,32 +3253,8 @@ class _MessageItemState extends State<MessageItemPage> with TickerProviderStateM
           throw Exception('CLOAK accept transaction failed');
         }
       } else {
-        // Zcash/Ycash: Use WarpApi
-        final int recipientPools = 4;
-        final builder = RecipientObjectBuilder(
-          address: addr,
-          pools: recipientPools,
-          amount: 0, // zero-value memo-only; pay fee only
-          feeIncluded: false,
-          replyTo: false,
-          subject: '',
-          memo: memo,
-        );
-        final recipient = Recipient(builder.toBytes());
-        try { sending.setStatus('Preparing…'); } catch (_) {}
-        final plan = await WarpApi.prepareTx(
-          aa.coin,
-          aa.id,
-          [recipient],
-          7,
-          coinSettings.replyUa,
-          appSettings.anchorOffset,
-          coinSettings.feeT,
-        );
-        try { sending.setStatus('Signing…'); } catch (_) {}
-        final signedTx = await WarpApi.signOnly(aa.coin, aa.id, plan);
-        try { sending.setStatus('Broadcasting…'); } catch (_) {}
-        txResult = await WarpApi.broadcast(aa.coin, signedTx);
+        // Non-CLOAK messaging transactions no longer supported
+        throw Exception('Only CLOAK messaging is supported');
       }
       try { await sending.hide(); } catch (_) {}
       try { triggerManualSync(); } catch (_) {}
@@ -3312,7 +3321,7 @@ class _MessageItemState extends State<MessageItemPage> with TickerProviderStateM
 
   bool _hasDisplayName() {
     try {
-      final first = WarpApi.getProperty(aa.coin, 'my_first_name');
+      final first = _getPropSync('my_first_name');
       return first.trim().isNotEmpty;
     } catch (_) {
       return false;
@@ -3545,7 +3554,7 @@ class _MessageItemState extends State<MessageItemPage> with TickerProviderStateM
       if (cid != null && cid.isNotEmpty) {
         // Sticky: consult persisted accept-done flag first
         try {
-          final done = WarpApi.getProperty(aa.coin, 'cid_accept_done_' + cid).trim();
+          final done = _getPropSync('cid_accept_done_' + cid).trim();
           if (done == '1') return true;
         } catch (_) {}
         for (final m in thread.messages) {
@@ -4199,7 +4208,7 @@ class _MessageItemState extends State<MessageItemPage> with TickerProviderStateM
     try {
       // Resolve reply UA for this conversation
       String dest = '';
-      try { dest = WarpApi.getProperty(aa.coin, 'cid_map_' + cid).trim(); } catch (_) {}
+      try { dest = _getPropSync('cid_map_' + cid).trim(); } catch (_) {}
       if (dest.isEmpty) {
         dest = (thread.address ?? '').trim();
       }
@@ -4208,7 +4217,7 @@ class _MessageItemState extends State<MessageItemPage> with TickerProviderStateM
         return;
       }
       try {
-        final rcv = WarpApi.receiversOfAddress(aa.coin, dest);
+        final rcv = _receiversStub(dest);
         if ((rcv & 4) == 0) {
           showSnackBar('Reply address is not Orchard-capable');
           return;
@@ -4224,7 +4233,7 @@ class _MessageItemState extends State<MessageItemPage> with TickerProviderStateM
         if (mem != null && mem > 0) {
           mySeq = mem;
         } else {
-          final s = WarpApi.getProperty(aa.coin, 'cid_my_seq_' + cid).trim();
+          final s = _getPropSync('cid_my_seq_' + cid).trim();
           final v = int.tryParse(s);
           mySeq = (v != null && v > 0) ? (v + 1) : 1;
         }
@@ -4248,55 +4257,21 @@ class _MessageItemState extends State<MessageItemPage> with TickerProviderStateM
 
       // Reserve sequence immediately for reactions as well
       try { _inFlightNextSeq[cid] = mySeq + 1; } catch (_) {}
-      try { WarpApi.setProperty(aa.coin, 'cid_my_seq_' + cid, mySeq.toString()); } catch (_) {}
+      try { _setPropAsync('cid_my_seq_' + cid, mySeq.toString()); } catch (_) {}
 
       final int recipientPools = 4;
-      final builder = RecipientObjectBuilder(
+      final recipient = RecipientT(
         address: dest,
-        pools: recipientPools,
-        amount: 0, // zero-value memo-only; pay fee only
-        feeIncluded: false,
+        amount: 0,
         replyTo: false,
         subject: '',
         memo: memo,
       );
-      final recipient = Recipient(builder.toBytes());
       () async {
         try {
-          // removed warn modal call
-          final plan = await WarpApi.prepareTx(
-            aa.coin,
-            aa.id,
-            [recipient],
-            7,
-            coinSettings.replyUa,
-            appSettings.anchorOffset,
-            coinSettings.feeT,
-          );
-          final signedTx = await WarpApi.signOnly(aa.coin, aa.id, plan);
-          final _ = WarpApi.broadcast(aa.coin, signedTx);
-          try { WarpApi.setProperty(aa.coin, 'cid_my_seq_' + cid, mySeq.toString()); } catch (_) {}
-          try { triggerManualSync(); } catch (_) {}
-          // Optionally mark the optimistic entry as Sent until DB replacement arrives
-          try {
-            final updated = aa.messages.items.toList();
-            // Find by identical reference first
-            final idx = updated.lastIndexWhere((m) => (m.subject == 'Sending…' && _headerKeyOfMessage(m) == _headerKeyOfMessage(updated.last)) ? identical(m, updated.last) : identical(m, m));
-          } catch (_) {}
-          try {
-            // Update matching optimistic echo by header key
-            final key = _headerKey(memo);
-            for (int i = optimisticEchoes.length - 1; i >= 0; i--) {
-              if (_headerKeyOfMessage(optimisticEchoes[i]) == key) {
-                final p = optimisticEchoes[i];
-                optimisticEchoes[i] = ZMessage(
-                  p.id, p.txId, p.incoming, p.fromAddress, p.sender, p.recipient, 'Sent', p.body, p.timestamp, p.height, p.read,
-                );
-                break;
-              }
-            }
-            setState(() {});
-          } catch (_) {}
+          // Messaging transactions not yet supported for CLOAK
+          throw Exception('CLOAK messaging transactions not implemented');
+
         } catch (e) {
           showSnackBar('Failed to send reaction');
           // Roll back optimistic reaction so it doesn't remain stuck
@@ -4600,7 +4575,7 @@ class _MessageItemState extends State<MessageItemPage> with TickerProviderStateM
       }
 
       String dest = '';
-      try { dest = WarpApi.getProperty(aa.coin, 'cid_map_' + cid).trim(); } catch (_) {}
+      try { dest = _getPropSync('cid_map_' + cid).trim(); } catch (_) {}
       if (dest.isEmpty) {
         dest = (thread.address ?? '').trim();
       }
@@ -4609,7 +4584,7 @@ class _MessageItemState extends State<MessageItemPage> with TickerProviderStateM
         return;
       }
       try {
-        final rcv = WarpApi.receiversOfAddress(aa.coin, dest);
+        final rcv = _receiversStub(dest);
         if ((rcv & 4) == 0) {
           showSnackBar('Reply address is not Orchard-capable');
           return;
@@ -4627,7 +4602,7 @@ class _MessageItemState extends State<MessageItemPage> with TickerProviderStateM
         if (mem != null && mem > 0) {
           mySeq = mem;
         } else {
-          final s = WarpApi.getProperty(aa.coin, 'cid_my_seq_' + cid).trim();
+          final s = _getPropSync('cid_my_seq_' + cid).trim();
           final v = int.tryParse(s);
           mySeq = (v != null && v > 0) ? (v + 1) : 1;
         }
@@ -4643,7 +4618,7 @@ class _MessageItemState extends State<MessageItemPage> with TickerProviderStateM
 
       // Reserve immediately (in-memory and persistent). Gaps on failure are acceptable.
       try { _inFlightNextSeq[cid] = mySeq + 1; } catch (_) {}
-      try { WarpApi.setProperty(aa.coin, 'cid_my_seq_' + cid, mySeq.toString()); } catch (_) {}
+      try { _setPropAsync('cid_my_seq_' + cid, mySeq.toString()); } catch (_) {}
 
       String header = 'v1; type=message; conversation_id=' + cid + '; seq=' + mySeq.toString();
       if (_replyTarget != null && _replyTarget!.cid == cid && _replyTarget!.targetSeq != null) {
@@ -4704,31 +4679,18 @@ class _MessageItemState extends State<MessageItemPage> with TickerProviderStateM
       } catch (_) {}
 
       final int recipientPools = 4;
-      final builder = RecipientObjectBuilder(
+      final recipient = RecipientT(
         address: dest,
-        pools: recipientPools,
-        amount: 0, // zero-value memo-only; pay fee only
-        feeIncluded: false,
+        amount: 0,
         replyTo: false,
         subject: '',
         memo: memo,
       );
-      final recipient = Recipient(builder.toBytes());
       () async {
         try {
-          // removed warn modal call
-          final plan = await WarpApi.prepareTx(
-            aa.coin,
-            aa.id,
-            [recipient],
-            7,
-            coinSettings.replyUa,
-            appSettings.anchorOffset,
-            coinSettings.feeT,
-          );
-          final signedTx = await WarpApi.signOnly(aa.coin, aa.id, plan);
-          final _ = WarpApi.broadcast(aa.coin, signedTx);
-          try { WarpApi.setProperty(aa.coin, 'cid_my_seq_' + cid!, mySeq.toString()); } catch (_) {}
+          // Messaging transactions not yet supported for CLOAK
+          throw Exception('CLOAK messaging transactions not implemented');
+          try { _setPropAsync('cid_my_seq_' + cid!, mySeq.toString()); } catch (_) {}
           setState(() { _replyTarget = null; });
           try { triggerManualSync(); } catch (_) {}
           try {

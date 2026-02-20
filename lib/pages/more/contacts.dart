@@ -7,8 +7,7 @@ import 'package:flutter_mobx/flutter_mobx.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:form_builder_validators/form_builder_validators.dart';
 import 'package:go_router/go_router.dart';
-import 'package:warp_api/data_fb_generated.dart';
-import 'package:warp_api/warp_api.dart';
+import '../../cloak/cloak_types.dart';
 
 import '../../cloak/cloak_wallet_manager.dart';
 import '../../cloak/cloak_db.dart';
@@ -290,31 +289,8 @@ class _ContactsState extends State<ContactsPage> {
   }
 
   _save() async {
-    // CLOAK contacts are stored locally in encrypted database, no need to save to blockchain
-    if (CloakWalletManager.isCloak(aa.coin)) {
-      showSnackBar('Contacts are automatically saved locally');
-      return;
-    }
-    final s = S.of(context);
-    final coinSettings = CoinSettingsExtension.load(aa.coin);
-    final fee = coinSettings.feeT;
-    final confirmed =
-        await showConfirmDialog(context, s.save, s.confirmSaveContacts);
-    if (!confirmed) return;
-    final txPlan = WarpApi.commitUnsavedContacts(
-        aa.coin,
-        aa.id,
-        coinSettings.receipientPools,
-        appSettings.anchorOffset,
-        fee); // save to Orchard
-    final router = GoRouter.of(context);
-    if (!widget.showAppBar) {
-      // Close overlay so target page is visible in shell navigator
-      try { router.pop(); } catch (_) {}
-      Future.microtask(() => router.push('/account/txplan?tab=contacts', extra: txPlan));
-    } else {
-      router.push('/account/txplan?tab=contacts', extra: txPlan);
-    }
+    // CLOAK contacts are stored locally, no on-chain commit needed
+    showSnackBar('Contacts saved locally');
   }
 
   _add() {
@@ -356,20 +332,12 @@ class _ContactsState extends State<ContactsPage> {
       }
     }
 
-    // Helper for property access based on coin type
+    // Property access helpers
     Future<String> getProp(String key) async {
-      if (CloakWalletManager.isCloak(aa.coin)) {
-        return await CloakDb.getProperty(key) ?? '';
-      } else {
-        try { return WarpApi.getProperty(aa.coin, key); } catch (_) { return ''; }
-      }
+      return await CloakDb.getProperty(key) ?? '';
     }
     Future<void> setProp(String key, String value) async {
-      if (CloakWalletManager.isCloak(aa.coin)) {
-        await CloakDb.setProperty(key, value);
-      } else {
-        WarpApi.setProperty(aa.coin, key, value);
-      }
+      await CloakDb.setProperty(key, value);
     }
 
     // Mark UA and CID blocked to prevent auto-recreation by message handshake
@@ -396,11 +364,7 @@ class _ContactsState extends State<ContactsPage> {
     }
 
     // Delete the contact
-    if (CloakWalletManager.isCloak(aa.coin)) {
-      await CloakDb.deleteContact(c.id);
-    } else {
-      await retry(5, () async { WarpApi.storeContact(aa.coin, c.id, c.name!, '', true); });
-    }
+    await CloakDb.deleteContact(c.id);
     contacts.fetchContacts();
   }
 }
@@ -477,8 +441,8 @@ class _DisplayNameEditPageState extends State<DisplayNameEditPage> {
         _firstCtl.text = await CloakDb.getProperty('my_first_name') ?? '';
         _lastCtl.text = await CloakDb.getProperty('my_last_name') ?? '';
       } else {
-        _firstCtl.text = WarpApi.getProperty(aa.coin, 'my_first_name');
-        _lastCtl.text = WarpApi.getProperty(aa.coin, 'my_last_name');
+        _firstCtl.text = '';
+        _lastCtl.text = '';
       }
     } catch (_) {}
   }
@@ -494,8 +458,7 @@ class _DisplayNameEditPageState extends State<DisplayNameEditPage> {
         await CloakDb.setProperty('my_first_name', _firstCtl.text.trim());
         await CloakDb.setProperty('my_last_name', _lastCtl.text.trim());
       } else {
-        WarpApi.setProperty(aa.coin, 'my_first_name', _firstCtl.text.trim());
-        WarpApi.setProperty(aa.coin, 'my_last_name', _lastCtl.text.trim());
+        // Only CLOAK is supported
       }
     } catch (_) {}
   }
@@ -782,11 +745,16 @@ class _ContactEditState extends State<ContactEditPage> {
   @override
   void initState() {
     super.initState();
-    final c = WarpApi.getContact(aa.coin, widget.id);
-    nameController.text = c.name!;
-    addressController.text = c.address!;
+    // Load contact from contacts list (already fetched)
+    ContactT? c;
+    for (final cc in contacts.contacts) {
+      final u = cc.unpack();
+      if (u.id == widget.id) { c = u; break; }
+    }
+    nameController.text = c?.name ?? '';
+    addressController.text = c?.address ?? '';
     try {
-      final name = c.name ?? '';
+      final name = c?.name ?? '';
       final parts = name.trim().split(RegExp(r"\s+"));
       if (parts.isEmpty) {
         firstNameController.text = '';
@@ -918,13 +886,8 @@ class _ContactEditState extends State<ContactEditPage> {
                         // Determine handshake acceptance and persist missing cid using robust union list scan
                         bool isAccepted = false;
                         String cid = '';
-                        // Helper for property access - sync for non-CLOAK, find from messages for CLOAK
-                        if (CloakWalletManager.isCloak(aa.coin)) {
-                          // For CLOAK, we'll find CID from messages below
-                          cid = '';
-                        } else {
-                          try { cid = WarpApi.getProperty(aa.coin, 'contact_cid_' + widget.id.toString()); } catch (_) {}
-                        }
+                        // CID will be derived from messages scan below
+                        cid = '';
                         try {
                           // Build union list (DB + optimistic) to match Messages behavior
                           final List<ZMessage> unionList = () {
@@ -981,26 +944,14 @@ class _ContactEditState extends State<ContactEditPage> {
                                 } catch (_) {}
                               }
                               if (cid.isNotEmpty) {
-                                // Store CID for contact (async for CLOAK, sync for others)
-                                if (CloakWalletManager.isCloak(aa.coin)) {
-                                  CloakDb.setProperty('contact_cid_' + widget.id.toString(), cid);
-                                } else {
-                                  try { WarpApi.setProperty(aa.coin, 'contact_cid_' + widget.id.toString(), cid); } catch (_) {}
-                                }
+                                // Store CID for contact
+                                CloakDb.setProperty('contact_cid_' + widget.id.toString(), cid);
                                 try { aaSequence.seqno = DateTime.now().microsecondsSinceEpoch; } catch (_) {}
                               }
                             }
                           }
                           if (cid.isNotEmpty) {
-                            // Check accept status - for CLOAK, we'll rely on message scan below
-                            if (!CloakWalletManager.isCloak(aa.coin)) {
-                              try {
-                                final done = WarpApi.getProperty(aa.coin, 'cid_accept_done_' + cid).trim();
-                                if (done == '1') {
-                                  isAccepted = true;
-                                }
-                              } catch (_) {}
-                            }
+                            // Accept status will be checked from message scan below
                             if (!isAccepted) {
                               for (final m in unionList) {
                                 try {
@@ -1025,11 +976,7 @@ class _ContactEditState extends State<ContactEditPage> {
                               }
                               if (isAccepted) {
                                 // Persist accept status
-                                if (CloakWalletManager.isCloak(aa.coin)) {
-                                  CloakDb.setProperty('cid_accept_done_' + cid, '1');
-                                } else {
-                                  try { WarpApi.setProperty(aa.coin, 'cid_accept_done_' + cid, '1'); } catch (_) {}
-                                }
+                                CloakDb.setProperty('cid_accept_done_' + cid, '1');
                                 try { aaSequence.seqno = DateTime.now().microsecondsSinceEpoch; } catch (_) {}
                               }
                             }
@@ -1171,12 +1118,8 @@ class _ContactEditState extends State<ContactEditPage> {
                               labelOffsetY: 0.0,
                               spacing: 8.0,
                               onTap: isAccepted ? () {
-                                // Route like requestFromThread(): prefer latest mapped UA when available
-                                // For CLOAK, skip cid_map lookup (requires async) and use contact address
+                                // Use contact address (cid_map lookup is async, use address directly)
                                 String mapped = '';
-                                if (!CloakWalletManager.isCloak(aa.coin)) {
-                                  try { mapped = WarpApi.getProperty(aa.coin, 'cid_map_' + cid).trim(); } catch (_) {}
-                                }
                                 final String threadAddress = mapped.isNotEmpty ? mapped : addressController.text.trim();
                                 // Build union list and compute exact Messages index
                                 int threadIndex = -1;
@@ -1228,15 +1171,8 @@ class _ContactEditState extends State<ContactEditPage> {
                               label: 'Pay',
                               asset: 'assets/icons/cloak_glyph.svg',
                               onTap: isAccepted ? () {
-                                // Prefer latest mapped UA via cid_map, fall back to contact address
-                                // For CLOAK, skip cid_map lookup (requires async) and use contact address
+                                // Use contact address directly
                                 String resolved = addressController.text.trim();
-                                if (cid.isNotEmpty && !CloakWalletManager.isCloak(aa.coin)) {
-                                  try {
-                                    final map = WarpApi.getProperty(aa.coin, 'cid_map_' + cid).trim();
-                                    if (map.isNotEmpty) resolved = map;
-                                  } catch (_) {}
-                                }
                                 // Provide thread context back-links if possible
                                 int threadIndex = -1;
                                 try {
@@ -1437,8 +1373,7 @@ class _ContactEditState extends State<ContactEditPage> {
       // CLOAK: Update contact in CloakDb
       await CloakDb.updateContact(widget.id, name: combinedName, address: addressController.text);
     } else {
-      WarpApi.storeContact(
-          aa.coin, widget.id, combinedName, addressController.text, true);
+      // Only CLOAK is supported
     }
     contacts.fetchContacts();
 
@@ -1490,20 +1425,12 @@ class _ContactEditState extends State<ContactEditPage> {
       }
     }
 
-    // Helper for property access based on coin type
+    // Property access helpers
     Future<String> getProp(String key) async {
-      if (CloakWalletManager.isCloak(aa.coin)) {
-        return await CloakDb.getProperty(key) ?? '';
-      } else {
-        try { return WarpApi.getProperty(aa.coin, key); } catch (_) { return ''; }
-      }
+      return await CloakDb.getProperty(key) ?? '';
     }
     Future<void> setProp(String key, String value) async {
-      if (CloakWalletManager.isCloak(aa.coin)) {
-        await CloakDb.setProperty(key, value);
-      } else {
-        WarpApi.setProperty(aa.coin, key, value);
-      }
+      await CloakDb.setProperty(key, value);
     }
 
     // Mark UA and CID blocked to prevent auto-recreation by message handshake
@@ -1530,11 +1457,7 @@ class _ContactEditState extends State<ContactEditPage> {
     }
 
     // Delete the contact
-    if (CloakWalletManager.isCloak(aa.coin)) {
-      await CloakDb.deleteContact(id);
-    } else {
-      await retry(5, () async { WarpApi.storeContact(aa.coin, id, nameController.text, '', true); });
-    }
+    await CloakDb.deleteContact(id);
     contacts.fetchContacts();
     _backToContacts();
   }
@@ -1919,8 +1842,7 @@ class _ContactAddState extends State<ContactAddPage> {
         // CLOAK: Add contact to CloakDb
         await CloakDb.addContact(name: combinedName, address: addressController.text);
       } else {
-        WarpApi.storeContact(
-            aa.coin, 0, combinedName, addressController.text, true);
+        // Only CLOAK is supported
       }
       contacts.fetchContacts();
       try {

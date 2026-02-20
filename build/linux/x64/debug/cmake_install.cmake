@@ -198,30 +198,6 @@ endif()
 
 if(CMAKE_INSTALL_COMPONENT STREQUAL "Runtime" OR NOT CMAKE_INSTALL_COMPONENT)
   list(APPEND CMAKE_ABSOLUTE_DESTINATION_FILES
-   "/home/kameron/Projects/CLOAK Wallet/zwallet/build/linux/x64/debug/bundle/lib/librust_lib_YWallet.so")
-  if(CMAKE_WARN_ON_ABSOLUTE_INSTALL_DESTINATION)
-    message(WARNING "ABSOLUTE path INSTALL DESTINATION : ${CMAKE_ABSOLUTE_DESTINATION_FILES}")
-  endif()
-  if(CMAKE_ERROR_ON_ABSOLUTE_INSTALL_DESTINATION)
-    message(FATAL_ERROR "ABSOLUTE path INSTALL DESTINATION forbidden (by caller): ${CMAKE_ABSOLUTE_DESTINATION_FILES}")
-  endif()
-  file(INSTALL DESTINATION "/home/kameron/Projects/CLOAK Wallet/zwallet/build/linux/x64/debug/bundle/lib" TYPE FILE FILES "/home/kameron/Projects/CLOAK Wallet/zwallet/build/linux/x64/debug/plugins/rust_lib_YWallet/librust_lib_YWallet.so")
-endif()
-
-if(CMAKE_INSTALL_COMPONENT STREQUAL "Runtime" OR NOT CMAKE_INSTALL_COMPONENT)
-  list(APPEND CMAKE_ABSOLUTE_DESTINATION_FILES
-   "/home/kameron/Projects/CLOAK Wallet/zwallet/build/linux/x64/debug/bundle/lib/libwarp_api_ffi.so")
-  if(CMAKE_WARN_ON_ABSOLUTE_INSTALL_DESTINATION)
-    message(WARNING "ABSOLUTE path INSTALL DESTINATION : ${CMAKE_ABSOLUTE_DESTINATION_FILES}")
-  endif()
-  if(CMAKE_ERROR_ON_ABSOLUTE_INSTALL_DESTINATION)
-    message(FATAL_ERROR "ABSOLUTE path INSTALL DESTINATION forbidden (by caller): ${CMAKE_ABSOLUTE_DESTINATION_FILES}")
-  endif()
-  file(INSTALL DESTINATION "/home/kameron/Projects/CLOAK Wallet/zwallet/build/linux/x64/debug/bundle/lib" TYPE FILE FILES "/home/kameron/Projects/CLOAK Wallet/zwallet/linux/lib/libwarp_api_ffi.so")
-endif()
-
-if(CMAKE_INSTALL_COMPONENT STREQUAL "Runtime" OR NOT CMAKE_INSTALL_COMPONENT)
-  list(APPEND CMAKE_ABSOLUTE_DESTINATION_FILES
    "/home/kameron/Projects/CLOAK Wallet/zwallet/build/linux/x64/debug/bundle/lib/libzeos_caterpillar.so")
   if(CMAKE_WARN_ON_ABSOLUTE_INSTALL_DESTINATION)
     message(WARNING "ABSOLUTE path INSTALL DESTINATION : ${CMAKE_ABSOLUTE_DESTINATION_FILES}")
@@ -261,7 +237,6 @@ if(NOT CMAKE_INSTALL_LOCAL_ONLY)
   include("/home/kameron/Projects/CLOAK Wallet/zwallet/build/linux/x64/debug/plugins/sqlcipher_flutter_libs/cmake_install.cmake")
   include("/home/kameron/Projects/CLOAK Wallet/zwallet/build/linux/x64/debug/plugins/url_launcher_linux/cmake_install.cmake")
   include("/home/kameron/Projects/CLOAK Wallet/zwallet/build/linux/x64/debug/plugins/window_manager/cmake_install.cmake")
-  include("/home/kameron/Projects/CLOAK Wallet/zwallet/build/linux/x64/debug/plugins/rust_lib_YWallet/cmake_install.cmake")
 
 endif()
 

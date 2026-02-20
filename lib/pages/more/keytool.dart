@@ -3,8 +3,7 @@ import 'package:flutter_form_builder/flutter_form_builder.dart';
 import 'package:form_builder_validators/form_builder_validators.dart';
 import 'package:gap/gap.dart';
 import 'package:go_router/go_router.dart';
-import 'package:warp_api/data_fb_generated.dart';
-import 'package:warp_api/warp_api.dart';
+import '../../cloak/cloak_types.dart';
 
 import '../../router.dart';
 import '../../accounts.dart';
@@ -77,16 +76,7 @@ class _KeyToolState extends State<KeyToolPage> with WithLoadingAnimation {
   }
 
   Future<void> _computeKeys(int coin, int id, int account, int ext) async {
-    for (int a = 0; a < 100; a++) {
-      final zkp =
-          (await WarpApi.deriveZip32(coin, id, account + a, 0, null)).unpack();
-      final tkp =
-          (await WarpApi.deriveZip32(coin, id, account, ext, address + a))
-              .unpack();
-      final kp = KeyPackT(
-          tAddr: tkp.tAddr, tKey: tkp.tKey, zAddr: zkp.zAddr, zKey: zkp.zKey);
-      keys.add(kp);
-    }
+    // Key derivation tool not available for CLOAK — use Backup page instead
   }
 }
 

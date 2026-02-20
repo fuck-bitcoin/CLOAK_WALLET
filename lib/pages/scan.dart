@@ -10,8 +10,6 @@ import 'package:flutter_form_builder/flutter_form_builder.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:gap/gap.dart';
 import 'package:go_router/go_router.dart';
-import 'package:warp_api/warp_api.dart';
-
 import '../generated/intl/messages.dart';
 import 'utils.dart';
 import 'dart:async';
@@ -216,17 +214,8 @@ class _MultiQRReaderState extends State<MultiQRReader> {
       if (text == null) return;
       if (!fragments.contains(text)) {
         fragments.add(text);
-        final res = WarpApi.mergeData(text);
-        if (res.data?.isEmpty != false) {
-          logger.d('${res.progress} ${res.total}');
-          setState(() {
-            value = res.progress / res.total;
-          });
-        } else {
-          final decoded =
-              utf8.decode(ZLibCodec().decode(base64Decode(res.data!)));
-          widget.onChanged?.call(decoded);
-        }
+        // CLOAK doesn't use multi-QR merging — pass through directly
+        widget.onChanged?.call(text);
       }
     }
   }
