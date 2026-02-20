@@ -113,7 +113,7 @@ class BalanceState extends State<BalanceWidget> {
                       width: 28,
                       height: 28,
                       child: SvgPicture.asset(
-                        isCloak ? 'assets/icons/cloak_glyph.svg' : 'assets/icons/zec_glyph.svg',
+                        isCloak ? 'assets/icons/cloak_glyph.svg' : 'assets/icons/cloak_glyph.svg',
                         width: 28,
                         height: 28,
                         colorFilter: const ColorFilter.mode(Color(0xFFBDBDBD), BlendMode.srcIn),
@@ -150,7 +150,7 @@ class BalanceState extends State<BalanceWidget> {
                 width: 28,
                 height: 28,
                 child: SvgPicture.asset(
-                  isCloak ? 'assets/icons/cloak_glyph.svg' : 'assets/icons/zec_glyph.svg',
+                  isCloak ? 'assets/icons/cloak_glyph.svg' : 'assets/icons/cloak_glyph.svg',
                   width: 28,
                   height: 28,
                   colorFilter: const ColorFilter.mode(Color(0xFFBDBDBD), BlendMode.srcIn),

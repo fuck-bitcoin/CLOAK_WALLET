@@ -13,7 +13,6 @@ import 'package:protobuf/protobuf.dart';
 import 'package:warp_api/warp_api.dart';
 
 import '../accounts.dart';
-import '../theme_editor.dart';
 import '../coin/coin.dart';
 import '../coin/coins.dart';
 import '../generated/intl/messages.dart';
@@ -34,7 +33,7 @@ class SettingsPage extends StatefulWidget {
 
 class _SettingsState extends State<SettingsPage>
     with SingleTickerProviderStateMixin {
-  late final tabController = TabController(length: 5, vsync: this);
+  late final tabController = TabController(length: 4, vsync: this);
   final generalKey = GlobalKey<_GeneralState>();
   final privacyKey = GlobalKey<_PrivacyState>();
   final viewKey = GlobalKey<_ViewState>();
@@ -75,7 +74,6 @@ class _SettingsState extends State<SettingsPage>
           Tab(text: s.priv),
           Tab(text: s.views),
           Tab(text: c.name),
-          Tab(text: s.theme),
         ]),
         actions: [
           IconButton(
@@ -97,7 +95,6 @@ class _SettingsState extends State<SettingsPage>
             SingleChildScrollView(child: ViewTab(appSettings, key: viewKey)),
             SingleChildScrollView(
                 child: CoinTab(widget.coin, coinSettings, key: coinKey)),
-            SingleChildScrollView(child: ThemeEditorTab(appSettings)),
           ],
         ),
       ),

@@ -1058,7 +1058,7 @@ class _MemoStage extends StatelessWidget {
                   ),
                   alignment: Alignment.center,
                   child: SvgPicture.asset(
-                    isCloak ? 'assets/icons/cloak_glyph.svg' : 'assets/icons/zec_glyph.svg',
+                    isCloak ? 'assets/icons/cloak_glyph.svg' : 'assets/icons/cloak_glyph.svg',
                     width: 28,
                     height: 28,
                     fit: BoxFit.contain,
@@ -1177,7 +1177,7 @@ class _CoinOverlay extends StatelessWidget {
       ),
       alignment: Alignment.center,
       child: SvgPicture.asset(
-        isCloak ? 'assets/icons/cloak_glyph.svg' : 'assets/icons/zec_glyph.svg',
+        isCloak ? 'assets/icons/cloak_glyph.svg' : 'assets/icons/cloak_glyph.svg',
         width: iconSize,
         height: iconSize,
         theme: const SvgTheme(currentColor: Colors.white),

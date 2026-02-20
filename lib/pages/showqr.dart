@@ -343,7 +343,7 @@ class _QrCoinOverlay extends StatelessWidget {
       ),
       alignment: Alignment.center,
       child: SvgPicture.asset(
-        isCloak ? 'assets/icons/cloak_glyph.svg' : 'assets/icons/zec_glyph.svg',
+        isCloak ? 'assets/icons/cloak_glyph.svg' : 'assets/icons/cloak_glyph.svg',
         width: iconSize,
         height: iconSize,
         theme: const SvgTheme(currentColor: Colors.white),

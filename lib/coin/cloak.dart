@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'coin.dart';
 
 class CloakCoin extends CoinBase {
-  int coin = 2;  // 0=Zcash, 1=Ycash, 2=Cloak
+  int coin = 0;
   String name = "Cloak";
   String app = "CloakWallet";
   String symbol = "🥷";  // Ninja emoji for privacy

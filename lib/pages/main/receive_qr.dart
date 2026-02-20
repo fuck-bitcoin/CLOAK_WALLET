@@ -281,7 +281,7 @@ class _ReceiveAddressPanelsState extends State<ReceiveAddressPanels> {
           children: [
             Center(
               child: SvgPicture.asset(
-                'assets/icons/zec_glyph.svg',
+                'assets/icons/cloak_glyph.svg',
                 width: 22,
                 height: 22,
                 colorFilter: ColorFilter.mode(t.colorScheme.onSurface, BlendMode.srcIn),
@@ -310,7 +310,7 @@ class _ReceiveAddressPanelsState extends State<ReceiveAddressPanels> {
         ),
         child: Center(
           child: SvgPicture.asset(
-            'assets/icons/zec_glyph.svg',
+            'assets/icons/cloak_glyph.svg',
             width: 22,
             height: 22,
             colorFilter: ColorFilter.mode(t.colorScheme.onSurface, BlendMode.srcIn),
@@ -494,7 +494,7 @@ class _AddressPanel extends StatelessWidget {
                         child: SvgPicture.asset(
                           isCloak
                               ? 'assets/icons/cloak_glyph.svg'
-                              : 'assets/icons/zec_glyph.svg',
+                              : 'assets/icons/cloak_glyph.svg',
                           width: 28,
                           height: 28,
                           colorFilter: const ColorFilter.mode(Colors.white, BlendMode.srcIn),

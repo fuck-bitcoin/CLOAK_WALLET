@@ -160,14 +160,6 @@ abstract class _MigrationStateStore with Store {
     setMigrating('Preparing...');
 
     try {
-      // Ensure prover is ready
-      try {
-        final spend = await rootBundle.load('assets/sapling-spend.params');
-        final output = await rootBundle.load('assets/sapling-output.params');
-        WarpApi.initProver(spend.buffer.asUint8List(), output.buffer.asUint8List());
-        appStore.proverReady = true;
-      } catch (_) {}
-
       // Get fresh balances
       aa.updatePoolBalances();
       var pools = aa.poolBalances;

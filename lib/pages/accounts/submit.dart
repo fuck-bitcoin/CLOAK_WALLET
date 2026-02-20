@@ -64,13 +64,6 @@ class _SubmitTxState extends State<SubmitTxPage>
       // Pause background sync to free CPU/IO during proving and broadcast
       try { syncStatus2.setPause(true); } catch (_) {}
       try {
-        // Lazy prover initialization to avoid signing failures if Splash hasn't run yet
-        try {
-          final spend = await rootBundle.load('assets/sapling-spend.params');
-          final output = await rootBundle.load('assets/sapling-output.params');
-          WarpApi.initProver(spend.buffer.asUint8List(), output.buffer.asUint8List());
-          appStore.proverReady = true;
-        } catch (_) {}
         String? txIdJs;
         // Phase 1: sign only (faster feedback and parallelizable with UI)
         String? signedTx;
@@ -78,19 +71,7 @@ class _SubmitTxState extends State<SubmitTxPage>
           try {
             signedTx = await WarpApi.signOnly(aa.coin, aa.id, widget.txPlan!);
           } on String catch (e) {
-            if (e.contains('Prover not initialized')) {
-              try {
-                final spend = await rootBundle.load('assets/sapling-spend.params');
-                final output = await rootBundle.load('assets/sapling-output.params');
-                WarpApi.initProver(spend.buffer.asUint8List(), output.buffer.asUint8List());
-                appStore.proverReady = true;
-                signedTx = await WarpApi.signOnly(aa.coin, aa.id, widget.txPlan!);
-              } on String catch (e2) {
-                throw e2;
-              }
-            } else {
-              throw e;
-            }
+            throw e;
           }
         } else if (widget.txBin != null) {
           signedTx = widget.txBin;
