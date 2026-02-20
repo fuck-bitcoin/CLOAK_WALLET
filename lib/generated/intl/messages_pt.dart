@@ -248,7 +248,7 @@ class SPt extends S {
   String get disclaimer_1 => 'Eu entendo que sou responsável por proteger minha seed phrase';
 
   @override
-  String get disclaimer_2 => 'Eu entendo que o YWallet não pode recuperar minha semente';
+  String get disclaimer_2 => 'Eu entendo que o CLOAK não pode recuperar minha semente';
 
   @override
   String get disclaimer_3 => 'Eu entendo quem sabe minha seed phrase pode receber meus fundos';
@@ -780,7 +780,7 @@ class SPt extends S {
   String get views => 'Visualizações';
 
   @override
-  String get welcomeToYwallet => 'Bem-vindo ao YWallet';
+  String get welcomeToYwallet => 'Bem-vindo ao CLOAK';
 
   @override
   String get wifi => 'Wi-Fi';

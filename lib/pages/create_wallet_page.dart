@@ -7,7 +7,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../accounts.dart';
 import '../cloak/cloak_wallet_manager.dart';
 import '../cloak/signature_provider.dart';
-import '../store2.dart';
 import 'utils.dart';
 
 /// Create Wallet page: generates a 24-word BIP39 seed, displays it,

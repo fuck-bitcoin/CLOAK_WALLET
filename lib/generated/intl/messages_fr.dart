@@ -248,7 +248,7 @@ class SFr extends S {
   String get disclaimer_1 => 'Je comprends que je suis responsable de la sécurisation de ma phrase de graine';
 
   @override
-  String get disclaimer_2 => 'Je comprends que YWallet ne puisse pas récupérer ma phrase de graine';
+  String get disclaimer_2 => 'Je comprends que CLOAK ne puisse pas récupérer ma phrase de graine';
 
   @override
   String get disclaimer_3 => 'Je comprends que qui connaît ma phrase de graine peut obtenir mes fonds';
@@ -780,7 +780,7 @@ class SFr extends S {
   String get views => 'Vues';
 
   @override
-  String get welcomeToYwallet => 'Bienvenue sur YWallet';
+  String get welcomeToYwallet => 'Bienvenue sur CLOAK';
 
   @override
   String get wifi => 'Wi-Fi';
