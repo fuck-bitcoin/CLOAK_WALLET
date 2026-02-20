@@ -44,9 +44,6 @@ class _NewImportAccountState extends State<NewImportAccountPage>
   final birthdayHeightController = TextEditingController();
   late List<FormBuilderFieldOption<int>> options;
   bool _restore = false;
-  // For CLOAK: 'wallet' = import main wallet seed, 'vault' = import vault seed
-  String _cloakImportType = 'wallet';
-
   @override
   void initState() {
     super.initState();
@@ -113,44 +110,9 @@ class _NewImportAccountState extends State<NewImportAccountPage>
                   onChanged: (v) {
                     setState(() {
                       _restore = v!;
-                      // Reset import type when toggling restore
-                      _cloakImportType = 'wallet';
                     });
                   },
                 ),
-                // CLOAK import type selector (wallet vs vault)
-                if (_restore && CloakWalletManager.isCloak(coin) && !widget.first)
-                  Padding(
-                    padding: EdgeInsets.symmetric(vertical: 8),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('Import Type', style: TextStyle(fontSize: 12, color: Colors.grey)),
-                        Gap(8),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: _buildImportTypeButton(
-                                'wallet',
-                                'CLOAK Wallet',
-                                'Import main wallet seed',
-                                Icons.account_balance_wallet,
-                              ),
-                            ),
-                            Gap(8),
-                            Expanded(
-                              child: _buildImportTypeButton(
-                                'vault',
-                                'CLOAK Vault',
-                                'Import vault auth token seed',
-                                Icons.lock,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
                 if (_restore)
                   Column(children: [
                     InputTextQR(
@@ -160,8 +122,7 @@ class _NewImportAccountState extends State<NewImportAccountPage>
                       onChanged: (v) => setState(() => _key = v!),
                       validator: _checkKey,
                     ),
-                    // Hide birthday height and account index for vault import
-                    if (!CloakWalletManager.isCloak(coin) || _cloakImportType != 'vault') ...[
+                    if (!CloakWalletManager.isCloak(coin)) ...[
                       Gap(16),
                       _buildOptionalFieldWithInfo(
                         context: context,
@@ -208,75 +169,8 @@ class _NewImportAccountState extends State<NewImportAccountPage>
     ));
   }
 
-  /// Get the label for the key/seed input based on context
   String _getKeyLabel() {
-    if (CloakWalletManager.isCloak(coin) && _cloakImportType == 'vault') {
-      return 'Vault Auth Token Seed (24 words)';
-    }
     return s.key;
-  }
-
-  /// Build a button for selecting CLOAK import type (wallet vs vault)
-  Widget _buildImportTypeButton(String type, String title, String subtitle, IconData icon) {
-    final isSelected = _cloakImportType == type;
-    final t = Theme.of(context);
-
-    return GestureDetector(
-      onTap: () => setState(() => _cloakImportType = type),
-      child: Container(
-        padding: EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: isSelected
-            ? t.colorScheme.primaryContainer
-            : t.colorScheme.surfaceContainerHighest,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: isSelected
-              ? t.colorScheme.primary
-              : Colors.transparent,
-            width: 2,
-          ),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(
-                  icon,
-                  size: 20,
-                  color: isSelected
-                    ? t.colorScheme.primary
-                    : t.colorScheme.onSurfaceVariant,
-                ),
-                SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    title,
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      color: isSelected
-                        ? t.colorScheme.primary
-                        : t.colorScheme.onSurface,
-                    ),
-                  ),
-                ),
-                if (isSelected)
-                  Icon(Icons.check_circle, size: 18, color: t.colorScheme.primary),
-              ],
-            ),
-            SizedBox(height: 4),
-            Text(
-              subtitle,
-              style: TextStyle(
-                fontSize: 11,
-                color: t.colorScheme.onSurfaceVariant,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
   }
 
   Widget _buildOptionalFieldWithInfo({
@@ -388,61 +282,6 @@ class _NewImportAccountState extends State<NewImportAccountPage>
         if (CloakWalletManager.isCloak(coin)) {
           final isRestoring = _key.isNotEmpty;
           final seed = isRestoring ? _key.trim() : _generateSeedPhrase(strength: 256);
-
-          // Check if this is a vault import (only available when restoring and not first account)
-          if (isRestoring && _cloakImportType == 'vault' && !widget.first) {
-            // Importing a vault - requires existing CLOAK wallet
-            print('[new_import] Importing vault...');
-
-            final vaultResult = await CloakWalletManager.importVault(
-              seed: seed,
-              label: nameController.text.isEmpty ? null : nameController.text,
-              accountId: aa.id,
-            );
-
-            if (vaultResult == null) {
-              form.fields['name']!.invalidate('Failed to import vault');
-              return;
-            }
-
-            // Show success with on-chain status
-            final hash = vaultResult['commitment_hash'] as String? ?? '';
-            final onChain = vaultResult['on_chain'] == true;
-            final hashDisplay = hash.isEmpty ? 'unknown' : '${hash.substring(0, 16)}...';
-            print('[new_import] Vault imported: $hashDisplay (on_chain=$onChain)');
-
-            // Show success dialog with on-chain status
-            if (mounted) {
-              final title = onChain ? 'Vault Imported' : 'Vault Imported (Not Found On-Chain)';
-              final message = onChain
-                  ? 'Vault found on-chain and imported successfully.\n\nCommitment: $hashDisplay'
-                  : 'Vault imported locally but was not found on the blockchain.\n\n'
-                    'This may mean the vault was burned, or the seed doesn\'t match any existing vault.\n\n'
-                    'Commitment: $hashDisplay';
-              await showDialog(
-                context: context,
-                builder: (ctx) => AlertDialog(
-                  title: Row(children: [
-                    Icon(
-                      onChain ? Icons.check_circle : Icons.warning_amber_rounded,
-                      color: onChain ? Colors.green : Colors.orange,
-                    ),
-                    SizedBox(width: 8),
-                    Expanded(child: Text(title)),
-                  ]),
-                  content: Text(message),
-                  actions: [
-                    TextButton(
-                      onPressed: () => Navigator.pop(ctx),
-                      child: Text('OK'),
-                    ),
-                  ],
-                ),
-              );
-              GoRouter.of(context).pop();
-            }
-            return;
-          }
 
           if (isRestoring) {
             // Restoring existing wallet - use restoreWallet for full sync
