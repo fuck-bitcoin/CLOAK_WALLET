@@ -44,7 +44,7 @@ class BlankPage extends StatelessWidget {
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  SvgPicture.asset('assets/icons/zec_glyph.svg', width: 28, height: 28,
+                  SvgPicture.asset('assets/icons/cloak_glyph.svg', width: 28, height: 28,
                       colorFilter: ColorFilter.mode(Theme.of(context).colorScheme.onSurface, BlendMode.srcIn)),
                   const SizedBox(width: 10),
                   Baseline(

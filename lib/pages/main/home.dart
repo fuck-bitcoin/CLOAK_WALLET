@@ -20,7 +20,6 @@ import '../../cloak/atomic_assets_service.dart';
 import '../../widgets/nft_image_widget.dart';
 import '../cloak/nft_lightbox.dart';
 import '../utils.dart';
-import '../vote/migration.dart';
 import 'balance.dart';
 import 'sync_status.dart';
 import 'qr_address.dart';
@@ -183,7 +182,6 @@ class _HomeState extends State<HomePageInner> {
                 aa.poolBalances.sapling;
                 aa.poolBalances.orchard;
                 syncStatus2.changed;
-                migrationState.state; // Also observe migration state
                 appStore.hideBalances; // Rebuild when eyeball toggle changes
                 // Track TX list changes so Observer rebuilds when txs.read() updates items
                 aa.txs.items.length;
@@ -202,10 +200,6 @@ class _HomeState extends State<HomePageInner> {
                     children: [
                       // SyncStatusWidget manages its own visibility including fade-out animation
                       SyncStatusWidget(),
-                      // Migration banner for voting readiness (Zcash only, not CLOAK)
-                      if (!CloakWalletManager.isCloak(aa.coin) &&
-                          (hasAnyFunds() || migrationState.state != MigrationState.none))
-                        _MigrationBanner(),
                       Padding(
                           padding: EdgeInsets.symmetric(horizontal: 16),
                           child: Column(children: [
@@ -1116,248 +1110,6 @@ class _QuickActionTile extends StatelessWidget {
         ),
       ),
     );
-  }
-}
-
-/// Banner shown on home page when funds need migration to Orchard for voting
-/// Uses orange gradient matching the shielded address card on Receive page
-class _MigrationBanner extends StatefulWidget {
-  @override
-  State<_MigrationBanner> createState() => _MigrationBannerState();
-}
-
-class _MigrationBannerState extends State<_MigrationBanner> with SingleTickerProviderStateMixin {
-  // Orange gradient colors matching the Receive page shielded card
-  static const Color _orangeBase = Color(0xFFC99111);
-  static const Color _orangeDark = Color(0xFFA1740D);
-  // Green for ready state
-  static const Color _greenBase = Color(0xFF4CAF50);
-  static const Color _greenDark = Color(0xFF388E3C);
-
-  late AnimationController _flashController;
-  late Animation<double> _flashAnimation;
-  int _lastNonOrchard = 0;
-  bool _hasAppeared = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _flashController = AnimationController(
-      duration: const Duration(milliseconds: 300),
-      vsync: this,
-    );
-    _flashAnimation = Tween<double>(begin: 1.0, end: 0.5).animate(
-      CurvedAnimation(parent: _flashController, curve: Curves.easeInOut),
-    );
-    _flashController.addStatusListener((status) {
-      if (status == AnimationStatus.completed) {
-        _flashController.reverse();
-      }
-    });
-    _lastNonOrchard = aa.poolBalances.transparent + aa.poolBalances.sapling;
-  }
-
-  @override
-  void dispose() {
-    _flashController.dispose();
-    super.dispose();
-  }
-
-  void _checkForFlash() {
-    final currentNonOrchard = aa.poolBalances.transparent + aa.poolBalances.sapling;
-    if (_hasAppeared && currentNonOrchard > _lastNonOrchard) {
-      _flashController.forward(from: 0.0);
-    }
-    _lastNonOrchard = currentNonOrchard;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    // Wrap in Observer to react to MobX observable changes
-    return Observer(builder: (context) {
-    // Access observables to trigger MobX tracking
-    aaSequence.seqno;
-    syncStatus2.changed;
-    
-    final t = Theme.of(context);
-    final balanceFontFamily = t.textTheme.displaySmall?.fontFamily;
-    final pools = aa.poolBalances;
-    final nonOrchard = pools.transparent + pools.sapling;
-    final nonOrchardZec = nonOrchard / ZECUNIT;
-    
-    // Check if balance increased and trigger flash
-    WidgetsBinding.instance.addPostFrameCallback((_) => _checkForFlash());
-    
-    final state = migrationState.state;
-    final isMigrating = state == MigrationState.migrating;
-    // Ready if: state says ready OR balances show all in orchard
-    final isReady = state == MigrationState.ready || (nonOrchard == 0 && pools.orchard > 0);
-
-    // Determine colors based on state
-    final Color gradStart;
-    final Color gradEnd;
-    if (isReady) {
-      gradStart = _greenDark;
-      gradEnd = _greenBase;
-    } else {
-      gradStart = _orangeDark;
-      gradEnd = _orangeBase;
-    }
-
-    // Determine title and subtitle - balance-driven logic
-    final String title;
-    final String subtitle;
-    final IconData? trailingIcon;
-    
-    if (isReady) {
-      title = 'Ready for Voting!';
-      subtitle = 'All funds are in Orchard pool';
-      trailingIcon = Icons.chevron_right;
-    } else if (isMigrating) {
-      title = 'Migrating...';
-      subtitle = migrationState.statusMessage;
-      trailingIcon = null; // Will show spinner
-    } else {
-      title = 'Migrate for Voting';
-      subtitle = '${decimalToStringTrim(nonOrchardZec)} ZEC needs migration to Orchard';
-      trailingIcon = Icons.arrow_forward_ios;
-    }
-
-    final bannerContent = Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      child: AnimatedBuilder(
-        animation: _flashAnimation,
-        builder: (context, child) {
-          return Opacity(
-            opacity: _flashAnimation.value,
-            child: child,
-          );
-        },
-        child: Material(
-          color: Colors.transparent,
-          borderRadius: BorderRadius.circular(16),
-          clipBehavior: Clip.antiAlias,
-          child: InkWell(
-            borderRadius: BorderRadius.circular(16),
-            onTap: isReady 
-                ? () => GoRouter.of(context).push('/account/vote')
-                : () => showMigrationModalIfNeeded(context),
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 400),
-              curve: Curves.easeInOut,
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(16),
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [gradStart, gradEnd],
-                ),
-              ),
-              child: Row(
-                children: [
-                  // ZEC glyph with vote icon overlay (like shielded card)
-                  Container(
-                    width: 40,
-                    height: 40,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      border: Border.all(color: Colors.white.withOpacity(0.08)),
-                    ),
-                    child: Stack(
-                      clipBehavior: Clip.none,
-                      children: [
-                        Center(
-                          child: SvgPicture.asset(
-                            'assets/icons/zec_glyph.svg',
-                            width: 28,
-                            height: 28,
-                            colorFilter: const ColorFilter.mode(Colors.white, BlendMode.srcIn),
-                          ),
-                        ),
-                        Positioned(
-                          right: -1,
-                          bottom: -1,
-                          child: Container(
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              border: Border.all(color: Colors.white.withOpacity(0.08)),
-                            ),
-                            child: Icon(
-                              isReady ? Icons.check : Icons.how_to_vote,
-                              size: 14,
-                              color: Colors.white.withOpacity(0.95),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const Gap(12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          title,
-                          style: (t.textTheme.titleMedium ?? const TextStyle()).copyWith(
-                            fontFamily: balanceFontFamily,
-                            fontWeight: FontWeight.w600,
-                            color: Colors.white,
-                          ),
-                        ),
-                        const Gap(4),
-                        Text(
-                          subtitle,
-                          style: (t.textTheme.bodySmall ?? const TextStyle()).copyWith(
-                            fontFamily: balanceFontFamily,
-                            color: Colors.white,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  if (isMigrating)
-                    SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white.withOpacity(0.7)),
-                      ),
-                    )
-                  else if (trailingIcon != null)
-                    Icon(trailingIcon, color: Colors.white.withOpacity(0.9), size: isReady ? 24 : 16),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-
-    // Fade in on first appearance
-    if (!_hasAppeared) {
-      _hasAppeared = true;
-      return TweenAnimationBuilder<double>(
-        tween: Tween(begin: 0.0, end: 1.0),
-        duration: const Duration(milliseconds: 400),
-        curve: Curves.easeOut,
-        builder: (context, value, child) {
-          return Opacity(
-            opacity: value,
-            child: Transform.translate(
-              offset: Offset(0, 10 * (1 - value)),
-              child: child,
-            ),
-          );
-        },
-        child: bannerContent,
-      );
-    }
-
-    return bannerContent;
-    }); // End Observer
   }
 }
 

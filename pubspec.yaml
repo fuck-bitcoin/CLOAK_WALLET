@@ -162,8 +162,6 @@ flutter:
 
   # To add assets to your application, add an assets section, like this:
   assets:
-    - assets/sapling-spend.params
-    - assets/sapling-output.params
     - assets/welcome.png
     - assets/self-custody.png
     - assets/icon.png
@@ -171,8 +169,6 @@ flutter:
     - assets/wallet.svg
     - assets/contacts.svg
     - assets/multipay.svg
-    - assets/ycash.png
-    - assets/zcash.png
     - assets/cloak.png
     - assets/cloak_logo.png
     - assets/success.mp3
@@ -184,7 +180,6 @@ flutter:
     - assets/icons/receive_quick.svg
     - assets/icons/scan_quick.svg
     - assets/icons/more_quick.svg
-    - assets/icons/zec_glyph.svg
     - assets/icons/cloak_glyph.svg
     - assets/icons/shield_check.svg
     - assets/nft/

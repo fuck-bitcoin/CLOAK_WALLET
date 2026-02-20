@@ -1226,7 +1226,7 @@ class _ContactEditState extends State<ContactEditPage> {
                             const SizedBox(width: gap),
                             _QuickActionTileSimple(
                               label: 'Pay',
-                              asset: 'assets/icons/zec_glyph.svg',
+                              asset: 'assets/icons/cloak_glyph.svg',
                               onTap: isAccepted ? () {
                                 // Prefer latest mapped UA via cid_map, fall back to contact address
                                 // For CLOAK, skip cid_map lookup (requires async) and use contact address

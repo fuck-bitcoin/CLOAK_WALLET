@@ -19,7 +19,7 @@ import 'ffi_isolate.dart';
 import 'esr_service.dart';
 
 // CLOAK coin ID
-const int CLOAK_COIN = 2;
+const int CLOAK_COIN = 0;
 
 /// Convert an EOSIO account name string to its u64 representation.
 /// Matches the Rust Name::from_string() encoding exactly:

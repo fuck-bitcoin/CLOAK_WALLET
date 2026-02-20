@@ -99,27 +99,9 @@ class _MorePageState extends State<MorePage> {
       ]),
       MoreSection(title: Text(s.sync), tiles: [
         MoreTile(
-            url: '/more/rescan',
-            icon: FaIcon(FontAwesomeIcons.arrowRightLong),
-            text: s.rescan),
-        MoreTile(
-            url: '/more/rewind',
-            icon: FaIcon(FontAwesomeIcons.arrowRotateLeft),
-            text: s.rewind),
-        MoreTile(
             url: '/more/resync',
             icon: FaIcon(FontAwesomeIcons.arrowsRotate),
             text: 'Resync Wallet'),
-      ]),
-      MoreSection(title: Text(s.coldStorage), tiles: [
-        MoreTile(
-            url: '/more/cold/sign',
-            icon: FaIcon(FontAwesomeIcons.signature),
-            text: s.signOffline),
-        MoreTile(
-            url: '/more/cold/broadcast',
-            icon: FaIcon(FontAwesomeIcons.towerBroadcast),
-            text: s.broadcast),
       ]),
       MoreSection(
         title: Text(s.tools),
@@ -129,16 +111,6 @@ class _MorePageState extends State<MorePage> {
                 url: '/more/import_gui_wallet',
                 icon: FaIcon(FontAwesomeIcons.fileImport),
                 text: 'Import GUI Wallet'),
-          if (aa.seed != null)
-            MoreTile(
-                url: '/more/keytool',
-                icon: FaIcon(FontAwesomeIcons.key),
-                text: s.keyTool,
-                secured: true),
-          MoreTile(
-              url: '/more/sweep',
-              icon: FaIcon(FontAwesomeIcons.broom),
-              text: s.sweep),
           MoreTile(
               url: '/more/about',
               icon: FaIcon(FontAwesomeIcons.circleInfo),

@@ -46,7 +46,6 @@ class _SplashState extends State<SplashPage> {
         await restoreWindow();
         GetIt.I.registerSingleton<S>(S.of(context));
         if (!appSettings.hasMemo()) appSettings.memo = s.sendFrom(APP_NAME);
-        _initProver();
         // await _setupMempool();
         final applinkUri = await _registerURLHandler();
         final quickAction = await _registerQuickActions();
@@ -115,18 +114,6 @@ class _SplashState extends State<SplashPage> {
       });
     }
     return launchPage;
-  }
-
-  void _initProver() async {
-    // Defer prover init so it doesn't compete with wallet loading and
-    // initial UI rendering. WarpApi.initProver() is a synchronous FFI call
-    // that processes ~50MB of params and blocks the main thread.
-    await Future.delayed(const Duration(milliseconds: 500));
-    final spend = await rootBundle.load('assets/sapling-spend.params');
-    final output = await rootBundle.load('assets/sapling-output.params');
-    WarpApi.initProver(spend.buffer.asUint8List(), output.buffer.asUint8List());
-    // Mark prover ready so Send/Review can proceed without lazy init
-    appStore.proverReady = true;
   }
 
   void _initWallets() async {

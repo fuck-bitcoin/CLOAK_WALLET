@@ -20,7 +20,6 @@ import 'package:file_picker/file_picker.dart';
 import '../utils/photo_encoder.dart';
 import '../utils/photo_models.dart';
 import '../utils/photo_decoder.dart';
-import 'accounts/send_photo.dart';
 import 'messages/photo_viewer.dart';
 import 'dart:typed_data';
 
@@ -2756,16 +2755,8 @@ class _MessageItemState extends State<MessageItemPage> with TickerProviderStateM
         } catch (_) {}
       }
       
-      final photoContext = PhotoSendContext(
-        address: resolvedAddress,
-        chunks: chunks,
-        cid: cid,
-        seq: nextSeq,
-        displayName: thread.title,
-        threadIndex: widget.index,
-      );
-      
-      GoRouter.of(context).push('/account/send_photo', extra: photoContext);
+      // Photo send not available (send_photo removed)
+      await showMessageBox2(context, 'Unavailable', 'Photo send is not available');
     } catch (e) {
       await showMessageBox2(context, 'Error', 'Failed to pick photo: $e');
     }

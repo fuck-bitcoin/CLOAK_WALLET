@@ -21,7 +21,6 @@ import 'coin/coins.dart';
 import './pages/utils.dart';
 
 import 'init.dart';
-import 'pages/vote/vote_data.dart';
 
 const ZECUNIT = 100000000.0;
 // ignore: non_constant_identifier_names
@@ -45,7 +44,6 @@ void main() async {
   await RustLib.init(
     externalLibrary: ExternalLibrary.open(libPath),
   );
-  await electionStore.init();
   initializeReflectable();
   await restoreSettings();
   await initCoins();
@@ -55,13 +53,6 @@ void main() async {
   final dbPath = await getDbPath();
   print("db path $dbPath");
   await recoverDb(prefs, dbPath);
-  // Initialize ZK prover parameters early to avoid signing failures
-  try {
-    final spend = await rootBundle.load('assets/sapling-spend.params');
-    final output = await rootBundle.load('assets/sapling-output.params');
-    WarpApi.initProver(spend.buffer.asUint8List(), output.buffer.asUint8List());
-    appStore.proverReady = true;
-  } catch (_) {}
   // Ensure wallets are initialized before any account checks to avoid FFI panics
   for (var c in coins) {
     try {
@@ -135,6 +126,17 @@ void main() async {
     } catch (_) {}
   }
   // Restore active account so the wallet shows immediately without a splash route
+  // Migrate coin index: CLOAK was 2 in multi-coin list, now 0
+  final oldCoin = prefs.getInt('coin') ?? 0;
+  if (oldCoin == 2) {
+    await prefs.setInt('coin', 0);
+  }
+  // Migrate account_order_v1: transform "2:1" to "0:1"
+  final order = prefs.getString('account_order_v1') ?? '';
+  if (order.contains('2:')) {
+    await prefs.setString('account_order_v1', order.replaceAll('2:', '0:'));
+  }
+
   try {
     final a = ActiveAccount2.fromPrefs(prefs);
     print('[init] fromPrefs returned: $a (id=${a?.id})');
