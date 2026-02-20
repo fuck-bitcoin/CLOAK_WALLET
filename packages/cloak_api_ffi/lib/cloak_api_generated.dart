@@ -694,4 +694,54 @@ class NativeLibrary {
   late final _wallet_create_unpublished_auth_note = _wallet_create_unpublished_auth_notePtr.asFunction<
     int Function(ffi.Pointer<ffi.Void>, ffi.Pointer<ffi.Char>, int, ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Pointer<ffi.Char>>)
   >();
+
+  // ============== Deterministic Vault Functions ==============
+
+  /// Derive a deterministic vault seed at the given index.
+  /// Returns hex-encoded 32-byte HMAC-SHA256 seed via out_hex.
+  bool wallet_derive_vault_seed(
+    ffi.Pointer<ffi.Void> wallet,
+    int index,
+    ffi.Pointer<ffi.Pointer<ffi.Char>> out_hex,
+  ) {
+    return _wallet_derive_vault_seed(wallet, index, out_hex) != 0;
+  }
+  late final _wallet_derive_vault_seedPtr = _lookup<ffi.NativeFunction<
+    ffi.Uint8 Function(ffi.Pointer<ffi.Void>, ffi.Uint32, ffi.Pointer<ffi.Pointer<ffi.Char>>)
+  >>('wallet_derive_vault_seed');
+  late final _wallet_derive_vault_seed = _wallet_derive_vault_seedPtr.asFunction<
+    int Function(ffi.Pointer<ffi.Void>, int, ffi.Pointer<ffi.Pointer<ffi.Char>>)
+  >();
+
+  /// Compare spending keys of two wallets. Returns true if they derive from the same seed.
+  bool wallet_seeds_match(
+    ffi.Pointer<ffi.Void> wallet_a,
+    ffi.Pointer<ffi.Void> wallet_b,
+  ) {
+    return _wallet_seeds_match(wallet_a, wallet_b) != 0;
+  }
+  late final _wallet_seeds_matchPtr = _lookup<ffi.NativeFunction<
+    ffi.Uint8 Function(ffi.Pointer<ffi.Void>, ffi.Pointer<ffi.Void>)
+  >>('wallet_seeds_match');
+  late final _wallet_seeds_match = _wallet_seeds_matchPtr.asFunction<
+    int Function(ffi.Pointer<ffi.Void>, ffi.Pointer<ffi.Void>)
+  >();
+
+  /// Create a deterministic vault: derives seed at vault_index, creates auth token
+  /// using the wallet's default address and the given contract.
+  /// Returns JSON with commitment hash and unpublished notes.
+  bool wallet_create_deterministic_vault(
+    ffi.Pointer<ffi.Void> wallet,
+    int contract,
+    int vault_index,
+    ffi.Pointer<ffi.Pointer<ffi.Char>> out_json,
+  ) {
+    return _wallet_create_deterministic_vault(wallet, contract, vault_index, out_json) != 0;
+  }
+  late final _wallet_create_deterministic_vaultPtr = _lookup<ffi.NativeFunction<
+    ffi.Uint8 Function(ffi.Pointer<ffi.Void>, ffi.Uint64, ffi.Uint32, ffi.Pointer<ffi.Pointer<ffi.Char>>)
+  >>('wallet_create_deterministic_vault');
+  late final _wallet_create_deterministic_vault = _wallet_create_deterministic_vaultPtr.asFunction<
+    int Function(ffi.Pointer<ffi.Void>, int, int, ffi.Pointer<ffi.Pointer<ffi.Char>>)
+  >();
 }

@@ -1109,29 +1109,219 @@ class CloakWalletManager {
     print('[CloakWalletManager] Stored vault hash: ${hash.substring(0, 16)}...');
   }
 
-  /// Create a new vault and store its hash
-  /// Returns the vault hash or null on failure
-  static Future<String?> createAndStoreVault({String? label}) async {
-    print('[CloakWalletManager] Creating new vault...');
-    final seed = 'Vault_${DateTime.now().millisecondsSinceEpoch}';
-    final hash = await createVaultAndGetHash(seed);
-    if (hash != null) {
-      await _storeVaultHash(hash);
+  /// Whether vault discovery is currently running (prevents vault creation during scan)
+  static bool _discoveryInProgress = false;
+  static bool get discoveryInProgress => _discoveryInProgress;
 
-      // Also store in vaults table so vault can be recreated after wallet file deletion
-      final exists = await CloakDb.vaultExistsByHash(hash);
-      if (!exists) {
-        await CloakDb.addVault(
-          accountId: _cloakAccountId > 0 ? _cloakAccountId : 1,
-          seed: seed,
-          commitmentHash: hash,
-          contract: 'thezeostoken',
-          label: label ?? seed,
-        );
-        print('[CloakWalletManager] Vault seed persisted to DB for recovery');
-      }
+  /// Create a new vault and store its hash.
+  /// Uses deterministic HMAC-SHA256 seed derivation for reproducible vaults.
+  /// Returns the vault hash or null on failure.
+  static Future<String?> createAndStoreVault({String? label}) async {
+    if (_cloakWallet == null) return null;
+    if (_discoveryInProgress) {
+      print('[CloakWalletManager] createAndStoreVault blocked — vault discovery in progress');
+      return null;
     }
+
+    print('[CloakWalletManager] Creating new deterministic vault...');
+
+    // Read next_vault_index from SQLite
+    final nextIndex = await CloakDb.getNextVaultIndex();
+    print('[CloakWalletManager] next_vault_index = $nextIndex');
+
+    final contract = eosioNameToU64('thezeostoken');
+
+    // Create deterministic vault via FFI (derives seed + creates auth token)
+    final notesJson = await FfiIsolate.createDeterministicVault(
+      wallet: _cloakWallet!,
+      contract: contract,
+      vaultIndex: nextIndex,
+    );
+
+    if (notesJson == null) {
+      print('[CloakWalletManager] createDeterministicVault failed');
+      return null;
+    }
+
+    // Parse JSON to extract commitment hash
+    String? hash;
+    try {
+      final notes = jsonDecode(notesJson);
+      if (notes is Map) {
+        final commitmentList = notes['__commitment__'];
+        if (commitmentList is List && commitmentList.isNotEmpty) {
+          hash = commitmentList[0] as String;
+        }
+      }
+    } catch (e) {
+      print('[CloakWalletManager] Error parsing deterministic vault JSON: $e');
+      return null;
+    }
+
+    if (hash == null || hash.length != 64) {
+      print('[CloakWalletManager] Invalid commitment hash from deterministic vault');
+      return null;
+    }
+
+    // Add unpublished notes to wallet
+    if (!CloakApi.addUnpublishedNotes(_cloakWallet!, notesJson)) {
+      print('[CloakWalletManager] addUnpublishedNotes failed: ${CloakApi.getLastError()}');
+      return null;
+    }
+
+    // Save wallet
+    await saveWallet();
+
+    // Store vault hash in properties table
+    await _storeVaultHash(hash);
+
+    // Derive the hex seed for DB persistence (needed for reimport)
+    final seedHex = CloakApi.deriveVaultSeed(_cloakWallet!, nextIndex);
+
+    // Store in vaults table with vault_index
+    final exists = await CloakDb.vaultExistsByHash(hash);
+    if (!exists) {
+      await CloakDb.addVault(
+        accountId: _cloakAccountId > 0 ? _cloakAccountId : 1,
+        seed: seedHex ?? 'deterministic_v$nextIndex',
+        commitmentHash: hash,
+        contract: 'thezeostoken',
+        label: label ?? 'Vault $nextIndex',
+        vaultIndex: nextIndex,
+      );
+      print('[CloakWalletManager] Deterministic vault $nextIndex persisted to DB');
+    }
+
+    // Increment next_vault_index
+    await CloakDb.incrementNextVaultIndex();
+
+    print('[CloakWalletManager] Vault created: index=$nextIndex hash=${hash.substring(0, 16)}...');
     return hash;
+  }
+
+  /// Discover deterministic vaults by scanning indices 0..N.
+  /// For each index: derive seed -> create deterministic vault -> get hash -> check on-chain.
+  /// Uses gap limit of 50 consecutive misses and parallelism of 3.
+  /// Returns list of discovered vault hashes.
+  static Future<List<String>> discoverVaults() async {
+    if (_cloakWallet == null) return [];
+
+    _discoveryInProgress = true;
+    print('[discoverVaults] Starting vault discovery scan...');
+    final discovered = <String>[];
+    const gapLimit = 50;
+    const parallelism = 3;
+    int consecutiveMisses = 0;
+    int index = 0;
+    int highestFoundIndex = -1;
+
+    final contract = eosioNameToU64('thezeostoken');
+
+    try {
+      while (consecutiveMisses < gapLimit) {
+        // Process up to `parallelism` indices concurrently
+        final batch = <int>[];
+        for (int i = 0; i < parallelism && consecutiveMisses + i < gapLimit; i++) {
+          batch.add(index + i);
+        }
+
+        // Derive all vault hashes in the batch
+        final futures = batch.map((idx) async {
+          final notesJson = await FfiIsolate.createDeterministicVault(
+            wallet: _cloakWallet!,
+            contract: contract,
+            vaultIndex: idx,
+          );
+          if (notesJson == null) return null;
+
+          String? hash;
+          try {
+            final notes = jsonDecode(notesJson);
+            if (notes is Map) {
+              final commitmentList = notes['__commitment__'];
+              if (commitmentList is List && commitmentList.isNotEmpty) {
+                hash = commitmentList[0] as String;
+              }
+            }
+          } catch (_) {}
+
+          if (hash == null || hash.length != 64) return null;
+          return {'index': idx, 'hash': hash, 'notesJson': notesJson};
+        });
+
+        final results = await Future.wait(futures);
+
+        for (final result in results) {
+          if (result == null) {
+            consecutiveMisses++;
+            index++;
+            continue;
+          }
+
+          final idx = result['index'] as int;
+          final hash = result['hash'] as String;
+          final notesJson = result['notesJson'] as String;
+
+          // Check if vault exists on-chain
+          try {
+            final vaultState = await queryVaultTokens(hash);
+            if (vaultState.existsOnChain) {
+              print('[discoverVaults] FOUND vault at index $idx: ${hash.substring(0, 16)}...');
+              consecutiveMisses = 0;
+              if (idx > highestFoundIndex) highestFoundIndex = idx;
+
+              // Add to wallet
+              CloakApi.addUnpublishedNotes(_cloakWallet!, notesJson);
+
+              // Store in DB if not already there
+              final exists = await CloakDb.vaultExistsByHash(hash);
+              if (!exists) {
+                final seedHex = CloakApi.deriveVaultSeed(_cloakWallet!, idx);
+                await CloakDb.addVault(
+                  accountId: _cloakAccountId > 0 ? _cloakAccountId : 1,
+                  seed: seedHex ?? 'deterministic_v$idx',
+                  commitmentHash: hash,
+                  contract: 'thezeostoken',
+                  label: 'Vault $idx',
+                  status: 'active',
+                  vaultIndex: idx,
+                );
+              }
+              discovered.add(hash);
+            } else {
+              consecutiveMisses++;
+            }
+          } catch (e) {
+            print('[discoverVaults] Error checking vault at index $idx: $e');
+            consecutiveMisses++;
+          }
+
+          index++;
+        }
+
+        // Clear vault tokens cache between batches to avoid stale data
+        clearVaultTokensCache();
+      }
+
+      // Update next_vault_index to be one past the highest discovered
+      if (highestFoundIndex >= 0) {
+        final newNext = highestFoundIndex + 1;
+        final currentNext = await CloakDb.getNextVaultIndex();
+        if (newNext > currentNext) {
+          await CloakDb.setNextVaultIndex(newNext);
+          print('[discoverVaults] Updated next_vault_index to $newNext');
+        }
+      }
+
+      if (discovered.isNotEmpty) {
+        await saveWallet();
+      }
+
+      print('[discoverVaults] Discovery complete: found ${discovered.length} vault(s), scanned $index indices');
+    } finally {
+      _discoveryInProgress = false;
+    }
+    return discovered;
   }
 
   /// Get vault hash - first checks database, then creates if needed

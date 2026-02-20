@@ -822,4 +822,42 @@ class CloakApi {
       calloc.free(outTxJson);
     }
   }
+
+  // ============== Deterministic Vault Functions ==============
+
+  /// Derive a deterministic vault seed at the given index.
+  /// Returns hex-encoded 32-byte HMAC-SHA256 seed, or null on failure.
+  static String? deriveVaultSeed(Pointer<Void> wallet, int index) {
+    final outHex = calloc<Pointer<Char>>();
+    try {
+      if (!cloak_api_lib.wallet_derive_vault_seed(wallet, index, outHex)) {
+        print('wallet_derive_vault_seed failed: ${_getLastError()}');
+        return null;
+      }
+      return _fromNative(outHex.value);
+    } finally {
+      calloc.free(outHex);
+    }
+  }
+
+  /// Compare spending keys of two wallets. Returns true if they derive from the same seed.
+  static bool seedsMatch(Pointer<Void> walletA, Pointer<Void> walletB) {
+    return cloak_api_lib.wallet_seeds_match(walletA, walletB);
+  }
+
+  /// Create a deterministic vault: derives seed at vault_index, creates auth token
+  /// using the wallet's default address and the given contract.
+  /// Returns JSON with commitment hash and unpublished notes, or null on failure.
+  static String? createDeterministicVault(Pointer<Void> wallet, int contract, int vaultIndex) {
+    final outJson = calloc<Pointer<Char>>();
+    try {
+      if (!cloak_api_lib.wallet_create_deterministic_vault(wallet, contract, vaultIndex, outJson)) {
+        print('wallet_create_deterministic_vault failed: ${_getLastError()}');
+        return null;
+      }
+      return _fromNative(outJson.value);
+    } finally {
+      calloc.free(outJson);
+    }
+  }
 }

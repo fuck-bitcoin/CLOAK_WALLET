@@ -271,6 +271,73 @@ class FfiIsolate {
     });
   }
 
+  /// Run [wallet_derive_vault_seed] in a background isolate.
+  /// Returns the hex-encoded 32-byte HMAC-SHA256 seed, or null on failure.
+  static Future<String?> deriveVaultSeed({
+    required Pointer<Void> wallet,
+    required int index,
+  }) async {
+    final walletAddr = wallet.address;
+    return await Isolate.run(() {
+      final lib = NativeLibrary(CloakApi.open());
+      final walletPtr = Pointer<Void>.fromAddress(walletAddr);
+      final outHex = calloc<Pointer<Char>>();
+      try {
+        if (!lib.wallet_derive_vault_seed(walletPtr, index, outHex)) {
+          return null;
+        }
+        final resultPtr = outHex.value;
+        final resultStr = resultPtr.cast<Utf8>().toDartString();
+        lib.free_string(resultPtr);
+        return resultStr;
+      } finally {
+        calloc.free(outHex);
+      }
+    });
+  }
+
+  /// Run [wallet_seeds_match] in a background isolate.
+  /// Returns true if both wallets derive from the same seed.
+  static Future<bool> seedsMatch({
+    required Pointer<Void> walletA,
+    required Pointer<Void> walletB,
+  }) async {
+    final addrA = walletA.address;
+    final addrB = walletB.address;
+    return await Isolate.run(() {
+      final lib = NativeLibrary(CloakApi.open());
+      final ptrA = Pointer<Void>.fromAddress(addrA);
+      final ptrB = Pointer<Void>.fromAddress(addrB);
+      return lib.wallet_seeds_match(ptrA, ptrB);
+    });
+  }
+
+  /// Run [wallet_create_deterministic_vault] in a background isolate.
+  /// Returns JSON with commitment hash and unpublished notes, or null on failure.
+  static Future<String?> createDeterministicVault({
+    required Pointer<Void> wallet,
+    required int contract,
+    required int vaultIndex,
+  }) async {
+    final walletAddr = wallet.address;
+    return await Isolate.run(() {
+      final lib = NativeLibrary(CloakApi.open());
+      final walletPtr = Pointer<Void>.fromAddress(walletAddr);
+      final outJson = calloc<Pointer<Char>>();
+      try {
+        if (!lib.wallet_create_deterministic_vault(walletPtr, contract, vaultIndex, outJson)) {
+          return null;
+        }
+        final resultPtr = outJson.value;
+        final resultStr = resultPtr.cast<Utf8>().toDartString();
+        lib.free_string(resultPtr);
+        return resultStr;
+      } finally {
+        calloc.free(outJson);
+      }
+    });
+  }
+
   /// Run [wallet_write] in a background isolate.
   /// Returns the serialized wallet bytes, or null on failure.
   static Future<Uint8List?> writeWallet({

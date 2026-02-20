@@ -120,6 +120,7 @@ class CloakSync {
   // Prevent auto-heal from firing more than once per app session
   static bool _autoHealAttempted = false;
   static bool _vaultsReimported = false;
+  static bool _vaultDiscoveryDone = false;
 
   // Cached global state for "nothing changed" fast path
   static int _lastLeafCount = -1;
@@ -145,6 +146,7 @@ class CloakSync {
     _lastAuthCount = -1;
     _autoHealAttempted = false;
     _vaultsReimported = false;
+    _vaultDiscoveryDone = false;
     print('[CloakSync] Cleared cached counters for resync');
   }
 
@@ -610,6 +612,19 @@ class CloakSync {
           await _reimportVaultsFromDb(wallet!);
           _vaultsReimported = true;
           print('CloakSync: [${_elapsed()}] reimportVaults');
+        }
+
+        // 5f. Vault discovery — only during restore/resync, not every 5s sync
+        // Scans deterministic vault indices to find on-chain vaults from this seed
+        if (!_vaultDiscoveryDone && !_isNewAccount) {
+          _vaultDiscoveryDone = true;
+          onStepChanged?.call('Discovering vaults...');
+          try {
+            final found = await CloakWalletManager.discoverVaults();
+            print('CloakSync: [${_elapsed()}] discoverVaults — found ${found.length} vault(s)');
+          } catch (e) {
+            print('CloakSync: Vault discovery failed (non-fatal): $e');
+          }
         }
 
         // 6. Extract messages from transaction history (only if new notes were added)

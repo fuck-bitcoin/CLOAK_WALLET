@@ -67,7 +67,7 @@ class CloakDb {
     _db = await databaseFactory.openDatabase(
       _dbPath!,
       options: OpenDatabaseOptions(
-        version: 6, // v6 adds burn_events table for TX history labeling
+        version: 7, // v7 adds vault_index column + next_vault_index property
         onConfigure: (db) async {
           // Enable SQLCipher encryption if password provided
           if (_password.isNotEmpty && _sqlCipherAvailable) {
@@ -120,6 +120,9 @@ class CloakDb {
 
           // Burn events table (v6) — persists vault burn timestamps for TX history labeling
           await _createBurnEventsTable(db);
+
+          // Initialize next_vault_index property (v7)
+          await db.insert('properties', {'name': 'next_vault_index', 'value': '0'});
         },
         onUpgrade: (db, oldVersion, newVersion) async {
           print('CloakDb: Upgrading from v$oldVersion to v$newVersion');
@@ -148,6 +151,13 @@ class CloakDb {
           if (oldVersion < 6) {
             // v6: Add burn_events table for persistent vault burn TX labeling
             await _createBurnEventsTable(db);
+          }
+          if (oldVersion < 7) {
+            // v7: Add vault_index column for deterministic vault derivation
+            await db.execute("ALTER TABLE vaults ADD COLUMN vault_index INTEGER");
+            // Initialize next_vault_index property for deterministic vault creation
+            await db.execute("INSERT OR IGNORE INTO properties(name, value) VALUES('next_vault_index', '0')");
+            print('CloakDb: v7 migration — added vault_index column + next_vault_index property');
           }
           await db.update('schema_version', {'version': newVersion}, where: 'id = 1');
         },
@@ -339,6 +349,7 @@ class CloakDb {
         contract TEXT NOT NULL DEFAULT 'thezeostoken',
         label TEXT,
         status TEXT NOT NULL DEFAULT 'created',
+        vault_index INTEGER,
         created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
         FOREIGN KEY (account_id) REFERENCES accounts(id_account)
       )
@@ -548,6 +559,7 @@ class CloakDb {
     String contract = 'thezeostoken',
     String? label,
     String status = 'created',
+    int? vaultIndex,
   }) async {
     await init();
     try {
@@ -558,6 +570,7 @@ class CloakDb {
         'contract': contract,
         'label': label,
         'status': status,
+        'vault_index': vaultIndex,
         'created_at': DateTime.now().millisecondsSinceEpoch ~/ 1000,
       });
       print('CloakDb: Added vault "${label ?? commitmentHash.substring(0, 16)}..." with id=$id');
@@ -657,6 +670,23 @@ class CloakDb {
   static Future<List<Map<String, dynamic>>> getVaultsByStatus(String status) async {
     await init();
     return await _db!.query('vaults', where: 'status = ?', whereArgs: [status], orderBy: 'created_at DESC');
+  }
+
+  /// Get the next vault index for deterministic vault creation
+  static Future<int> getNextVaultIndex() async {
+    final value = await getProperty('next_vault_index');
+    return int.tryParse(value ?? '0') ?? 0;
+  }
+
+  /// Increment and persist the next vault index
+  static Future<void> incrementNextVaultIndex() async {
+    final current = await getNextVaultIndex();
+    await setProperty('next_vault_index', '${current + 1}');
+  }
+
+  /// Set the next vault index to a specific value (used by discovery)
+  static Future<void> setNextVaultIndex(int index) async {
+    await setProperty('next_vault_index', '$index');
   }
 
   /// Get all vault commitment hashes that should be visible to the web app
