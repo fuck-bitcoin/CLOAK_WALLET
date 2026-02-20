@@ -1,16 +1,13 @@
 import 'dart:convert';
-import 'dart:math';
 
-import 'package:rxdart/rxdart.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:tuple/tuple.dart';
-import 'package:warp_api/data_fb_generated.dart' hide Quote;
+import 'cloak/cloak_types.dart';
 import 'appsettings.dart';
 import 'cloak/cloak_wallet_manager.dart';
 import 'cloak/cloak_db.dart';
 import 'coin/coins.dart';
 import 'package:mobx/mobx.dart';
-import 'package:warp_api/warp_api.dart';
 
 import 'pages/utils.dart';
 
@@ -63,7 +60,7 @@ void setActiveVault(String commitmentHash, {String? label, Map<String, dynamic>?
   aa = ActiveAccount2.fromId(CLOAK_COIN, 1);
 
   // Start with zero balance — will be updated async
-  aa.poolBalances = PoolBalanceT();
+  aa.poolBalances = CloakBalance();
 
   // Trigger UI rebuild
   aaSequence.seqno = DateTime.now().microsecondsSinceEpoch;
@@ -94,7 +91,7 @@ Future<void> _fetchActiveVaultBalance(String commitmentHash) async {
       if (result.cloakUnits != oldBalance) {
         print('[_fetchActiveVaultBalance] Balance CHANGED $oldBalance → ${result.cloakUnits} — updating');
         runInAction(() {
-          final balance = PoolBalanceT();
+          final balance = CloakBalance();
           balance.sapling = result.cloakUnits;
           aa.poolBalances = balance;
           aaSequence.seqno = DateTime.now().microsecondsSinceEpoch;
@@ -129,27 +126,15 @@ class ActiveAccount2 extends _ActiveAccount2 with _$ActiveAccount2 {
 
   static ActiveAccount2? fromPrefs(SharedPreferences prefs) {
     final coin = prefs.getInt('coin') ?? 0;
-    var id = prefs.getInt('account') ?? 0;
-    
-    // Handle CLOAK separately
-    if (CloakWalletManager.isCloak(coin)) {
-      // CLOAK always has account ID 1 if wallet exists
-      if (CloakWalletManager.isLoaded || CloakWalletManager.walletExistsSync()) {
-        return ActiveAccount2.fromId(coin, 1);
-      }
-    } else if (WarpApi.checkAccount(coin, id)) {
-      return ActiveAccount2.fromId(coin, id);
+
+    // CLOAK always has account ID 1 if wallet exists
+    if (CloakWalletManager.isLoaded || CloakWalletManager.walletExistsSync()) {
+      return ActiveAccount2.fromId(coin, 1);
     }
-    
+
     for (var c in coins) {
-      if (CloakWalletManager.isCloak(c.coin)) {
-        // Check if CLOAK wallet exists
-        if (CloakWalletManager.walletExistsSync()) {
-          return ActiveAccount2.fromId(c.coin, 1);
-        }
-      } else {
-        final id = WarpApi.getFirstAccount(c.coin);
-        if (id > 0) return ActiveAccount2.fromId(c.coin, id);
+      if (CloakWalletManager.walletExistsSync()) {
+        return ActiveAccount2.fromId(c.coin, 1);
       }
     }
     return null;
@@ -162,21 +147,11 @@ class ActiveAccount2 extends _ActiveAccount2 with _$ActiveAccount2 {
 
   factory ActiveAccount2.fromId(int coin, int id) {
     if (id == 0) return nullAccount;
-    
-    // Handle CLOAK separately
-    if (CloakWalletManager.isCloak(coin)) {
-      // For CLOAK, we don't have a backup in the same format
-      // Use the account name from CloakWalletManager
-      final isViewOnly = CloakWalletManager.isViewOnly() ?? false;
-      final name = CloakWalletManager.accountName;
-      return ActiveAccount2(
-          coin, 1, name, null, !isViewOnly, false, true);
-    }
-    
-    final backup = WarpApi.getBackup(coin, id);
-    final canPay = backup.sk != null;
+
+    final isViewOnly = CloakWalletManager.isViewOnly() ?? false;
+    final name = CloakWalletManager.accountName;
     return ActiveAccount2(
-        coin, id, backup.name!, backup.seed, canPay, false, backup.saved);
+        coin, 1, name, null, !isViewOnly, false, true);
   }
 
   bool get hasUA => coins[coin].supportsUA;
@@ -207,17 +182,17 @@ abstract class _ActiveAccount2 with Store {
   String currency = '';
 
   @observable
-  PoolBalanceT poolBalances = PoolBalanceT();
+  CloakBalance poolBalances = CloakBalance();
   Notes notes;
   Txs txs;
   Messages messages;
 
-  List<Spending> spendings = [];
+  List<dynamic> spendings = [];
   List<TimeSeriesPoint<double>> accountBalances = [];
 
   @action
   void reset(int resetHeight) {
-    poolBalances = PoolBalanceT();
+    poolBalances = CloakBalance();
     notes.clear();
     txs.clear();
     messages.clear();
@@ -236,28 +211,19 @@ abstract class _ActiveAccount2 with Store {
       return;
     }
 
-    // Handle CLOAK differently - uses JSON balances from ZEOS
-    if (CloakWalletManager.isCloak(coin)) {
-      final newBalances = _getCloakPoolBalances();
-      print('[BALANCE] CLOAK getBalancesJson returned: S=${newBalances.sapling}');
-      poolBalances = newBalances;
-      print('[BALANCE] CLOAK poolBalances updated');
-      return;
-    }
-    
-    final newBalances = WarpApi.getPoolBalances(coin, id, 0, true).unpack();
-    print('[BALANCE] getPoolBalances returned: T=${newBalances.transparent}, S=${newBalances.sapling}, O=${newBalances.orchard}');
+    final newBalances = _getCloakPoolBalances();
+    print('[BALANCE] CLOAK getBalancesJson returned: S=${newBalances.sapling}');
     poolBalances = newBalances;
-    print('[BALANCE] poolBalances updated');
+    print('[BALANCE] CLOAK poolBalances updated');
   }
   
-  // Parse CLOAK/ZEOS balances into PoolBalanceT format
+  // Parse CLOAK/ZEOS balances into CloakBalance format
   // ZEOS is all shielded, so we put everything in the "sapling" pool
   //
   // Balance JSON format is array of ExtendedAsset strings:
   // ["1.0000 CLOAK@thezeostoken", "5.0000 TLOS@eosio.token", ...]
-  PoolBalanceT _getCloakPoolBalances() {
-    final balance = PoolBalanceT();
+  CloakBalance _getCloakPoolBalances() {
+    final balance = CloakBalance();
 
     if (!CloakWalletManager.isLoaded) {
       print('[BALANCE] CLOAK wallet not loaded');
@@ -314,13 +280,7 @@ abstract class _ActiveAccount2 with Store {
   void updateDivisified() {
     if (id == 0) return;
     try {
-      // CLOAK uses stable default address — only Receive page should derive new ones
-      if (CloakWalletManager.isCloak(coin)) {
-        diversifiedAddress = CloakWalletManager.getDefaultAddress() ?? '';
-        return;
-      }
-      diversifiedAddress = WarpApi.getDiversifiedAddress(coin, id,
-          coinSettings.uaType, DateTime.now().millisecondsSinceEpoch ~/ 1000);
+      diversifiedAddress = CloakWalletManager.getDefaultAddress() ?? '';
     } catch (e) {}
   }
 
@@ -336,42 +296,8 @@ abstract class _ActiveAccount2 with Store {
 
     currency = appSettings.currency;
 
-    // CLOAK doesn't use WarpApi for spendings/trades
-    if (CloakWalletManager.isCloak(coin)) {
-      spendings = [];
-      accountBalances = [];
-      return;
-    }
-
-    final now = DateTime.now().toUtc();
-    final today = DateTime.utc(now.year, now.month, now.day);
-    final start =
-        today.add(Duration(days: -365)).millisecondsSinceEpoch ~/ 1000;
-    final end = today.millisecondsSinceEpoch ~/ 1000;
-    spendings = WarpApi.getSpendings(coin, id, start);
-
-    final trades = WarpApi.getPnLTxs(coin, id, start);
-    List<AccountBalance> abs = [];
-    var b = poolBalances.orchard + poolBalances.sapling;
-    abs.add(AccountBalance(DateTime.now(), b / ZECUNIT));
-    for (var trade in trades) {
-      final timestamp =
-          DateTime.fromMillisecondsSinceEpoch(trade.timestamp * 1000);
-      final value = trade.value;
-      final ab = AccountBalance(timestamp, b / ZECUNIT);
-      abs.add(ab);
-      b -= value;
-    }
-    abs.add(AccountBalance(
-        DateTime.fromMillisecondsSinceEpoch(start * 1000), b / ZECUNIT));
-    accountBalances = sampleDaily<AccountBalance, double, double>(
-        abs.reversed,
-        start,
-        end,
-        (AccountBalance ab) => ab.time.millisecondsSinceEpoch ~/ DAY_MS,
-        (AccountBalance ab) => ab.balance,
-        (acc, v) => v,
-        0.0);
+    spendings = [];
+    accountBalances = [];
 
     if (newHeight != null) height = newHeight;
   }
@@ -392,18 +318,7 @@ abstract class _Notes with Store {
 
   @action
   void read(int? height) {
-    // CLOAK doesn't use WarpApi for notes
-    if (CloakWalletManager.isCloak(coin)) {
-      // TODO: Parse notes from CloakApi.getUnspentNotesJson() if needed
-      items = [];
-      return;
-    }
-    final shieledNotes = WarpApi.getNotesSync(coin, id);
-    items = shieledNotes.map((n) {
-      final timestamp = DateTime.fromMillisecondsSinceEpoch(n.timestamp * 1000);
-      return Note.from(height, n.id, n.height, timestamp, n.value / ZECUNIT,
-          n.orchard, n.excluded, false);
-    }).toList();
+    items = [];
   }
 
   @action
@@ -413,15 +328,11 @@ abstract class _Notes with Store {
 
   @action
   void invert() {
-    if (CloakWalletManager.isCloak(coin)) return; // CLOAK doesn't support this
-    WarpApi.invertExcluded(coin, id);
     items = items.map((n) => n.invertExcluded).toList();
   }
 
   @action
   void exclude(Note note) {
-    if (CloakWalletManager.isCloak(coin)) return; // CLOAK doesn't support this
-    WarpApi.updateExcluded(coin, note.id, note.excluded);
     items = List.of(items);
   }
 
@@ -554,23 +465,8 @@ abstract class _Txs with Store {
       version++;
       return;
     }
-    final shieldedTxs = WarpApi.getTxsSync(coin, id);
-    items = shieldedTxs.map((tx) {
-      final timestamp =
-          DateTime.fromMillisecondsSinceEpoch(tx.timestamp * 1000);
-      return Tx.from(
-          height,
-          tx.id,
-          tx.height,
-          timestamp,
-          tx.shortTxId!,
-          tx.txId!,
-          tx.value / ZECUNIT,
-          tx.address,
-          tx.name,
-          tx.memo,
-          tx.messages?.memos ?? []);
-    }).toList();
+    // Only CLOAK is supported
+    items = [];
     _rebuildIndex();
   }
 
@@ -603,26 +499,7 @@ abstract class _Messages with Store {
 
   @action
   void read(int? height) {
-    // CLOAK uses CloakDb for messages
-    if (CloakWalletManager.isCloak(coin)) {
-      _readCloakMessages();
-      return;
-    }
-    final ms = WarpApi.getMessagesSync(coin, id);
-    items = ms
-        .map((m) => ZMessage(
-            m.idMsg,
-            m.idTx,
-            m.incoming,
-            m.sender,
-            m.from,
-            m.to!,
-            m.subject!,
-            m.body!,
-            DateTime.fromMillisecondsSinceEpoch(m.timestamp * 1000),
-            m.height,
-            m.read))
-        .toList();
+    _readCloakMessages();
   }
 
   /// Fetch CLOAK messages from CloakDb
@@ -703,58 +580,7 @@ class SortConfig2 {
   }
 }
 
-List<PnL> getPNL(
-    int start, int end, Iterable<TxTimeValue> tvs, Iterable<Quote> quotes) {
-  final trades = tvs.map((tv) {
-    final dt = DateTime.fromMillisecondsSinceEpoch(tv.timestamp * 1000);
-    final qty = tv.value / ZECUNIT;
-    return Trade(dt, qty);
-  });
-
-  final portfolioTimeSeries = sampleDaily<Trade, Trade, double>(
-      trades,
-      start,
-      end,
-      (t) => t.dt.millisecondsSinceEpoch ~/ DAY_MS,
-      (t) => t,
-      (acc, t) => acc + t.qty,
-      0.0);
-
-  var prevBalance = 0.0;
-  var cash = 0.0;
-  var realized = 0.0;
-  final len = min(quotes.length, portfolioTimeSeries.length);
-
-  final z = ZipStream.zip2<Quote, TimeSeriesPoint<double>,
-      Tuple2<Quote, TimeSeriesPoint<double>>>(
-    Stream.fromIterable(quotes),
-    Stream.fromIterable(portfolioTimeSeries),
-    (a, b) => Tuple2(a, b),
-  ).take(len);
-
-  List<PnL> pnls = [];
-  z.listen((qv) {
-    final dt = qv.item1.dt;
-    final price = qv.item1.price;
-    final balance = qv.item2.value;
-    final qty = balance - prevBalance;
-
-    final closeQty =
-        qty * balance < 0 ? min(qty.abs(), prevBalance.abs()) * qty.sign : 0.0;
-    final openQty = qty - closeQty;
-    final avgPrice = prevBalance != 0 ? cash / prevBalance : 0.0;
-
-    cash += openQty * price + closeQty * avgPrice;
-    realized += closeQty * (avgPrice - price);
-    final unrealized = price * balance - cash;
-
-    final pnl = PnL(dt, price, balance, realized, unrealized);
-    pnls.add(pnl);
-
-    prevBalance = balance;
-  });
-  return pnls;
-}
+// getPNL removed — Zcash PnL tracking not used in CLOAK
 
 class _CloakAsset {
   final double amount;

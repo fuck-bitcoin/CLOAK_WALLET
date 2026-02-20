@@ -5,8 +5,7 @@ import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:gap/gap.dart';
 import 'package:go_router/go_router.dart';
 import '../../theme/zashi_tokens.dart';
-import 'package:warp_api/data_fb_generated.dart';
-import 'package:warp_api/warp_api.dart';
+import '../../cloak/cloak_types.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:intl/intl.dart';
 import 'dart:convert';
@@ -22,6 +21,7 @@ import '../../accounts.dart';
 import '../../appsettings.dart';
 import '../../generated/intl/messages.dart';
 import '../../cloak/cloak_wallet_manager.dart';
+import '../../cloak/cloak_db.dart';
 import '../settings.dart';
 import '../utils.dart';
 import '../widgets.dart';
@@ -88,10 +88,8 @@ class SendContext {
   final bool isVaultDeposit;
   SendContext(this.address, this.pools, this.amount, this.memo, [this.fx, this.display, this.fromThread = false, this.threadIndex, this.threadCid, this.tokenSymbol, this.tokenContract, this.tokenPrecision, this.vaultHash, this.nftId, this.nftContract, this.nftImageUrl, this.nftName, this.isBatchWithdraw = false, this.batchAssets, this.isVaultDeposit = false]);
   static SendContext? fromPaymentURI(String puri) {
-    final p = WarpApi.decodePaymentURI(aa.coin, puri);
-    if (p == null) throw S.of(navigatorKey.currentContext!).invalidPaymentURI;
-    return SendContext(
-        p.address!, 7, Amount(p.amount, false), MemoData(false, '', p.memo!), marketPrice.price);
+    // CLOAK doesn't use Zcash-style payment URIs
+    throw S.of(navigatorKey.currentContext!).invalidPaymentURI;
   }
 
   @override
@@ -330,7 +328,7 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
       }
       return aa.poolBalances;
     }
-    return WarpApi.getPoolBalances(aa.coin, aa.id, appSettings.anchorOffset, false).unpack();
+    return aa.poolBalances; // Non-CLOAK path — return cached balances
   }
 
   /// Get the real CLOAK wallet balance directly from Rust FFI,
@@ -587,12 +585,8 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
                                                 // CLOAK address validation
                                                 isValidAddr = _isValidCloakAddress(candidate);
                                               } else {
-                                                // Zcash/Ycash address validation
-                                                try {
-                                                  candidate = WarpApi.parseTexAddress(aa.coin, candidate);
-                                                  parsedTex = true;
-                                                } catch (_) {}
-                                                isValidAddr = parsedTex || WarpApi.validAddress(aa.coin, candidate);
+                                                // Non-CLOAK address validation not supported
+                                                isValidAddr = false;
                                               }
                                               if (isValidAddr) {
                                                 // Check if address matches an existing contact
@@ -1050,16 +1044,16 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
         if (scExtra?.fromThread == true) {
           String? cid = scExtra?.threadCid;
           if (cid == null || cid.isEmpty) {
-            try { cid = WarpApi.getProperty(aa.coin, 'contact_cid_' + aa.id.toString()); } catch (_) {}
+            try { cid = await CloakDb.getProperty('contact_cid_' + aa.id.toString()) ?? ''; } catch (_) {}
           }
           if (cid != null && cid.isNotEmpty) {
             int mySeq = 1;
             try {
-              final s0 = WarpApi.getProperty(aa.coin, 'cid_my_seq_' + cid).trim();
+              final s0 = (await CloakDb.getProperty('cid_my_seq_' + cid) ?? '').trim();
               final v0 = int.tryParse(s0);
               mySeq = (v0 != null && v0 > 0) ? (v0 + 1) : 1;
             } catch (_) { mySeq = 1; }
-            try { WarpApi.setProperty(aa.coin, 'cid_my_seq_' + cid, mySeq.toString()); } catch (_) {}
+            try { await CloakDb.setProperty('cid_my_seq_' + cid, mySeq.toString()); } catch (_) {}
             final amt = _amount.value;
             String header = 'v1; type=payment; conversation_id=' + cid + '; seq=' + mySeq.toString() + (amt > 0 ? '; amount_zat=' + amt.toString() : '');
             final bodyOnly = (effectiveMemo.memo).trim();
@@ -1106,40 +1100,8 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
           GoRouter.of(context).pop({'address': _address, 'amount': _amount.value});
         }
       } else {
-        // Standard Zcash/Ycash flow
-        final builder = RecipientObjectBuilder(
-          address: _address,
-          pools: rp,
-          amount: _amount.value,
-          feeIncluded: _amount.deductFee,
-          replyTo: effectiveMemo.reply,
-          subject: effectiveMemo.subject,
-          memo: effectiveMemo.memo,
-        );
-        final recipient = Recipient(builder.toBytes());
-        if (widget.single) {
-          try {
-            final plan = await load(() => WarpApi.prepareTx(
-                  aa.coin,
-                  aa.id,
-                  [recipient],
-                  _pools,
-                  coinSettings.replyUa,
-                  appSettings.anchorOffset,
-                  coinSettings.feeT,
-                ));
-            if (plan == null || (plan is String && plan.isEmpty)) {
-              showMessageBox2(context, S.of(context).error, 'Failed to prepare transaction plan.');
-              return;
-            }
-            GoRouter.of(context).go('/account/txplan?tab=account', extra: plan);
-          } catch (e) {
-            try { logger.e('prepareTx failed: ' + e.toString()); } catch (_) {}
-            showMessageBox2(context, S.of(context).error, e.toString());
-          }
-        } else {
-          GoRouter.of(context).pop(recipient);
-        }
+        // Non-CLOAK transaction flow no longer supported
+        showMessageBox2(context, S.of(context).error, 'Only CLOAK transactions are supported');
       }
     }
   }
@@ -1155,16 +1117,9 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
       return;
     }
 
-    // Zcash/Ycash payment URI decoding
-    final puri = WarpApi.decodePaymentURI(aa.coin, v);
-    if (puri != null) {
-      final sc = SendContext(puri.address!, _pools, Amount(puri.amount, false),
-          MemoData(false, '', puri.memo!));
-      _didUpdateSendContext(sc);
-    } else {
-      _address = v;
-      _didUpdateAddress(v);
-    }
+    // Non-CLOAK: treat as plain address
+    _address = v;
+    _didUpdateAddress(v);
     setState(() {});
   }
 
@@ -1248,53 +1203,17 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
       return;
     }
 
-    // Zcash/Ycash address handling
-    try {
-      address2 = WarpApi.parseTexAddress(aa.coin, address2);
-      isTex = true;
-      _pools = 1;
-      poolKey.currentState?.setPools(1);
-    } on String {}
-    final receivers = address.isNotEmpty
-        ? WarpApi.receiversOfAddress(aa.coin, address2)
-        : 0;
-    isShielded = receivers & 6 != 0;
-    addressPools = receivers & coinSettings.receipientPools;
-    rp = addressPools;
-    // Inline validation UI
+    // Non-CLOAK address handling (stub)
     final bool fromThread = widget.sendContext?.fromThread ?? false;
     if (address.isEmpty) {
       _addressIsValid = false;
       _cancelAddContactHint();
-      // Suppress error text in thread-launched mode
-      _addressError = fromThread ? null : (_amount.value > 0 ? (CloakWalletManager.isCloak(aa.coin) ? 'Enter address, account, or vault hash' : 'Enter Zcash Address') : null);
+      _addressError = fromThread ? null : 'Enter address';
     } else {
-      final validUnderlying = isTex || WarpApi.validAddress(aa.coin, address2);
-      // In thread-launched mode, the visual field shows a name; treat underlying address as valid and suppress error text
-      if (fromThread) {
-        _addressError = null;
-        _addressIsValid = (addressPools & 6) != 0 && (validUnderlying || isTex);
-      } else {
-        _addressError = validUnderlying ? null : S.of(context).invalidAddress;
-        _addressIsValid = validUnderlying && (addressPools & 6) != 0; // memo-capable (Sapling/Orchard)
-      }
-      if (_addressIsValid) _showAddContactHint();
+      _addressError = null;
+      _addressIsValid = false; // Non-CLOAK addresses not validated
     }
-
-    // Load per-contact reply-to UA if this address matches a stored contact
     _contactReplyToUA = null;
-    try {
-      for (final c in contacts.contacts) {
-        final t = c.unpack();
-        if ((t.address ?? '') == address) {
-          final prop = WarpApi.getProperty(aa.coin, 'contact_rt_' + t.id.toString());
-          if (prop.isNotEmpty) {
-            _contactReplyToUA = prop;
-          }
-          break;
-        }
-      }
-    } catch (_) {}
   }
 
   void _showAddContactHint() {

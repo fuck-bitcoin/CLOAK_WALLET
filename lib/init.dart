@@ -9,7 +9,6 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_mobx/flutter_mobx.dart';
 import 'package:form_builder_validators/form_builder_validators.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:warp_api/warp_api.dart';
 import 'package:window_manager/window_manager.dart';
 import 'package:flex_color_scheme/flex_color_scheme.dart';
 import 'theme/zashi_tokens.dart';

@@ -126,13 +126,6 @@ foreach(bundled_library ${PLUGIN_BUNDLED_LIBRARIES})
     COMPONENT Runtime)
 endforeach(bundled_library)
 
-# Bundle local FFI libraries if present
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/lib/libwarp_api_ffi.so")
-  install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/lib/libwarp_api_ffi.so"
-    DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
-    COMPONENT Runtime)
-endif()
-
 # CLOAK FFI library
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/lib/libzeos_caterpillar.so")
   install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/lib/libzeos_caterpillar.so"

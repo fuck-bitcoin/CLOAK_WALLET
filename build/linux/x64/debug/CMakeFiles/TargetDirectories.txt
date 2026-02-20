@@ -68,10 +68,3 @@
 /home/kameron/Projects/CLOAK Wallet/zwallet/build/linux/x64/debug/plugins/window_manager/CMakeFiles/install.dir
 /home/kameron/Projects/CLOAK Wallet/zwallet/build/linux/x64/debug/plugins/window_manager/CMakeFiles/install/local.dir
 /home/kameron/Projects/CLOAK Wallet/zwallet/build/linux/x64/debug/plugins/window_manager/CMakeFiles/install/strip.dir
-/home/kameron/Projects/CLOAK Wallet/zwallet/build/linux/x64/debug/plugins/rust_lib_YWallet/CMakeFiles/rust_lib_YWallet_cargokit.dir
-/home/kameron/Projects/CLOAK Wallet/zwallet/build/linux/x64/debug/plugins/rust_lib_YWallet/CMakeFiles/edit_cache.dir
-/home/kameron/Projects/CLOAK Wallet/zwallet/build/linux/x64/debug/plugins/rust_lib_YWallet/CMakeFiles/rebuild_cache.dir
-/home/kameron/Projects/CLOAK Wallet/zwallet/build/linux/x64/debug/plugins/rust_lib_YWallet/CMakeFiles/list_install_components.dir
-/home/kameron/Projects/CLOAK Wallet/zwallet/build/linux/x64/debug/plugins/rust_lib_YWallet/CMakeFiles/install.dir
-/home/kameron/Projects/CLOAK Wallet/zwallet/build/linux/x64/debug/plugins/rust_lib_YWallet/CMakeFiles/install/local.dir
-/home/kameron/Projects/CLOAK Wallet/zwallet/build/linux/x64/debug/plugins/rust_lib_YWallet/CMakeFiles/install/strip.dir

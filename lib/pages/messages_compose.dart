@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
-import 'package:warp_api/warp_api.dart';
 import '../accounts.dart';
 import '../appsettings.dart';
 import '../coin/coins.dart';
@@ -11,7 +10,7 @@ import 'utils.dart';
 import 'package:gap/gap.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter_mobx/flutter_mobx.dart';
-import 'package:warp_api/data_fb_generated.dart';
+import '../cloak/cloak_types.dart';
 
 import '../store2.dart';
 import '../utils/message_threads.dart';
@@ -170,37 +169,19 @@ class _ComposeMessagePanelState extends State<ComposeMessagePanel> with TickerPr
     if (CloakWalletManager.isCloak(aa.coin)) {
       return await CloakDb.getProperty(key) ?? '';
     } else {
-      try {
-        return WarpApi.getProperty(aa.coin, key);
-      } catch (_) {
-        return '';
-      }
-    }
-  }
-
-  /// Get a property value synchronously (returns empty for CLOAK - use async version when possible)
-  String _getPropertySync(String key) {
-    if (CloakWalletManager.isCloak(aa.coin)) {
-      // CLOAK requires async access - caller should use async version
       return '';
-    } else {
-      try {
-        return WarpApi.getProperty(aa.coin, key);
-      } catch (_) {
-        return '';
-      }
     }
   }
 
-  /// Set a property value (async for CLOAK, sync for others)
+  /// Get a property value synchronously (returns empty - use async version when possible)
+  String _getPropertySync(String key) {
+    // All property access is async via CloakDb; return empty for sync callers
+    return '';
+  }
+
+  /// Set a property value
   Future<void> _setProperty(String key, String value) async {
-    if (CloakWalletManager.isCloak(aa.coin)) {
-      await CloakDb.setProperty(key, value);
-    } else {
-      try {
-        WarpApi.setProperty(aa.coin, key, value);
-      } catch (_) {}
-    }
+    await CloakDb.setProperty(key, value);
   }
 
   /// Get the reply-to address for a contact (generates if missing)
@@ -217,14 +198,8 @@ class _ComposeMessagePanelState extends State<ComposeMessagePanel> with TickerPr
       // For CLOAK, use the wallet's stable default address
       replyToUA = CloakWalletManager.getDefaultAddress() ?? '';
     } else {
-      // For Zcash/Ycash, use diversified address
-      try {
-        if (aa.id == 0) return null;
-        final t = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-        replyToUA = WarpApi.getDiversifiedAddress(aa.coin, aa.id, 4, t);
-      } catch (_) {
-        return null;
-      }
+      // Only CLOAK is supported
+      return null;
     }
 
     if (replyToUA.isEmpty) return null;
@@ -268,50 +243,7 @@ class _ComposeMessagePanelState extends State<ComposeMessagePanel> with TickerPr
         setState(() {});
         return;
       }
-      // Require Orchard-capable receiver (bit 4) - skip for CLOAK
-      if (!CloakWalletManager.isCloak(aa.coin)) {
-        final receivers = WarpApi.receiversOfAddress(aa.coin, address);
-        final hasOrchard = (receivers & 4) != 0;
-        if (!hasOrchard) {
-          showSnackBar('Contact address is not Orchard-capable');
-          _inviteSending = false;
-          try { syncStatus2.setPause(false); } catch (_) {}
-          try { _sendingOverlay?.hide(); } catch (_) {}
-          setState(() {});
-          return;
-        }
-      }
-
-      // Ensure wallet is synced before sending (native lib needs current height for consensus rules)
-      // Skip for CLOAK - table-based sync is instant
-      if (!CloakWalletManager.isCloak(aa.coin)) {
-        try {
-          var latestHeight = await WarpApi.getLatestHeight(aa.coin);
-          var syncedHeight = syncStatus2.syncedHeight;
-          var gap = latestHeight - syncedHeight;
-          print('Pre-send sync check: synced=$syncedHeight, latest=$latestHeight, gap=$gap');
-          if (gap > 10) {
-            // Need to sync first - warp sync is fast
-            try { _sendingOverlay?.setStatus('Syncing…'); } catch (_) {}
-            syncStatus2.setPause(false);
-            // Trigger sync and wait for it to actually complete
-            await syncStatus2.sync(false);
-            // Wait until synced or timeout (30 seconds max)
-            for (int i = 0; i < 60 && !syncStatus2.isSynced; i++) {
-              await Future.delayed(const Duration(milliseconds: 500));
-              syncedHeight = syncStatus2.syncedHeight;
-              print('Waiting for sync: $syncedHeight / $latestHeight');
-            }
-            // Re-check gap after sync
-            latestHeight = await WarpApi.getLatestHeight(aa.coin);
-            syncedHeight = syncStatus2.syncedHeight;
-            gap = latestHeight - syncedHeight;
-            print('Post-sync: synced=$syncedHeight, latest=$latestHeight, gap=$gap');
-          }
-        } catch (e) {
-          print('Pre-send sync failed: $e');
-        }
-      }
+      // CLOAK: address validation is handled by the wallet manager
 
       // Get per-contact reply_to_ua; lazily generate if missing
       String cidKey = 'contact_cid_' + contact.id.toString();
@@ -410,32 +342,7 @@ class _ComposeMessagePanelState extends State<ComposeMessagePanel> with TickerPr
           throw Exception('CLOAK transaction failed');
         }
       } else {
-        // Zcash/Ycash: Use WarpApi
-        final int recipientPools = 4; // Orchard only
-        final builder = RecipientObjectBuilder(
-          address: address,
-          pools: recipientPools,
-          amount: 0, // zero-value output carries memo; pay fee only
-          feeIncluded: false,
-          replyTo: false,
-          subject: '',
-          memo: memo,
-        );
-        final recipient = Recipient(builder.toBytes());
-        try { _sendingOverlay?.setStatus('Preparing…'); } catch (_) {}
-        final plan = await WarpApi.prepareTx(
-          aa.coin,
-          aa.id,
-          [recipient],
-          7, // spend from any pool
-          coinSettings.replyUa,
-          appSettings.anchorOffset,
-          coinSettings.feeT,
-        );
-        try { _sendingOverlay?.setStatus('Signing…'); } catch (_) {}
-        final signedTx = await WarpApi.signOnly(aa.coin, aa.id, plan);
-        try { _sendingOverlay?.setStatus('Broadcasting…'); } catch (_) {}
-        txResult = await WarpApi.broadcast(aa.coin, signedTx);
+        throw Exception('Only CLOAK accounts are supported');
       }
 
       // Warning already shown non-blocking above
@@ -666,27 +573,7 @@ class _ComposeMessagePanelState extends State<ComposeMessagePanel> with TickerPr
         showSnackBar('No pending invite found');
         return;
       }
-      // Ensure wallet is synced before sending (native lib needs current height for consensus rules)
-      // Skip for CLOAK - table-based sync is instant
-      if (!CloakWalletManager.isCloak(aa.coin)) {
-        try {
-          var latestHeight = await WarpApi.getLatestHeight(aa.coin);
-          var syncedHeight = syncStatus2.syncedHeight;
-          var gap = latestHeight - syncedHeight;
-          print('Pre-accept sync check: synced=$syncedHeight, latest=$latestHeight, gap=$gap');
-          if (gap > 10) {
-            syncStatus2.setPause(false);
-            await syncStatus2.sync(false);
-            // Wait until synced or timeout
-            for (int i = 0; i < 60 && !syncStatus2.isSynced; i++) {
-              await Future.delayed(const Duration(milliseconds: 500));
-            }
-            print('Post-sync: synced=${syncStatus2.syncedHeight}');
-          }
-        } catch (e) {
-          print('Pre-accept sync failed: $e');
-        }
-      }
+      // CLOAK: table-based sync is instant, no pre-accept sync needed
       // Require per-contact reply_to_ua (my UA for this peer); lazily generate if missing
       String? replyToUA = await _getOrCreateReplyToAddress(contact.id);
       if (replyToUA == null || replyToUA.isEmpty) {
@@ -707,23 +594,7 @@ class _ComposeMessagePanelState extends State<ComposeMessagePanel> with TickerPr
         setState(() {});
         return;
       }
-      // Validate Orchard capability - skip for CLOAK
-      if (!CloakWalletManager.isCloak(aa.coin)) {
-        try {
-          final rcv = WarpApi.receiversOfAddress(aa.coin, address);
-          if ((rcv & 4) == 0) {
-            showSnackBar('Invite reply-to address is not Orchard-capable');
-            _acceptSending = false;
-            setState(() {});
-            return;
-          }
-        } catch (_) {
-          showSnackBar('Invalid reply-to address in invite');
-          _acceptSending = false;
-          setState(() {});
-          return;
-        }
-      }
+      // CLOAK: address validation handled by wallet manager
 
       final inReplyTo = pending.inviteSeq ?? 1;
       String fn = (await _getProperty('my_first_name')).trim();
@@ -771,32 +642,7 @@ class _ComposeMessagePanelState extends State<ComposeMessagePanel> with TickerPr
           throw Exception('CLOAK accept transaction failed');
         }
       } else {
-        // Zcash/Ycash: Use WarpApi
-        final int recipientPools = 4; // Orchard only
-        final builder = RecipientObjectBuilder(
-          address: address,
-          pools: recipientPools,
-          amount: 0, // zero-value output carries memo; pay fee only
-          feeIncluded: false,
-          replyTo: false,
-          subject: '',
-          memo: memo,
-        );
-        final recipient = Recipient(builder.toBytes());
-        try { _sendingOverlay?.setStatus('Preparing…'); } catch (_) {}
-        final plan = await WarpApi.prepareTx(
-          aa.coin,
-          aa.id,
-          [recipient],
-          7,
-          coinSettings.replyUa,
-          appSettings.anchorOffset,
-          coinSettings.feeT,
-        );
-        try { _sendingOverlay?.setStatus('Signing…'); } catch (_) {}
-        final signedTx = await WarpApi.signOnly(aa.coin, aa.id, plan);
-        try { _sendingOverlay?.setStatus('Broadcasting…'); } catch (_) {}
-        txResult = await WarpApi.broadcast(aa.coin, signedTx);
+        throw Exception('Only CLOAK accounts are supported');
       }
       try { await _sendingOverlay?.hide(); } catch (_) {}
       // Persist my seq counter for this cid so subsequent messages start after accept
@@ -820,8 +666,7 @@ class _ComposeMessagePanelState extends State<ComposeMessagePanel> with TickerPr
         // The async check happens in _sendInvite before actually sending
         return true; // Will be checked async before send
       }
-      final first = WarpApi.getProperty(aa.coin, 'my_first_name');
-      return first.trim().isNotEmpty;
+      return false; // Non-CLOAK not supported
     } catch (_) {
       return false;
     }
@@ -954,15 +799,8 @@ class _ComposeMessagePanelState extends State<ComposeMessagePanel> with TickerPr
     // Ensure contacts are loaded for suggestions
     try { contacts.fetchContacts(); } catch (_) {}
     // Load persistent warning preference
-    if (CloakWalletManager.isCloak(aa.coin)) {
-      // For CLOAK, load async
-      _loadChatWarnDismissedAsync();
-    } else {
-      try {
-        final v = WarpApi.getProperty(aa.coin, 'chat_warn_dismissed');
-        _chatWarnDismissed = (v == '1' || v.toLowerCase() == 'true');
-      } catch (_) {}
-    }
+    // Load async from CloakDb
+    _loadChatWarnDismissedAsync();
   }
 
   /// Load chat warning preference asynchronously for CLOAK
@@ -1285,7 +1123,7 @@ class _ComposeMessagePanelState extends State<ComposeMessagePanel> with TickerPr
           } catch (_) {}
         }
       } else {
-        try { cid = WarpApi.getProperty(aa.coin, 'contact_cid_' + contact.id.toString()); } catch (_) {}
+        cid = '';
       }
       if (cid.isEmpty) return false;
       for (final m in aa.messages.items) {
@@ -1402,7 +1240,7 @@ extension _ComposeUI on _ComposeMessagePanelState {
             } catch (_) {}
           }
         } else {
-          cid = WarpApi.getProperty(aa.coin, 'contact_cid_' + contact.id.toString());
+          cid = '';
         }
         if (cid.isNotEmpty) {
           final addr = contact.safeAddress;

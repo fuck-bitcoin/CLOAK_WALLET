@@ -6,8 +6,6 @@ import 'package:flutter_mobx/flutter_mobx.dart';
 import 'package:gap/gap.dart';
 import 'package:go_router/go_router.dart';
 import 'package:qr_flutter/qr_flutter.dart';
-import 'package:warp_api/warp_api.dart';
-
 import '../../accounts.dart';
 import '../../appsettings.dart';
 import '../../coin/coins.dart';
@@ -32,7 +30,7 @@ class AddressCarousel extends StatefulWidget {
 }
 
 class AddressCarouselState extends State<AddressCarousel> {
-  final int availableMode = WarpApi.getAvailableAddrs(aa.coin, aa.id);
+  final int availableMode = 0x7; // All modes available (stub)
   List<int> addressModes = [];
   List<Widget> addresses = [];
   int index = 0;
@@ -159,10 +157,8 @@ class _QRAddressState extends State<QRAddressWidget> {
 
     return Observer(builder: (context) {
       aa.diversifiedAddress;
-      final uri = a != 0 || widget.memo?.isNotEmpty == true
-          ? WarpApi.makePaymentURI(
-              aa.coin, address, widget.amount!, widget.memo ?? '')
-          : address;
+      // CLOAK doesn't use Zcash payment URIs — just use plain address
+      final uri = address;
       return Column(children: [
         QrImage(
           data: uri,
@@ -205,27 +201,13 @@ class _QRAddressState extends State<QRAddressWidget> {
 
   String get address {
     if (aa.id == 0) return '';
-    final uaType;
-    switch (widget.addressMode) {
-      case 0:
-        // Main (unified) address should be static, not diversified
-        return WarpApi.getAddress(aa.coin, aa.id, coinSettings.uaType);
-      case 4:
-        return aa.diversifiedAddress;
-      default:
-        uaType = 1 << (widget.addressMode - 1);
-        break;
-    }
-    return WarpApi.getAddress(aa.coin, aa.id, uaType);
+    // CLOAK: always return the diversified address
+    return aa.diversifiedAddress;
   }
 
   String get uri {
-    final a = widget.amount ?? 0;
-    final uri = a != 0
-        ? WarpApi.makePaymentURI(
-            aa.coin, address, widget.amount!, widget.memo ?? '')
-        : address;
-    return uri;
+    // CLOAK doesn't use Zcash payment URIs
+    return address;
   }
 
   addressCopy() {

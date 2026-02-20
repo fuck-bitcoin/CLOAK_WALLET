@@ -81,3 +81,76 @@ class CloakFee {
 
   CloakFee({this.fee = 0, this.minFee = 0, this.maxFee = 0, this.scheme = 0});
 }
+
+/// Replacement for RecipientT from data_fb_generated.dart.
+class RecipientT {
+  String? address;
+  int amount;
+  bool replyTo;
+  String? subject;
+  String? memo;
+  int maxAmountPerNote;
+
+  RecipientT({
+    this.address,
+    this.amount = 0,
+    this.replyTo = false,
+    this.subject,
+    this.memo,
+    this.maxAmountPerNote = 0,
+  });
+}
+
+/// Replacement for KeyPackT from data_fb_generated.dart.
+class KeyPackT {
+  String? tAddr;
+  String? tKey;
+  String? zAddr;
+  String? zKey;
+
+  KeyPackT({this.tAddr, this.tKey, this.zAddr, this.zKey});
+}
+
+/// Replacement for Backup from warp_api.
+class Backup {
+  String? name;
+  String? seed;
+  int index;
+  String? sk;
+  String? fvk;
+  String? uvk;
+  String? tsk;
+
+  Backup({
+    this.name,
+    this.seed,
+    this.index = 0,
+    this.sk,
+    this.fvk,
+    this.uvk,
+    this.tsk,
+  });
+}
+
+/// Type aliases for backward compatibility with FlatBuffer type names.
+/// The old warp_api used Contact (packed) / ContactT (unpacked) and Account.
+/// In CLOAK, CloakContact and CloakAccount are always "unpacked".
+typedef ContactT = CloakContact;
+typedef Contact = CloakContact;
+typedef Account = CloakAccount;
+typedef PoolBalanceT = CloakBalance;
+
+/// Stub for Memo type from warp_api FlatBuffers.
+class Memo {
+  String? address;
+  String? memo;
+  Memo({this.address, this.memo});
+}
+
+
+/// Extension to provide FlatBuffer-compatible `.unpack()` on CloakContact.
+/// The old FlatBuffer Contact had a packed/unpacked pattern; CloakContact
+/// is always unpacked, so `.unpack()` simply returns `this`.
+extension CloakContactUnpack on CloakContact {
+  CloakContact unpack() => this;
+}

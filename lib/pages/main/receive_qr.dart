@@ -3,11 +3,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_mobx/flutter_mobx.dart';
 import 'package:gap/gap.dart';
 import 'package:go_router/go_router.dart';
-import 'package:warp_api/warp_api.dart';
-
 import '../../accounts.dart';
 import '../../cloak/cloak_wallet_manager.dart';
-import '../../appsettings.dart';
 import '../../generated/intl/messages.dart';
 import '../utils.dart';
 import 'qr_address.dart';
@@ -128,10 +125,9 @@ class _ReceiveAddressPanelsState extends State<ReceiveAddressPanels> {
         );
       }
 
-      // Zcash/Ycash address handling
-      final uaType = coinSettings.uaType;
-      final unified = aa.id == 0 ? '' : WarpApi.getAddress(aa.coin, aa.id, uaType);
-      final transparent = aa.id == 0 ? '' : WarpApi.getAddress(aa.coin, aa.id, 1);
+      // Non-CLOAK address handling (stub — only CLOAK is supported)
+      final unified = '';
+      final transparent = '';
 
       return Column(
         children: [
@@ -198,10 +194,8 @@ class _ReceiveAddressPanelsState extends State<ReceiveAddressPanels> {
   }
 
   void _showQr(BuildContext context, String title, String value) {
-    // Fallback to current UA if the provided value is empty
-    final text = value.isNotEmpty
-        ? value
-        : (aa.id == 0 ? '' : WarpApi.getAddress(aa.coin, aa.id, coinSettings.uaType));
+    // Fallback to current address if the provided value is empty
+    final text = value.isNotEmpty ? value : '';
     if (text.isEmpty) return;
     final qrUri = Uri(path: '/showqr', queryParameters: {'title': title, 'addr': text});
     GoRouter.of(context).push(qrUri.toString(), extra: text);

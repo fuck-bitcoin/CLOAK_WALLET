@@ -3,8 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_form_builder/flutter_form_builder.dart';
 import 'package:gap/gap.dart';
 import 'package:go_router/go_router.dart';
-import 'package:warp_api/data_fb_generated.dart';
-import 'package:warp_api/warp_api.dart';
+import '../../cloak/cloak_types.dart';
 
 import '../../accounts.dart';
 import '../../cloak/cloak_db.dart';
@@ -70,18 +69,8 @@ class BackupPage extends StatefulWidget {
       cloakBackup = null; // Will be loaded async
       // primary will be set in _loadCloakBackup()
     } else {
-      // Zcash/Ycash: Use WarpApi
-      zcashBackup = WarpApi.getBackup(aa.coin, aa.id);
-      if (zcashBackup!.seed != null)
-        primary = zcashBackup!.seed!;
-      else if (zcashBackup!.sk != null)
-        primary = zcashBackup!.sk!;
-      else if (zcashBackup!.uvk != null)
-        primary = zcashBackup!.uvk!;
-      else if (zcashBackup!.fvk != null)
-        primary = zcashBackup!.fvk!;
-      else
-        throw 'Account has no key';
+      // Non-CLOAK: no longer supported
+      throw 'Only CLOAK accounts are supported';
     }
   }
 
@@ -270,39 +259,7 @@ class _BackupState extends State<BackupPage> {
         cards.add(_buildVaultsSection(name, small));
       }
     } else {
-      final backup = widget.zcashBackup!;
-      name = backup.name!;
-
-      if (backup.seed != null) {
-        var seed = backup.seed!;
-        if (backup.index != 0) seed += ' [${backup.index}]';
-        cards.add(BackupPanel(name, s.seed, seed, Icon(Icons.save)));
-        style = small;
-      }
-      if (backup.sk != null) {
-        cards.add(BackupPanel(
-            name, s.secretKey, backup.sk!, Icon(Icons.vpn_key),
-            style: style));
-        style = small;
-      }
-      if (backup.uvk != null) {
-        cards.add(BackupPanel(
-            name, s.unifiedViewingKey, backup.uvk!, Icon(Icons.visibility),
-            style: style));
-        style = small;
-      }
-      if (backup.fvk != null) {
-        cards.add(BackupPanel(name, s.viewingKey, backup.fvk!,
-            Icon(Icons.visibility_outlined),
-            style: style));
-        style = small;
-      }
-      if (backup.tsk != null) {
-        cards.add(BackupPanel(
-            name, s.transparentKey, backup.tsk!, Icon(Icons.key),
-            style: style));
-        style = small;
-      }
+      name = 'Account';
     }
 
     if (cards.isEmpty) {
@@ -356,10 +313,7 @@ class _BackupState extends State<BackupPage> {
   }
 
   _remind(bool? v) {
-    if (!widget.isCloak) {
-      WarpApi.setBackupReminder(aa.coin, aa.id, v!);
-      setActiveAccount(aa.coin, aa.id); // reload
-    }
+    // CLOAK doesn't use backup reminders
   }
 
   /// Build the vaults section widget

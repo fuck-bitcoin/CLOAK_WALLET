@@ -4,11 +4,11 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:warp_api/data_fb_generated.dart';
-import 'package:warp_api/warp_api.dart';
 import 'package:window_manager/window_manager.dart';
 
+import 'cloak/cloak_types.dart';
 import 'cloak/cloak_wallet_manager.dart';
+import 'cloak/cloak_db.dart';
 import 'settings.pb.dart';
 import 'coin/coins.dart';
 
@@ -103,39 +103,17 @@ extension CoinSettingsExtension on CoinSettings {
   }
 
   static CoinSettings load(int coin) {
-    // CLOAK doesn't use WarpApi's SQLite database
-    if (CloakWalletManager.isCloak(coin)) {
-      return CoinSettings()..defaults(coin);
-    }
-    final p = WarpApi.getProperty(coin, 'settings');
-    return CoinSettings.fromBuffer(base64Decode(p))..defaults(coin);
+    return CoinSettings()..defaults(coin);
   }
 
   void save(int coin) {
-    // CLOAK doesn't use WarpApi's SQLite database
-    if (CloakWalletManager.isCloak(coin)) {
-      // TODO: Store CLOAK settings in shared_preferences or wallet file
-      return;
-    }
+    // CLOAK stores settings in CloakDb properties table
     final bytes = writeToBuffer();
     final settings = base64Encode(bytes);
-    const int maxAttempts = 8;
-    int attempt = 0;
-    while (true) {
-      try {
-        WarpApi.setProperty(coin, 'settings', settings);
-        break;
-      } catch (e) {
-        attempt += 1;
-        if (attempt >= maxAttempts) rethrow;
-        final msg = e.toString();
-        if (!msg.contains('database is locked')) rethrow;
-        sleep(Duration(milliseconds: 50 * attempt));
-      }
-    }
+    CloakDb.setProperty('coin_settings', settings);
   }
 
-  FeeT get feeT => FeeT(scheme: manualFee ? 1 : 0, fee: fee.toInt());
+  CloakFee get feeT => CloakFee(scheme: manualFee ? 1 : 0, fee: fee.toInt());
 
   String resolveBlockExplorer(int coin) {
     final explorers = coins[coin].blockExplorers;

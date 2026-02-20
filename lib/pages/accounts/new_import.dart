@@ -4,7 +4,6 @@ import 'package:form_builder_validators/form_builder_validators.dart';
 import 'package:gap/gap.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:warp_api/warp_api.dart';
 import 'package:bip39/bip39.dart' as bip39;
 import 'package:bip39/src/wordlists/english.dart' as bip39_words;
 
@@ -314,8 +313,8 @@ class _NewImportAccountState extends State<NewImportAccountPage>
           final started = await SignatureProvider.start();
           print('[new_import] Signature provider ${started ? "started" : "failed to start"}');
         } else {
-          // Zcash/Ycash use WarpApi
-          account = await WarpApi.newAccount(coin, nameController.text, _key, index);
+          // Non-CLOAK coins no longer supported
+          throw 'Only CLOAK accounts are supported';
         }
         
         print('[new_import] account = $account');
@@ -330,15 +329,7 @@ class _NewImportAccountState extends State<NewImportAccountPage>
           await aa.save(prefs);
           print('[new_import] aa.save done');
           
-          // CLOAK doesn't use WarpApi for account counting
-          if (!CloakWalletManager.isCloak(coin)) {
-            final count = WarpApi.countAccounts(coin);
-            if (count == 1 && _key.isEmpty) {
-              // First account of a coin with NO seed: skip to latest height
-              // (new wallet, no history to sync)
-              await WarpApi.skipToLastHeight(coin);
-            }
-          }
+          // CLOAK handles sync differently - no WarpApi account counting needed
           if (widget.first) {
             if (_key.isNotEmpty) {
               // Restoring from seed
@@ -395,20 +386,11 @@ class _NewImportAccountState extends State<NewImportAccountPage>
       return null;
     }
 
-    // Zcash/Ycash validation
-    if (WarpApi.isValidTransparentKey(v)) return s.cannotUseTKey;
-    final keyType = WarpApi.validKey(coin, v);
-    if (keyType < 0) return s.invalidKey;
-    return null;
+    // Non-CLOAK key validation not available
+    return s.invalidKey;
   }
 
   _importLedger() async {
-    try {
-      final account =
-          await WarpApi.importFromLedger(aa.coin, nameController.text);
-      setActiveAccount(coin, account);
-    } on String catch (msg) {
-      formKey.currentState!.fields['key']!.invalidate(msg);
-    }
+    // Ledger import not supported for CLOAK
   }
 }

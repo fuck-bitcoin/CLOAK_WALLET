@@ -10,8 +10,6 @@ import 'package:settings_ui/settings_ui.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 import 'package:protobuf/protobuf.dart';
-import 'package:warp_api/warp_api.dart';
-
 import '../accounts.dart';
 import '../coin/coin.dart';
 import '../coin/coins.dart';
@@ -108,8 +106,7 @@ class _SettingsState extends State<SettingsPage>
       coinKey.currentState?.let((c) => coinSettings.save(aa.coin));
       app.appSettings = app.AppSettingsExtension.load(prefs);
       app.coinSettings = app.CoinSettingsExtension.load(aa.coin);
-      final serverUrl = resolveURL(coins[aa.coin], app.coinSettings);
-      WarpApi.updateLWD(aa.coin, serverUrl);
+      // CLOAK doesn't use LWD servers
       aaSequence.settingsSeqno = DateTime.now().millisecondsSinceEpoch;
       Future(() async {
         await marketPrice.update();
@@ -600,8 +597,8 @@ class _CoinState extends State<CoinTab> with AutomaticKeepAliveClientMixin {
       final c = coins[widget.coin];
       final server = c.lwd[i].url;
       Future(() async {
-        final ping = await WarpApi.ping(server);
-        pings[i] = ping;
+        // CLOAK doesn't use LWD ping
+        pings[i] = 0;
         setState(() {});
       });
     }

@@ -2,8 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_form_builder/flutter_form_builder.dart';
 import 'package:gap/gap.dart';
 import 'package:go_router/go_router.dart';
-import 'package:warp_api/warp_api.dart';
-
 import '../coin/coins.dart';
 import '../generated/intl/messages.dart';
 import '../store2.dart';
@@ -49,12 +47,8 @@ class _DbLoginState extends State<DbLoginPage> {
   _ok() {
     final s = S.of(context);
     final password = passwordController.text;
-    final c = coins.first;
-    if (WarpApi.decryptDb(c.dbFullPath, password)) {
-      appStore.dbPassword = password;
-      GoRouter.of(context).go('/splash');
-    } else {
-      formKey.currentState!.fields['password']!.invalidate(s.invalidPassword);
-    }
+    // CLOAK doesn't use encrypted DB — always accept
+    appStore.dbPassword = password;
+    GoRouter.of(context).go('/splash');
   }
 }

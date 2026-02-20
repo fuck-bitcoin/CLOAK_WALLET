@@ -2,19 +2,18 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:showcaseview/showcaseview.dart';
-import 'package:warp_api/data_fb_generated.dart';
 import 'settings.pb.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter_mobx/flutter_mobx.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:warp_api/warp_api.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:material_design_icons_flutter/material_design_icons_flutter.dart';
 
 import 'accounts.dart';
+import 'cloak/cloak_types.dart';
 import 'cloak/cloak_wallet_manager.dart';
 import 'cloak/cloak_db.dart';
 import 'coin/coins.dart';
@@ -660,9 +659,7 @@ final router = GoRouter(
         final c = coins.first;
         if (isMobile()) return null; // db encryption is only for desktop
         if (!File(c.dbFullPath).existsSync()) return null; // fresh install
-        if (WarpApi.decryptDb(c.dbFullPath, appStore.dbPassword))
-          return null; // not encrypted
-        return '/decrypt_db';
+        return null; // CLOAK doesn't use encrypted DB files
       },
     ),
     GoRoute(
@@ -1004,7 +1001,7 @@ class _ScaffoldBar extends State<ScaffoldBar> with TickerProviderStateMixin {
 
   Future<void> _openAccountSwitcher() async {
     final ThemeData t = Theme.of(context);
-    final List<Account> accounts = getAllAccounts();
+    final List<CloakAccount> accounts = getAllAccounts();
     final int selectedIndex = accounts.indexWhere((a) => a.coin == aa.coin && a.id == aa.id);
 
     await showGeneralDialog<void>(
@@ -1036,7 +1033,7 @@ class _ScaffoldBar extends State<ScaffoldBar> with TickerProviderStateMixin {
 
 class _TopAccountSheet extends StatefulWidget {
   final ThemeData theme;
-  final List<Account> accounts;
+  final List<CloakAccount> accounts;
   final int selectedIndex;
   final BuildContext parentContext;
   const _TopAccountSheet({required this.theme, required this.accounts, required this.selectedIndex, required this.parentContext});
@@ -1051,7 +1048,7 @@ class _TopAccountSheetState extends State<_TopAccountSheet> with SingleTickerPro
   bool _showNewAccountMenu = false;
   bool _showNewVault = false;
   final Set<int> _actionIndices = {};
-  late List<Account> _accounts;
+  late List<CloakAccount> _accounts;
   int? _editingIndex;
   final TextEditingController _editNameController = TextEditingController();
   final FocusNode _editFocusNode = FocusNode();
@@ -1077,7 +1074,7 @@ class _TopAccountSheetState extends State<_TopAccountSheet> with SingleTickerPro
   @override
   void initState() {
     super.initState();
-    _accounts = List<Account>.from(widget.accounts);
+    _accounts = List<CloakAccount>.from(widget.accounts);
     // Ensure persisted order is applied when the sheet opens
     // (async post-frame to avoid setState during build)
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -1894,10 +1891,6 @@ class _TopAccountSheetState extends State<_TopAccountSheet> with SingleTickerPro
                                 if (CloakWalletManager.isCloak(a.coin)) {
                                   // CLOAK uses stable default address (getAddress() mutates wallet)
                                   mainAddr = CloakWalletManager.getDefaultAddress() ?? '';
-                                } else {
-                                  final cs = CoinSettingsExtension.load(a.coin);
-                                  final uaType = cs.uaType;
-                                  mainAddr = WarpApi.getAddress(a.coin, a.id, uaType);
                                 }
                                 addrPreview = mainAddr.isNotEmpty
                                     ? (mainAddr.length > 20 ? mainAddr.substring(0, 20) + '...' : mainAddr)
@@ -2195,7 +2188,7 @@ class _TopAccountSheetState extends State<_TopAccountSheet> with SingleTickerPro
     });
   }
 
-  Future<void> _renameAccount(BuildContext context, Account a) async {
+  Future<void> _renameAccount(BuildContext context, CloakAccount a) async {
     final controller = TextEditingController(text: a.name ?? '');
     final s = S.of(context);
     final newName = await showDialog<String>(
@@ -2210,11 +2203,12 @@ class _TopAccountSheetState extends State<_TopAccountSheet> with SingleTickerPro
       ),
     );
     if (newName == null || newName.isEmpty) return;
-    WarpApi.updateAccountName(a.coin, a.id, newName);
+    await CloakDb.updateAccountName(a.id, newName);
+    await refreshCloakAccountsCache();
     await _refreshAccounts();
   }
 
-  Future<void> _deleteAccount(BuildContext context, Account a) async {
+  Future<void> _deleteAccount(BuildContext context, CloakAccount a) async {
     final s = S.of(context);
     final count = _accounts.length;
     if (count > 1 && a.coin == aa.coin && a.id == aa.id) {
@@ -2226,13 +2220,9 @@ class _TopAccountSheetState extends State<_TopAccountSheet> with SingleTickerPro
     }
     final confirmed = await showConfirmDialog(context, s.deleteAccount(a.name!), s.confirmDeleteAccount);
     if (!confirmed) return;
-    if (CloakWalletManager.isCloak(a.coin)) {
-      await CloakDb.deleteAccount(a.id);
-      await CloakWalletManager.deleteWallet();
-      await refreshCloakAccountsCache();
-    } else {
-      WarpApi.deleteAccount(a.coin, a.id);
-    }
+    await CloakDb.deleteAccount(a.id);
+    await CloakWalletManager.deleteWallet();
+    await refreshCloakAccountsCache();
     await _refreshAccounts();
     if (count == 1) {
       setActiveAccount(0, 0);
@@ -2240,7 +2230,7 @@ class _TopAccountSheetState extends State<_TopAccountSheet> with SingleTickerPro
     }
   }
 
-  Future<void> _convertToWatchOnly(BuildContext context, Account a) async {
+  Future<void> _convertToWatchOnly(BuildContext context, CloakAccount a) async {
     final s = S.of(context);
     final confirmed = await showConfirmDialog(
       context,
@@ -2250,11 +2240,8 @@ class _TopAccountSheetState extends State<_TopAccountSheet> with SingleTickerPro
       cancelLabel: s.cancel,
     );
     if (!confirmed) return;
-    if (CloakWalletManager.isCloak(a.coin)) {
-      // CLOAK doesn't support watch-only conversion yet
-      return;
-    }
-    WarpApi.convertToWatchOnly(a.coin, a.id);
+    // CLOAK doesn't support watch-only conversion yet
+    return;
     // If the converted account is currently active, refresh the active account
     // so Home reacts to canPay change (quick actions update immediately)
     if (a.coin == aa.coin && a.id == aa.id) {
@@ -2263,7 +2250,7 @@ class _TopAccountSheetState extends State<_TopAccountSheet> with SingleTickerPro
     await _refreshAccounts();
   }
 
-  void _startInlineRename(int index, Account a) {
+  void _startInlineRename(int index, CloakAccount a) {
     setState(() {
       _editingIndex = index;
       _editNameController.text = a.name ?? '';
@@ -2278,17 +2265,13 @@ class _TopAccountSheetState extends State<_TopAccountSheet> with SingleTickerPro
     });
   }
 
-  Future<void> _commitInlineRename(Account a) async {
+  Future<void> _commitInlineRename(CloakAccount a) async {
     final newName = _editNameController.text.trim();
     // Persist current order (in case user moved via chevrons) regardless of name change
     await saveAccountOrder(_accounts);
     if (newName.isNotEmpty && newName != (a.name ?? '')) {
-      if (CloakWalletManager.isCloak(a.coin)) {
-        await CloakDb.updateAccountName(a.id, newName);
-        await refreshCloakAccountsCache();
-      } else {
-        WarpApi.updateAccountName(a.coin, a.id, newName);
-      }
+      await CloakDb.updateAccountName(a.id, newName);
+      await refreshCloakAccountsCache();
     }
     await _refreshAccounts();
   }

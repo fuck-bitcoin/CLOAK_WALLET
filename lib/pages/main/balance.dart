@@ -63,8 +63,7 @@ class BalanceState extends State<BalanceWidget> {
       aa.poolBalances; // Watch pool balances directly
       appStore.flat;
       appStore.hideBalances;
-      // Watch for pending migration changes
-      pendingMigrations.pending.length;
+      // pendingMigrations removed (Zcash-only feature)
 
       // Only obey manual eyeball toggle; ignore tilt-to-hide (disabled)
       final hideBalance = false;

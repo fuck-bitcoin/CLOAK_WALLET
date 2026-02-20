@@ -13,8 +13,6 @@ import 'package:qr/qr.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:warp_api/warp_api.dart';
-import 'package:warp_api/data_fb_generated.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'widgets.dart';
 
@@ -94,41 +92,14 @@ class _RequestPageState extends State<RequestPage> {
           ? aa.diversifiedAddress
           : (CloakWalletManager.getDefaultAddress() ?? '');
     }
-    // Modes align with our AddressCarousel: 0 main UA, 4 diversified UA (rotating)
+    // Non-CLOAK address modes no longer supported
     if (aa.id == 0) return '';
-    try {
-      switch (mode) {
-        case 4:
-          return aa.diversifiedAddress;
-        case 0:
-          return WarpApi.getAddress(aa.coin, aa.id, coinSettings.uaType);
-        case 1:
-        case 2:
-        case 3:
-          final uaType = 1 << (mode! - 1);
-          return WarpApi.getAddress(aa.coin, aa.id, uaType);
-        default:
-          // Default to rotating shielded if available
-          return aa.diversifiedAddress.isNotEmpty
-              ? aa.diversifiedAddress
-              : WarpApi.getAddress(aa.coin, aa.id, coinSettings.uaType);
-      }
-    } catch (_) {
-      return '';
-    }
+    return aa.diversifiedAddress;
   }
 
   bool _isTransparentAddress(String addr) {
-    if (addr.isEmpty) return false;
     // CLOAK addresses are always shielded
-    if (CloakWalletManager.isCloak(aa.coin)) return false;
-    try {
-      final receivers = WarpApi.receiversOfAddress(aa.coin, addr);
-      final bool hasShielded = (receivers & 6) != 0; // 2=sapling, 4=orchard
-      return !hasShielded;
-    } catch (_) {
-      return addr.startsWith('t');
-    }
+    return false;
   }
 
   @override
@@ -558,12 +529,8 @@ class _RequestPageState extends State<RequestPage> {
     // Normal flow: show QR code
     try {
       String uri;
-      if (CloakWalletManager.isCloak(aa.coin)) {
-        // CLOAK: simple URI (no ZIP-321)
-        uri = (zats == 0 && memo.isEmpty) ? addr : 'cloak:$addr?amount=$zecStr${memo.isNotEmpty ? '&memo=${Uri.encodeComponent(memo)}' : ''}';
-      } else {
-        uri = WarpApi.makePaymentURI(aa.coin, addr, zats, memo);
-      }
+      // CLOAK: simple URI (no ZIP-321)
+      uri = (zats == 0 && memo.isEmpty) ? addr : 'cloak:$addr?amount=$zecStr${memo.isNotEmpty ? '&memo=${Uri.encodeComponent(memo)}' : ''}';
       setState(() {
         _requestUri = uri;
         _slideForwards = true;
@@ -575,146 +542,9 @@ class _RequestPageState extends State<RequestPage> {
   }
 
   Future<void> _sendRequestToThread(int zats, String memoText) async {
-    final String cid = _threadCid!;
-    final String dest = _threadAddress!;
-    
-    try {
-      final rcv = WarpApi.receiversOfAddress(aa.coin, dest);
-      if ((rcv & 4) == 0) {
-        showSnackBar('Reply address is not Orchard-capable');
-        return;
-      }
-    } catch (_) {
-      showSnackBar('Invalid reply address');
-      return;
-    }
-
-    // Compute next sequence number
-    int mySeq = 1;
-    try {
-      final s = WarpApi.getProperty(aa.coin, 'cid_my_seq_' + cid).trim();
-      final v = int.tryParse(s);
-      mySeq = (v != null && v > 0) ? (v + 1) : 1;
-    } catch (_) { mySeq = 1; }
-
-    // Reserve sequence number IMMEDIATELY (before async operations)
-    try { WarpApi.setProperty(aa.coin, 'cid_my_seq_' + cid, mySeq.toString()); } catch (_) {}
-
-    // Build request header with amount_zat
-    String header = 'v1; type=request; conversation_id=' + cid + '; seq=' + mySeq.toString() + '; amount_zat=' + zats.toString();
-    final String fullMemo = header + '\n\n' + memoText;
-
-    // Create optimistic message immediately
-    final pending = ZMessage(
-      -1,
-      0,
-      false,
-      '',
-      dest,
-      dest,
-      'Sending…',
-      fullMemo,
-      DateTime.now(),
-      aa.height,
-      true,
-    );
-    
-    // Inject optimistic message into global stores
-    try {
-      aa.messages.items = List<ZMessage>.from(aa.messages.items)..add(pending);
-    } catch (_) {}
-    try {
-      optimisticEchoes.add(pending);
-    } catch (_) {}
-    
-    // Trigger a global sequence update to force Messages page to rebuild
-    try {
-      aaSequence.seqno = DateTime.now().microsecondsSinceEpoch;
-    } catch (_) {}
-    
-    // Navigate back immediately so user sees the optimistic message
-    if (mounted) {
-      GoRouter.of(context).pop();
-    }
-
-    // Build and send transaction in background
-    () async {
-      try {
-        final int recipientPools = 4; // Orchard only
-        final builder = RecipientObjectBuilder(
-          address: dest,
-          pools: recipientPools,
-          amount: 0, // zero-value memo-only; pay fee only
-          feeIncluded: false,
-          replyTo: false,
-          subject: '',
-          memo: fullMemo,
-        );
-        final recipient = Recipient(builder.toBytes());
-
-        final plan = await WarpApi.prepareTx(
-          aa.coin,
-          aa.id,
-          [recipient],
-          7,
-          coinSettings.replyUa,
-          appSettings.anchorOffset,
-          coinSettings.feeT,
-        );
-        final signedTx = await WarpApi.signOnly(aa.coin, aa.id, plan);
-        await WarpApi.broadcast(aa.coin, signedTx);
-        
-        // Update optimistic message status to Sent
-        try {
-          final updated = aa.messages.items.toList();
-          final idx = updated.lastIndexWhere((m) => identical(m, pending));
-          if (idx >= 0) {
-            final sent = ZMessage(
-              pending.id, pending.txId, pending.incoming, pending.fromAddress,
-              pending.sender, pending.recipient, 'Sent', pending.body,
-              pending.timestamp, pending.height, pending.read,
-            );
-            updated[idx] = sent;
-            aa.messages.items = updated;
-            // Also update in optimisticEchoes
-            try {
-              final echoIdx = optimisticEchoes.indexWhere((m) => identical(m, pending));
-              if (echoIdx >= 0) {
-                optimisticEchoes[echoIdx] = sent;
-              }
-            } catch (_) {}
-          }
-        } catch (_) {}
-        // Trigger manual sync to pick up the real message
-        try {
-          await triggerManualSync();
-          // Force UI refresh after sync completes
-          aaSequence.seqno = DateTime.now().microsecondsSinceEpoch;
-        } catch (_) {}
-      } catch (e) {
-        // Update optimistic message status to Failed
-        try {
-          final updated = aa.messages.items.toList();
-          final idx = updated.lastIndexWhere((m) => identical(m, pending));
-          if (idx >= 0) {
-            final failed = ZMessage(
-              pending.id, pending.txId, pending.incoming, pending.fromAddress,
-              pending.sender, pending.recipient, 'Failed', pending.body,
-              pending.timestamp, pending.height, pending.read,
-            );
-            updated[idx] = failed;
-            aa.messages.items = updated;
-            // Also update in optimisticEchoes
-            try {
-              final echoIdx = optimisticEchoes.indexWhere((m) => identical(m, pending));
-              if (echoIdx >= 0) {
-                optimisticEchoes[echoIdx] = failed;
-              }
-            } catch (_) {}
-          }
-        } catch (_) {}
-      }
-    }();
+    // Thread-based payment requests use CLOAK's own transaction flow
+    // TODO: Implement CLOAK memo-based messaging when needed
+    showSnackBar('Payment requests via thread not yet supported for CLOAK');
   }
 
   String _fiatToZec(String fiatStr) {
