@@ -248,7 +248,7 @@ class SEs extends S {
   String get disclaimer_1 => 'Entiendo que soy responsable de asegurar mi frase de semilla';
 
   @override
-  String get disclaimer_2 => 'Entiendo que YWallet no puede recuperar mi frase de semilla';
+  String get disclaimer_2 => 'Entiendo que CLOAK no puede recuperar mi frase de semilla';
 
   @override
   String get disclaimer_3 => 'Entiendo que quien conozca mi frase semilla puede obtener mis fondos';
@@ -780,7 +780,7 @@ class SEs extends S {
   String get views => 'Vistas';
 
   @override
-  String get welcomeToYwallet => 'Bienvenido a YWallet';
+  String get welcomeToYwallet => 'Bienvenido a CLOAK';
 
   @override
   String get wifi => 'WiFi';

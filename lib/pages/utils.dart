@@ -48,7 +48,7 @@ import 'widgets.dart';
 
 var logger = Logger();
 
-const APP_NAME = "YWallet";
+const APP_NAME = "CLOAK";
 const ZECUNIT = 100000000.0;
 const ZECUNIT_INT = 100000000;
 const MAX_PRECISION = 8;
@@ -417,7 +417,7 @@ Future<void> shareQrImage(BuildContext originContext,
       bytes = imageData!.buffer.asUint8List();
     }
 
-    final filename = 'YWallet_QR_${DateTime.now().millisecondsSinceEpoch}.png';
+    final filename = 'CLOAK_QR_${DateTime.now().millisecondsSinceEpoch}.png';
 
     if (Platform.isAndroid || Platform.isIOS) {
       final tempDir = await getTemporaryDirectory();
@@ -912,7 +912,7 @@ Future<double?> getFxRate(String coin, String fiat) async {
   });
   try {
     final rep = await http
-        .get(cgUri, headers: {'User-Agent': 'YWallet/1.0'})
+        .get(cgUri, headers: {'User-Agent': 'CLOAK/1.0'})
         .timeout(const Duration(seconds: 8));
     if (rep.statusCode == 200) {
       final json = convert.jsonDecode(rep.body) as Map<String, dynamic>;
@@ -928,7 +928,7 @@ Future<double?> getFxRate(String coin, String fiat) async {
       final ccBase = 'api.coincap.io';
       final ccUri = Uri.https(ccBase, '/v2/assets/' + coin);
       final rep = await http
-          .get(ccUri, headers: {'User-Agent': 'YWallet/1.0'})
+          .get(ccUri, headers: {'User-Agent': 'CLOAK/1.0'})
           .timeout(const Duration(seconds: 6));
       if (rep.statusCode == 200) {
         final json = convert.jsonDecode(rep.body) as Map<String, dynamic>;

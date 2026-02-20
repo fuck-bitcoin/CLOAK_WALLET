@@ -13,7 +13,6 @@ import 'cloak/signature_provider.dart';
 import 'router.dart' show initialLocation;
 import 'store2.dart';
 import 'main.reflectable.dart';
-import 'coin/coins.dart';
 import './pages/utils.dart';
 
 import 'init.dart';

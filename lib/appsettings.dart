@@ -7,7 +7,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'cloak/cloak_types.dart';
-import 'cloak/cloak_wallet_manager.dart';
 import 'cloak/cloak_db.dart';
 import 'settings.pb.dart';
 import 'coin/coins.dart';

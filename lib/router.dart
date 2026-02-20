@@ -1024,7 +1024,7 @@ class _ScaffoldBar extends State<ScaffoldBar> with TickerProviderStateMixin {
   }
 
   help() {
-    launchUrl(Uri.https('ywallet.app'));
+    launchUrl(Uri.https('cloak.today'));
   }
 
   settings() {

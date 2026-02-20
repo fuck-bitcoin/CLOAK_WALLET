@@ -1,5 +1,5 @@
 name: YWallet
-description: Z/Ycash Wallet
+description: CLOAK Privacy Wallet
 
 # The following line prevents the package from being accidentally published to
 # pub.dev using `pub publish`. This is preferred for private packages.
@@ -209,9 +209,9 @@ flutter_intl:
   enabled: true
 
 msix_config:
-  display_name: Ywallet
-  publisher_display_name: Parallax Scroll
-  identity_name: 38664ParallaxScroll.Ywallet
+  display_name: CLOAK
+  publisher_display_name: CLOAK
+  identity_name: app.cloak.wallet
   publisher: CN=DF596492-B1AD-4B42-9ECB-4E6208B6D8CD
   #logo_path: assets\icon.png
   store: true
