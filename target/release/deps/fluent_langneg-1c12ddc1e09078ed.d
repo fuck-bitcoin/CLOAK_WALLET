@@ -1,0 +1,10 @@
+/home/kameron/Projects/anino-vote/zwallet/target/release/deps/fluent_langneg-1c12ddc1e09078ed.d: /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fluent-langneg-0.13.0/src/lib.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fluent-langneg-0.13.0/src/accepted_languages.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fluent-langneg-0.13.0/src/negotiate/mod.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fluent-langneg-0.13.0/src/negotiate/likely_subtags.rs
+
+/home/kameron/Projects/anino-vote/zwallet/target/release/deps/libfluent_langneg-1c12ddc1e09078ed.rlib: /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fluent-langneg-0.13.0/src/lib.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fluent-langneg-0.13.0/src/accepted_languages.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fluent-langneg-0.13.0/src/negotiate/mod.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fluent-langneg-0.13.0/src/negotiate/likely_subtags.rs
+
+/home/kameron/Projects/anino-vote/zwallet/target/release/deps/libfluent_langneg-1c12ddc1e09078ed.rmeta: /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fluent-langneg-0.13.0/src/lib.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fluent-langneg-0.13.0/src/accepted_languages.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fluent-langneg-0.13.0/src/negotiate/mod.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fluent-langneg-0.13.0/src/negotiate/likely_subtags.rs
+
+/home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fluent-langneg-0.13.0/src/lib.rs:
+/home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fluent-langneg-0.13.0/src/accepted_languages.rs:
+/home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fluent-langneg-0.13.0/src/negotiate/mod.rs:
+/home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fluent-langneg-0.13.0/src/negotiate/likely_subtags.rs:

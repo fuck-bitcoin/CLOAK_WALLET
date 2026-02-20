@@ -1,0 +1,1 @@
+Synchronizer<'_, zcash_primitives::consensus::Network, SaplingDomain<zcash_primitives::consensus::Network>, SaplingViewKey, DecryptedSaplingNote, SaplingDecrypter<zcash_primitives::consensus::Network>, SaplingHasher>

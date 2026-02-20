@@ -1,0 +1,10 @@
+/home/kameron/Projects/CLOAK Wallet/zwallet/build/linux/x64/debug/plugins/rust_lib_YWallet/cargokit_build/x86_64-unknown-linux-gnu/debug/deps/group-4ae4c102af0ad868.d: /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/group-0.13.0/src/lib.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/group-0.13.0/src/cofactor.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/group-0.13.0/src/prime.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/group-0.13.0/src/wnaf.rs
+
+/home/kameron/Projects/CLOAK Wallet/zwallet/build/linux/x64/debug/plugins/rust_lib_YWallet/cargokit_build/x86_64-unknown-linux-gnu/debug/deps/libgroup-4ae4c102af0ad868.rlib: /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/group-0.13.0/src/lib.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/group-0.13.0/src/cofactor.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/group-0.13.0/src/prime.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/group-0.13.0/src/wnaf.rs
+
+/home/kameron/Projects/CLOAK Wallet/zwallet/build/linux/x64/debug/plugins/rust_lib_YWallet/cargokit_build/x86_64-unknown-linux-gnu/debug/deps/libgroup-4ae4c102af0ad868.rmeta: /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/group-0.13.0/src/lib.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/group-0.13.0/src/cofactor.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/group-0.13.0/src/prime.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/group-0.13.0/src/wnaf.rs
+
+/home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/group-0.13.0/src/lib.rs:
+/home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/group-0.13.0/src/cofactor.rs:
+/home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/group-0.13.0/src/prime.rs:
+/home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/group-0.13.0/src/wnaf.rs:

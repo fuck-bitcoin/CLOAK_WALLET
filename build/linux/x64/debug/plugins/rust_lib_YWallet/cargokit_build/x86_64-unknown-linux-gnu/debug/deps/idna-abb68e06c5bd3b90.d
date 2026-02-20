@@ -1,0 +1,10 @@
+/home/kameron/Projects/CLOAK Wallet/zwallet/build/linux/x64/debug/plugins/rust_lib_YWallet/cargokit_build/x86_64-unknown-linux-gnu/debug/deps/idna-abb68e06c5bd3b90.d: /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/idna-1.0.3/src/lib.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/idna-1.0.3/src/deprecated.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/idna-1.0.3/src/punycode.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/idna-1.0.3/src/uts46.rs
+
+/home/kameron/Projects/CLOAK Wallet/zwallet/build/linux/x64/debug/plugins/rust_lib_YWallet/cargokit_build/x86_64-unknown-linux-gnu/debug/deps/libidna-abb68e06c5bd3b90.rlib: /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/idna-1.0.3/src/lib.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/idna-1.0.3/src/deprecated.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/idna-1.0.3/src/punycode.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/idna-1.0.3/src/uts46.rs
+
+/home/kameron/Projects/CLOAK Wallet/zwallet/build/linux/x64/debug/plugins/rust_lib_YWallet/cargokit_build/x86_64-unknown-linux-gnu/debug/deps/libidna-abb68e06c5bd3b90.rmeta: /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/idna-1.0.3/src/lib.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/idna-1.0.3/src/deprecated.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/idna-1.0.3/src/punycode.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/idna-1.0.3/src/uts46.rs
+
+/home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/idna-1.0.3/src/lib.rs:
+/home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/idna-1.0.3/src/deprecated.rs:
+/home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/idna-1.0.3/src/punycode.rs:
+/home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/idna-1.0.3/src/uts46.rs:

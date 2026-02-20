@@ -1,0 +1,11 @@
+/home/kameron/Projects/CLOAK Wallet/zwallet/build/linux/x64/debug/plugins/rust_lib_YWallet/cargokit_build/x86_64-unknown-linux-gnu/debug/deps/libsqlite3_sys-c3d1a6b63d2787fe.d: /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libsqlite3-sys-0.26.0/src/lib.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libsqlite3-sys-0.26.0/src/error.rs /home/kameron/Projects/CLOAK\ Wallet/zwallet/build/linux/x64/debug/plugins/rust_lib_YWallet/cargokit_build/x86_64-unknown-linux-gnu/debug/build/libsqlite3-sys-f8259d3889a28632/out/bindgen.rs
+
+/home/kameron/Projects/CLOAK Wallet/zwallet/build/linux/x64/debug/plugins/rust_lib_YWallet/cargokit_build/x86_64-unknown-linux-gnu/debug/deps/liblibsqlite3_sys-c3d1a6b63d2787fe.rlib: /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libsqlite3-sys-0.26.0/src/lib.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libsqlite3-sys-0.26.0/src/error.rs /home/kameron/Projects/CLOAK\ Wallet/zwallet/build/linux/x64/debug/plugins/rust_lib_YWallet/cargokit_build/x86_64-unknown-linux-gnu/debug/build/libsqlite3-sys-f8259d3889a28632/out/bindgen.rs
+
+/home/kameron/Projects/CLOAK Wallet/zwallet/build/linux/x64/debug/plugins/rust_lib_YWallet/cargokit_build/x86_64-unknown-linux-gnu/debug/deps/liblibsqlite3_sys-c3d1a6b63d2787fe.rmeta: /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libsqlite3-sys-0.26.0/src/lib.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libsqlite3-sys-0.26.0/src/error.rs /home/kameron/Projects/CLOAK\ Wallet/zwallet/build/linux/x64/debug/plugins/rust_lib_YWallet/cargokit_build/x86_64-unknown-linux-gnu/debug/build/libsqlite3-sys-f8259d3889a28632/out/bindgen.rs
+
+/home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libsqlite3-sys-0.26.0/src/lib.rs:
+/home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libsqlite3-sys-0.26.0/src/error.rs:
+/home/kameron/Projects/CLOAK\ Wallet/zwallet/build/linux/x64/debug/plugins/rust_lib_YWallet/cargokit_build/x86_64-unknown-linux-gnu/debug/build/libsqlite3-sys-f8259d3889a28632/out/bindgen.rs:
+
+# env-dep:OUT_DIR=/home/kameron/Projects/CLOAK Wallet/zwallet/build/linux/x64/debug/plugins/rust_lib_YWallet/cargokit_build/x86_64-unknown-linux-gnu/debug/build/libsqlite3-sys-f8259d3889a28632/out

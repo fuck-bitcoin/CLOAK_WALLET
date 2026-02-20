@@ -1,0 +1,101 @@
+# ninja log v7
+5	75854	1771012148508194120	/home/kameron/Projects/CLOAK Wallet/zwallet/linux/flutter/ephemeral/libflutter_linux_gtk.so	69a493b7feb2b335
+5	75854	1771012148508194120	/home/kameron/Projects/CLOAK Wallet/zwallet/linux/flutter/ephemeral/flutter_linux/fl_basic_message_channel.h	69a493b7feb2b335
+5	75854	1771012148508194120	/home/kameron/Projects/CLOAK Wallet/zwallet/linux/flutter/ephemeral/flutter_linux/fl_binary_codec.h	69a493b7feb2b335
+5	75854	1771012148508194120	/home/kameron/Projects/CLOAK Wallet/zwallet/linux/flutter/ephemeral/flutter_linux/fl_binary_messenger.h	69a493b7feb2b335
+5	75854	1771012148508194120	/home/kameron/Projects/CLOAK Wallet/zwallet/linux/flutter/ephemeral/flutter_linux/fl_dart_project.h	69a493b7feb2b335
+5	75854	1771012148508194120	/home/kameron/Projects/CLOAK Wallet/zwallet/linux/flutter/ephemeral/flutter_linux/fl_engine.h	69a493b7feb2b335
+5	75854	1771012148508194120	/home/kameron/Projects/CLOAK Wallet/zwallet/linux/flutter/ephemeral/flutter_linux/fl_json_message_codec.h	69a493b7feb2b335
+5	75854	1771012148508194120	/home/kameron/Projects/CLOAK Wallet/zwallet/linux/flutter/ephemeral/flutter_linux/fl_json_method_codec.h	69a493b7feb2b335
+5	75854	1771012148508194120	/home/kameron/Projects/CLOAK Wallet/zwallet/linux/flutter/ephemeral/flutter_linux/fl_message_codec.h	69a493b7feb2b335
+5	75854	1771012148508194120	/home/kameron/Projects/CLOAK Wallet/zwallet/linux/flutter/ephemeral/flutter_linux/fl_method_call.h	69a493b7feb2b335
+5	75854	1771012148508194120	/home/kameron/Projects/CLOAK Wallet/zwallet/linux/flutter/ephemeral/flutter_linux/fl_method_channel.h	69a493b7feb2b335
+5	75854	1771012148508194120	/home/kameron/Projects/CLOAK Wallet/zwallet/linux/flutter/ephemeral/flutter_linux/fl_method_codec.h	69a493b7feb2b335
+5	75854	1771012148508194120	/home/kameron/Projects/CLOAK Wallet/zwallet/linux/flutter/ephemeral/flutter_linux/fl_method_response.h	69a493b7feb2b335
+5	75854	1771012148508194120	/home/kameron/Projects/CLOAK Wallet/zwallet/linux/flutter/ephemeral/flutter_linux/fl_plugin_registrar.h	69a493b7feb2b335
+5	75854	1771012148508194120	/home/kameron/Projects/CLOAK Wallet/zwallet/linux/flutter/ephemeral/flutter_linux/fl_plugin_registry.h	69a493b7feb2b335
+5	75854	1771012148508194120	/home/kameron/Projects/CLOAK Wallet/zwallet/linux/flutter/ephemeral/flutter_linux/fl_standard_message_codec.h	69a493b7feb2b335
+5	75854	1771012148508194120	/home/kameron/Projects/CLOAK Wallet/zwallet/linux/flutter/ephemeral/flutter_linux/fl_standard_method_codec.h	69a493b7feb2b335
+5	75854	1771012148508194120	/home/kameron/Projects/CLOAK Wallet/zwallet/linux/flutter/ephemeral/flutter_linux/fl_string_codec.h	69a493b7feb2b335
+5	75854	1771012148508194120	/home/kameron/Projects/CLOAK Wallet/zwallet/linux/flutter/ephemeral/flutter_linux/fl_value.h	69a493b7feb2b335
+5	75854	1771012148508194120	/home/kameron/Projects/CLOAK Wallet/zwallet/linux/flutter/ephemeral/flutter_linux/fl_view.h	69a493b7feb2b335
+5	75854	1771012148508194120	/home/kameron/Projects/CLOAK Wallet/zwallet/linux/flutter/ephemeral/flutter_linux/flutter_linux.h	69a493b7feb2b335
+5	75854	1771012148508194120	flutter/_phony_	69a493b7feb2b335
+5	75854	1771012148508194120	/home/kameron/Projects/CLOAK Wallet/zwallet/build/linux/x64/release/flutter/_phony_	69a493b7feb2b335
+75859	77657	1771012224362135792	plugins/sqlcipher_flutter_libs/CMakeFiles/sqlcipher_flutter_libs_plugin.dir/sqlite3_flutter_libs_plugin.cc.o	a4dbda6270ac50fc
+75855	77728	1771012224359560172	plugins/awesome_notifications_core/CMakeFiles/awesome_notifications_core_plugin.dir/awesome_notifications_core_plugin.cc.o	c52840fbb4f9534a
+75855	77888	1771012224358135795	plugins/awesome_notifications/CMakeFiles/awesome_notifications_plugin.dir/awesome_notifications_plugin.cc.o	44decf36cb72dcd5
+75856	77267	1771012224360203114	plugins/gtk/CMakeFiles/gtk_plugin.dir/gtk_plugin.cc.o	50997cfcdce98e8b
+75856	77361	1771012224360463894	plugins/screen_retriever/CMakeFiles/screen_retriever_plugin.dir/screen_retriever_plugin.cc.o	8f4d0b489c2091cd
+75859	77727	1771012224363135791	plugins/url_launcher_linux/CMakeFiles/url_launcher_linux_plugin.dir/messages.g.cc.o	3a7b37d5a4430a
+75856	77539	1771012224359799655	plugins/file_selector_linux/CMakeFiles/file_selector_linux_plugin.dir/file_selector_plugin.cc.o	17edf17fba784008
+75856	77121	1771012224359995688	plugins/file_selector_linux/CMakeFiles/file_selector_linux_plugin.dir/messages.g.cc.o	dfdc876edbdf1cdc
+77889	78149	1771012226392134231	plugins/awesome_notifications/libawesome_notifications_plugin.so	b276803dc78b4953
+77728	78079	1771012226231134355	plugins/awesome_notifications_core/libawesome_notifications_core_plugin.so	1f854c1c15ff7189
+77361	77592	1771012225864134637	plugins/gtk/libgtk_plugin.so	c208f33918b0892f
+77592	78116	1771012226095134459	plugins/screen_retriever/libscreen_retriever_plugin.so	434413cf453fc9a2
+77539	77889	1771012226042134500	plugins/file_selector_linux/libfile_selector_linux_plugin.so	c3454def176dd4e2
+77121	78363	1771012225624134822	CMakeFiles/ywallet.dir/my_application.cc.o	24a93233d5de080
+142009	143330	1771011065057049279	CMakeFiles/ywallet.dir/main.cc.o	4a34ccad6ea70cc9
+77267	78473	1771012225770134709	CMakeFiles/ywallet.dir/flutter/generated_plugin_registrant.cc.o	c53dd693b32f7c54
+75867	77860	1771012224370135786	plugins/url_launcher_linux/CMakeFiles/url_launcher_linux_plugin.dir/url_launcher_plugin.cc.o	c73f8f2eff0a4049
+77861	78166	1771012226364134252	plugins/url_launcher_linux/liburl_launcher_linux_plugin.so	af423f3d021b74eb
+75868	78173	1771012224371135785	plugins/window_manager/CMakeFiles/window_manager_plugin.dir/window_manager_plugin.cc.o	7481abd24cee874d
+78173	78330	1771012226676134013	plugins/window_manager/libwindow_manager_plugin.so	1f9f8877fa18f7c
+140334	172660	1771011063383459428	plugins/sqlcipher_flutter_libs/CMakeFiles/sqlcipher_flutter_libs_plugin.dir/sqlcipher.c.o	915112fe36b7840d
+77657	78143	1771012226160134409	plugins/sqlcipher_flutter_libs/libsqlcipher_flutter_libs_plugin.so	12e3b02ba5c4882d
+78473	78684	1771012226976133782	intermediates_do_not_run/ywallet	5cd0cbd4fa09fac5
+5	775	1771012148509310172	plugins/rust_lib_YWallet/librust_lib_YWallet.so	79d740eac04a3414
+5	775	1771012148509310172	plugins/rust_lib_YWallet/_phony_	79d740eac04a3414
+5	775	1771012148509310172	/home/kameron/Projects/CLOAK Wallet/zwallet/build/linux/x64/release/plugins/rust_lib_YWallet/librust_lib_YWallet.so	79d740eac04a3414
+5	775	1771012148509310172	/home/kameron/Projects/CLOAK Wallet/zwallet/build/linux/x64/release/plugins/rust_lib_YWallet/_phony_	79d740eac04a3414
+78684	78749	1771012227187133619	CMakeFiles/install.util	5e50adb075ef0f05
+7	1222	1771012875993634163	plugins/rust_lib_YWallet/librust_lib_YWallet.so	79d740eac04a3414
+7	1222	1771012875993634163	plugins/rust_lib_YWallet/_phony_	79d740eac04a3414
+7	1222	1771012875993634163	/home/kameron/Projects/CLOAK Wallet/zwallet/build/linux/x64/release/plugins/rust_lib_YWallet/librust_lib_YWallet.so	79d740eac04a3414
+7	1222	1771012875993634163	/home/kameron/Projects/CLOAK Wallet/zwallet/build/linux/x64/release/plugins/rust_lib_YWallet/_phony_	79d740eac04a3414
+6	82476	1771012875992634163	/home/kameron/Projects/CLOAK Wallet/zwallet/linux/flutter/ephemeral/libflutter_linux_gtk.so	69a493b7feb2b335
+6	82476	1771012875992634163	/home/kameron/Projects/CLOAK Wallet/zwallet/linux/flutter/ephemeral/flutter_linux/fl_basic_message_channel.h	69a493b7feb2b335
+6	82476	1771012875992634163	/home/kameron/Projects/CLOAK Wallet/zwallet/linux/flutter/ephemeral/flutter_linux/fl_binary_codec.h	69a493b7feb2b335
+6	82476	1771012875992634163	/home/kameron/Projects/CLOAK Wallet/zwallet/linux/flutter/ephemeral/flutter_linux/fl_binary_messenger.h	69a493b7feb2b335
+6	82476	1771012875992634163	/home/kameron/Projects/CLOAK Wallet/zwallet/linux/flutter/ephemeral/flutter_linux/fl_dart_project.h	69a493b7feb2b335
+6	82476	1771012875992634163	/home/kameron/Projects/CLOAK Wallet/zwallet/linux/flutter/ephemeral/flutter_linux/fl_engine.h	69a493b7feb2b335
+6	82476	1771012875992634163	/home/kameron/Projects/CLOAK Wallet/zwallet/linux/flutter/ephemeral/flutter_linux/fl_json_message_codec.h	69a493b7feb2b335
+6	82476	1771012875992634163	/home/kameron/Projects/CLOAK Wallet/zwallet/linux/flutter/ephemeral/flutter_linux/fl_json_method_codec.h	69a493b7feb2b335
+6	82476	1771012875992634163	/home/kameron/Projects/CLOAK Wallet/zwallet/linux/flutter/ephemeral/flutter_linux/fl_message_codec.h	69a493b7feb2b335
+6	82476	1771012875992634163	/home/kameron/Projects/CLOAK Wallet/zwallet/linux/flutter/ephemeral/flutter_linux/fl_method_call.h	69a493b7feb2b335
+6	82476	1771012875992634163	/home/kameron/Projects/CLOAK Wallet/zwallet/linux/flutter/ephemeral/flutter_linux/fl_method_channel.h	69a493b7feb2b335
+6	82476	1771012875992634163	/home/kameron/Projects/CLOAK Wallet/zwallet/linux/flutter/ephemeral/flutter_linux/fl_method_codec.h	69a493b7feb2b335
+6	82476	1771012875992634163	/home/kameron/Projects/CLOAK Wallet/zwallet/linux/flutter/ephemeral/flutter_linux/fl_method_response.h	69a493b7feb2b335
+6	82476	1771012875992634163	/home/kameron/Projects/CLOAK Wallet/zwallet/linux/flutter/ephemeral/flutter_linux/fl_plugin_registrar.h	69a493b7feb2b335
+6	82476	1771012875992634163	/home/kameron/Projects/CLOAK Wallet/zwallet/linux/flutter/ephemeral/flutter_linux/fl_plugin_registry.h	69a493b7feb2b335
+6	82476	1771012875992634163	/home/kameron/Projects/CLOAK Wallet/zwallet/linux/flutter/ephemeral/flutter_linux/fl_standard_message_codec.h	69a493b7feb2b335
+6	82476	1771012875992634163	/home/kameron/Projects/CLOAK Wallet/zwallet/linux/flutter/ephemeral/flutter_linux/fl_standard_method_codec.h	69a493b7feb2b335
+6	82476	1771012875992634163	/home/kameron/Projects/CLOAK Wallet/zwallet/linux/flutter/ephemeral/flutter_linux/fl_string_codec.h	69a493b7feb2b335
+6	82476	1771012875992634163	/home/kameron/Projects/CLOAK Wallet/zwallet/linux/flutter/ephemeral/flutter_linux/fl_value.h	69a493b7feb2b335
+6	82476	1771012875992634163	/home/kameron/Projects/CLOAK Wallet/zwallet/linux/flutter/ephemeral/flutter_linux/fl_view.h	69a493b7feb2b335
+6	82476	1771012875992634163	/home/kameron/Projects/CLOAK Wallet/zwallet/linux/flutter/ephemeral/flutter_linux/flutter_linux.h	69a493b7feb2b335
+6	82476	1771012875992634163	flutter/_phony_	69a493b7feb2b335
+6	82476	1771012875992634163	/home/kameron/Projects/CLOAK Wallet/zwallet/build/linux/x64/release/flutter/_phony_	69a493b7feb2b335
+82477	83665	1771012958465423962	plugins/file_selector_linux/CMakeFiles/file_selector_linux_plugin.dir/file_selector_plugin.cc.o	17edf17fba784008
+82477	83728	1771012958465570740	plugins/file_selector_linux/CMakeFiles/file_selector_linux_plugin.dir/messages.g.cc.o	dfdc876edbdf1cdc
+82479	84241	1771012958467002939	plugins/url_launcher_linux/CMakeFiles/url_launcher_linux_plugin.dir/messages.g.cc.o	3a7b37d5a4430a
+82486	84322	1771012958473570734	plugins/url_launcher_linux/CMakeFiles/url_launcher_linux_plugin.dir/url_launcher_plugin.cc.o	c73f8f2eff0a4049
+82477	84476	1771012958464570741	plugins/awesome_notifications/CMakeFiles/awesome_notifications_plugin.dir/awesome_notifications_plugin.cc.o	44decf36cb72dcd5
+84241	84520	1771012960228569384	plugins/file_selector_linux/libfile_selector_linux_plugin.so	c3454def176dd4e2
+82478	84562	1771012958465813987	plugins/gtk/CMakeFiles/gtk_plugin.dir/gtk_plugin.cc.o	50997cfcdce98e8b
+82477	84648	1771012958465223833	plugins/awesome_notifications_core/CMakeFiles/awesome_notifications_core_plugin.dir/awesome_notifications_core_plugin.cc.o	c52840fbb4f9534a
+82478	84712	1771012958466065227	plugins/screen_retriever/CMakeFiles/screen_retriever_plugin.dir/screen_retriever_plugin.cc.o	8f4d0b489c2091cd
+84322	84756	1771012960309569322	plugins/url_launcher_linux/liburl_launcher_linux_plugin.so	af423f3d021b74eb
+82479	84873	1771012958466570739	plugins/sqlcipher_flutter_libs/CMakeFiles/sqlcipher_flutter_libs_plugin.dir/sqlite3_flutter_libs_plugin.cc.o	a4dbda6270ac50fc
+84476	84874	1771012960463569204	plugins/awesome_notifications/libawesome_notifications_plugin.so	b276803dc78b4953
+84650	84946	1771012960637569070	plugins/awesome_notifications_core/libawesome_notifications_core_plugin.so	1f854c1c15ff7189
+84562	84992	1771012960549569138	plugins/gtk/libgtk_plugin.so	c208f33918b0892f
+84712	84993	1771012960699569022	plugins/screen_retriever/libscreen_retriever_plugin.so	434413cf453fc9a2
+83728	85019	1771012959716569778	CMakeFiles/ywallet.dir/flutter/generated_plugin_registrant.cc.o	c53dd693b32f7c54
+82486	85046	1771012958474464877	plugins/window_manager/CMakeFiles/window_manager_plugin.dir/window_manager_plugin.cc.o	7481abd24cee874d
+84873	85201	1771012960860568898	plugins/sqlcipher_flutter_libs/libsqlcipher_flutter_libs_plugin.so	12e3b02ba5c4882d
+85046	85211	1771012961033568765	plugins/window_manager/libwindow_manager_plugin.so	1f9f8877fa18f7c
+83665	85316	1771012959652569827	CMakeFiles/ywallet.dir/my_application.cc.o	24a93233d5de080
+85317	85550	1771012961304568557	intermediates_do_not_run/ywallet	5cd0cbd4fa09fac5
+85550	85627	1771012961537568378	CMakeFiles/install.util	5e50adb075ef0f05

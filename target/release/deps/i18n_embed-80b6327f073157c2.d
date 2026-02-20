@@ -1,0 +1,11 @@
+/home/kameron/Documents/fuckbitcoin/Anino/zwallet/target/release/deps/i18n_embed-80b6327f073157c2.d: /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/i18n-embed-0.13.9/src/lib.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/i18n-embed-0.13.9/src/assets.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/i18n-embed-0.13.9/src/requester.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/i18n-embed-0.13.9/src/util.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/i18n-embed-0.13.9/src/fluent.rs
+
+/home/kameron/Documents/fuckbitcoin/Anino/zwallet/target/release/deps/libi18n_embed-80b6327f073157c2.rlib: /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/i18n-embed-0.13.9/src/lib.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/i18n-embed-0.13.9/src/assets.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/i18n-embed-0.13.9/src/requester.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/i18n-embed-0.13.9/src/util.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/i18n-embed-0.13.9/src/fluent.rs
+
+/home/kameron/Documents/fuckbitcoin/Anino/zwallet/target/release/deps/libi18n_embed-80b6327f073157c2.rmeta: /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/i18n-embed-0.13.9/src/lib.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/i18n-embed-0.13.9/src/assets.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/i18n-embed-0.13.9/src/requester.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/i18n-embed-0.13.9/src/util.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/i18n-embed-0.13.9/src/fluent.rs
+
+/home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/i18n-embed-0.13.9/src/lib.rs:
+/home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/i18n-embed-0.13.9/src/assets.rs:
+/home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/i18n-embed-0.13.9/src/requester.rs:
+/home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/i18n-embed-0.13.9/src/util.rs:
+/home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/i18n-embed-0.13.9/src/fluent.rs:

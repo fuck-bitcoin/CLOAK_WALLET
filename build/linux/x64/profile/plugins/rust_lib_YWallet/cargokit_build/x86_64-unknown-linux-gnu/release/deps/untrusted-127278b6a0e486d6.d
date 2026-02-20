@@ -1,0 +1,10 @@
+/home/kameron/Projects/CLOAK Wallet/zwallet/build/linux/x64/profile/plugins/rust_lib_YWallet/cargokit_build/x86_64-unknown-linux-gnu/release/deps/untrusted-127278b6a0e486d6.d: /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/untrusted-0.9.0/src/lib.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/untrusted-0.9.0/src/input.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/untrusted-0.9.0/src/no_panic.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/untrusted-0.9.0/src/reader.rs
+
+/home/kameron/Projects/CLOAK Wallet/zwallet/build/linux/x64/profile/plugins/rust_lib_YWallet/cargokit_build/x86_64-unknown-linux-gnu/release/deps/libuntrusted-127278b6a0e486d6.rlib: /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/untrusted-0.9.0/src/lib.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/untrusted-0.9.0/src/input.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/untrusted-0.9.0/src/no_panic.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/untrusted-0.9.0/src/reader.rs
+
+/home/kameron/Projects/CLOAK Wallet/zwallet/build/linux/x64/profile/plugins/rust_lib_YWallet/cargokit_build/x86_64-unknown-linux-gnu/release/deps/libuntrusted-127278b6a0e486d6.rmeta: /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/untrusted-0.9.0/src/lib.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/untrusted-0.9.0/src/input.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/untrusted-0.9.0/src/no_panic.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/untrusted-0.9.0/src/reader.rs
+
+/home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/untrusted-0.9.0/src/lib.rs:
+/home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/untrusted-0.9.0/src/input.rs:
+/home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/untrusted-0.9.0/src/no_panic.rs:
+/home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/untrusted-0.9.0/src/reader.rs:

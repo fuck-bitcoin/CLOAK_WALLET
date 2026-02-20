@@ -1,0 +1,10 @@
+/home/kameron/Projects/anino-vote/zwallet/target/release/deps/ambassador-1dcd48a3eb0f4f6a.d: /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ambassador-0.3.7/src/lib.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ambassador-0.3.7/src/delegate_shared.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ambassador-0.3.7/src/delegate_to_methods.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ambassador-0.3.7/src/derive.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ambassador-0.3.7/src/register.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ambassador-0.3.7/src/util.rs
+
+/home/kameron/Projects/anino-vote/zwallet/target/release/deps/libambassador-1dcd48a3eb0f4f6a.so: /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ambassador-0.3.7/src/lib.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ambassador-0.3.7/src/delegate_shared.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ambassador-0.3.7/src/delegate_to_methods.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ambassador-0.3.7/src/derive.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ambassador-0.3.7/src/register.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ambassador-0.3.7/src/util.rs
+
+/home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ambassador-0.3.7/src/lib.rs:
+/home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ambassador-0.3.7/src/delegate_shared.rs:
+/home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ambassador-0.3.7/src/delegate_to_methods.rs:
+/home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ambassador-0.3.7/src/derive.rs:
+/home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ambassador-0.3.7/src/register.rs:
+/home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ambassador-0.3.7/src/util.rs:
