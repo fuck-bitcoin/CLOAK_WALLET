@@ -10,6 +10,7 @@ import 'accounts.dart';
 import 'cloak/cloak_wallet_manager.dart';
 import 'cloak/cloak_db.dart';
 import 'cloak/signature_provider.dart';
+import 'router.dart' show initialLocation;
 import 'store2.dart';
 import 'main.reflectable.dart';
 import 'coin/coins.dart';
@@ -39,47 +40,56 @@ void main() async {
   final prefs = await SharedPreferences.getInstance();
   final dbPath = await getDbPath();
   print("db path $dbPath");
-  // Initialize CLOAK wallet
-  for (var c in coins) {
-    try {
-      await CloakWalletManager.init(dbPassword: appStore.dbPassword);
-      // Try to load existing CLOAK wallet if it exists
-      if (await CloakWalletManager.walletExists()) {
+
+  // Initialize CLOAK wallet manager (sets up paths + DB)
+  await CloakWalletManager.init(dbPassword: appStore.dbPassword);
+
+  bool walletReady = false;
+  try {
+    if (await CloakWalletManager.walletExists()) {
+      await CloakWalletManager.loadWallet();
+      await refreshCloakAccountsCache();
+      print('[init] CLOAK wallet loaded');
+      walletReady = true;
+
+      // Validate wallet configuration
+      final validationErrors = await CloakWalletManager.validateWalletConfiguration();
+      if (validationErrors.isNotEmpty) {
+        for (final error in validationErrors) {
+          print('[init] WALLET VALIDATION ERROR: $error');
+        }
+        appStore.cloakWalletValidationErrors = validationErrors;
+      }
+
+      // Start signature provider server for website auth
+      final started = await SignatureProvider.start();
+      print('[init] Signature provider ${started ? "started" : "failed to start"}');
+    } else {
+      // Auto-restore if we have a seed in the DB but no wallet file
+      final account = await CloakDb.getFirstAccount();
+      if (account != null && account['seed'] != null && (account['seed'] as String).isNotEmpty) {
+        print('[init] Wallet file missing but seed found - auto-restoring');
+        await CloakWalletManager.restoreWallet(
+          account['name'] as String,
+          account['seed'] as String,
+        );
         await CloakWalletManager.loadWallet();
         await refreshCloakAccountsCache();
-        print('[init] CLOAK wallet loaded');
-
-        // Validate wallet configuration - check for alias_authority mismatch
-        final validationErrors = await CloakWalletManager.validateWalletConfiguration();
-        if (validationErrors.isNotEmpty) {
-          for (final error in validationErrors) {
-            print('[init] WALLET VALIDATION ERROR: $error');
-          }
-          appStore.cloakWalletValidationErrors = validationErrors;
-        }
-
-        // Start signature provider server for website auth
-        final started = await SignatureProvider.start();
-        print('[init] Signature provider ${started ? "started" : "failed to start"}');
+        print('[init] CLOAK wallet auto-restored from seed');
+        walletReady = true;
       } else {
-        // Auto-restore if we have a seed in the DB but no wallet file
-        final account = await CloakDb.getFirstAccount();
-        if (account != null && account['seed'] != null && (account['seed'] as String).isNotEmpty) {
-          print('[init] Wallet file missing but seed found - auto-restoring');
-          await CloakWalletManager.restoreWallet(
-            account['name'] as String,
-            account['seed'] as String,
-          );
-          await CloakWalletManager.loadWallet();
-          await refreshCloakAccountsCache();
-          print('[init] CLOAK wallet auto-restored from seed');
-        } else {
-          print('[init] No CLOAK wallet found');
-        }
+        print('[init] No CLOAK wallet found — showing splash');
       }
-    } catch (_) {}
+    }
+  } catch (e) {
+    print('[init] Error initializing wallet: $e');
   }
-  // Restore active account so the wallet shows immediately without a splash route
+
+  // Set initial route BEFORE router is first accessed by runApp
+  if (!walletReady && Platform.environment['YW_INITIAL_ROUTE'] == null) {
+    initialLocation = '/splash';
+  }
+
   // Migrate coin index: CLOAK was 2 in multi-coin list, now 0
   final oldCoin = prefs.getInt('coin') ?? 0;
   if (oldCoin == 2) {
@@ -91,33 +101,35 @@ void main() async {
     await prefs.setString('account_order_v1', order.replaceAll('2:', '0:'));
   }
 
-  try {
-    final a = ActiveAccount2.fromPrefs(prefs);
-    print('[init] fromPrefs returned: $a (id=${a?.id})');
-    if (a != null) {
-      print('[init] Setting active account: coin=${a.coin}, id=${a.id}');
-      setActiveAccount(a.coin, a.id);
-      aa.update(syncStatus2.latestHeight);
-    } else {
-      print('[init] No active account found - should show welcome screen');
+  if (walletReady) {
+    try {
+      final a = ActiveAccount2.fromPrefs(prefs);
+      print('[init] fromPrefs returned: $a (id=${a?.id})');
+      if (a != null) {
+        print('[init] Setting active account: coin=${a.coin}, id=${a.id}');
+        setActiveAccount(a.coin, a.id);
+        aa.update(syncStatus2.latestHeight);
+      }
+      print('[init] aa.id is now: ${aa.id}, aa.coin: ${aa.coin}');
+    } catch (e) {
+      print('[init] Error restoring account: $e');
     }
-    print('[init] aa.id is now: ${aa.id}, aa.coin: ${aa.coin}');
-  } catch (e) {
-    print('[init] Error restoring account: $e');
   }
+
   // Restore UI preferences (hide bottom nav, always-on-top)
   await initUiPrefs();
-  // Ensure sync progress events are listened to on desktop startup (no Splash route)
-  initSyncListener();
-  // Ensure desktop instances begin syncing immediately on launch.
-  // We kick off a manual sync on the first frame to bypass the
-  // "auto > 1 month behind" gating and then resume the normal
-  // 15s auto-sync cadence.
-  if (!isMobile()) {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      Future(() => triggerManualSync());
-    });
+
+  if (walletReady) {
+    // Ensure sync progress events are listened to on desktop startup
+    initSyncListener();
+    // Kick off a manual sync on the first frame
+    if (!isMobile()) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        Future(() => triggerManualSync());
+      });
+    }
   }
+
   runApp(App());
 }
 
