@@ -1,0 +1,10 @@
+/home/kameron/Projects/CLOAK Wallet/zwallet/build/linux/x64/profile/plugins/rust_lib_YWallet/cargokit_build/x86_64-unknown-linux-gnu/release/deps/hashlink-baec35366ad65f79.d: /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/hashlink-0.8.4/src/lib.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/hashlink-0.8.4/src/linked_hash_map.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/hashlink-0.8.4/src/linked_hash_set.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/hashlink-0.8.4/src/lru_cache.rs
+
+/home/kameron/Projects/CLOAK Wallet/zwallet/build/linux/x64/profile/plugins/rust_lib_YWallet/cargokit_build/x86_64-unknown-linux-gnu/release/deps/libhashlink-baec35366ad65f79.rlib: /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/hashlink-0.8.4/src/lib.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/hashlink-0.8.4/src/linked_hash_map.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/hashlink-0.8.4/src/linked_hash_set.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/hashlink-0.8.4/src/lru_cache.rs
+
+/home/kameron/Projects/CLOAK Wallet/zwallet/build/linux/x64/profile/plugins/rust_lib_YWallet/cargokit_build/x86_64-unknown-linux-gnu/release/deps/libhashlink-baec35366ad65f79.rmeta: /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/hashlink-0.8.4/src/lib.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/hashlink-0.8.4/src/linked_hash_map.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/hashlink-0.8.4/src/linked_hash_set.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/hashlink-0.8.4/src/lru_cache.rs
+
+/home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/hashlink-0.8.4/src/lib.rs:
+/home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/hashlink-0.8.4/src/linked_hash_map.rs:
+/home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/hashlink-0.8.4/src/linked_hash_set.rs:
+/home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/hashlink-0.8.4/src/lru_cache.rs:

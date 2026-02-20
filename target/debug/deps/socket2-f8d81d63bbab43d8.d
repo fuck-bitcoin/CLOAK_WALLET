@@ -1,0 +1,11 @@
+/home/kameron/Documents/fuckbitcoin/Anino/zwallet/target/debug/deps/socket2-f8d81d63bbab43d8.d: /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/socket2-0.5.8/src/lib.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/socket2-0.5.8/src/sockaddr.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/socket2-0.5.8/src/socket.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/socket2-0.5.8/src/sockref.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/socket2-0.5.8/src/sys/unix.rs
+
+/home/kameron/Documents/fuckbitcoin/Anino/zwallet/target/debug/deps/libsocket2-f8d81d63bbab43d8.rlib: /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/socket2-0.5.8/src/lib.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/socket2-0.5.8/src/sockaddr.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/socket2-0.5.8/src/socket.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/socket2-0.5.8/src/sockref.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/socket2-0.5.8/src/sys/unix.rs
+
+/home/kameron/Documents/fuckbitcoin/Anino/zwallet/target/debug/deps/libsocket2-f8d81d63bbab43d8.rmeta: /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/socket2-0.5.8/src/lib.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/socket2-0.5.8/src/sockaddr.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/socket2-0.5.8/src/socket.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/socket2-0.5.8/src/sockref.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/socket2-0.5.8/src/sys/unix.rs
+
+/home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/socket2-0.5.8/src/lib.rs:
+/home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/socket2-0.5.8/src/sockaddr.rs:
+/home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/socket2-0.5.8/src/socket.rs:
+/home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/socket2-0.5.8/src/sockref.rs:
+/home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/socket2-0.5.8/src/sys/unix.rs:
