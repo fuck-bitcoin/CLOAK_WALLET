@@ -1,4 +1,4 @@
-/// Replacement types for warp_api/data_fb_generated.dart FlatBuffer types.
+/// Replacement types for cloak_api FlatBuffer types.
 /// Created during CLOAK Wallet transformation (S30 Phase A).
 ///
 /// These types maintain field-name compatibility with the original FlatBuffer
@@ -111,7 +111,7 @@ class KeyPackT {
   KeyPackT({this.tAddr, this.tKey, this.zAddr, this.zKey});
 }
 
-/// Replacement for Backup from warp_api.
+/// Replacement for Backup from cloak_api.
 class Backup {
   String? name;
   String? seed;
@@ -133,14 +133,14 @@ class Backup {
 }
 
 /// Type aliases for backward compatibility with FlatBuffer type names.
-/// The old warp_api used Contact (packed) / ContactT (unpacked) and Account.
+/// Legacy Contact (packed) / ContactT (unpacked) and Account.
 /// In CLOAK, CloakContact and CloakAccount are always "unpacked".
 typedef ContactT = CloakContact;
 typedef Contact = CloakContact;
 typedef Account = CloakAccount;
 typedef PoolBalanceT = CloakBalance;
 
-/// Stub for Memo type from warp_api FlatBuffers.
+/// Stub for Memo type from legacy FlatBuffers.
 class Memo {
   String? address;
   String? memo;

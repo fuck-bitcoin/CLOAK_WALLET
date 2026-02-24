@@ -20,10 +20,6 @@ jobs:
       - name: env
         run: cat build.env >> $GITHUB_ENV
 
-      - name: Clean
-        id: clean
-        run: ./build-scripts/clean-runner.sh
-
       - name: Build
         id: build
         run: ./build-scripts/build-android.sh
@@ -42,7 +38,7 @@ jobs:
         continue-on-error: true
         with:
           serviceAccountJsonPlainText: ${{ secrets.SERVICE_ACCOUNT_JSON }}
-          packageName: me.hanh.ywallet
+          packageName: app.cloak.wallet
           releaseFiles: ${{ steps.build.outputs.BUILD_DIR }}/app-fdroid.aab
           track: internal
           status: completed

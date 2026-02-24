@@ -608,7 +608,7 @@ class SEn extends S {
   String get seed => 'Seed';
 
   @override
-  String get seedKeys => 'Seed & Keys';
+  String get seedKeys => 'Seed, Keys & Auth Tokens';
 
   @override
   String get seedOrKeyRequired => 'Seed or Private Key required';

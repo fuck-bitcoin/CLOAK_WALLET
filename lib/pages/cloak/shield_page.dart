@@ -49,27 +49,21 @@ class _ShieldPageState extends State<ShieldPage> {
   }
 
   Future<void> _loadVaultHash() async {
-    print('[ShieldPage] _loadVaultHash starting...');
     try {
       // NOTE: Do NOT call getVaults() or getPrimaryVaultHash() - they use FFI that crashes!
       // Instead, use the stored vault hash from database
       String? vaultHash = await CloakWalletManager.getStoredVaultHash();
-      print('[ShieldPage] Stored vault hash: ${vaultHash ?? "null"}');
 
       // If no stored hash, create a vault
       if (vaultHash == null || vaultHash.isEmpty) {
-        print('[ShieldPage] No stored vault hash, creating vault...');
         vaultHash = await CloakWalletManager.createAndStoreVault();
-        print('[ShieldPage] Created vault hash: ${vaultHash ?? "null"}');
       }
 
       // Check if vault is published
       final isPublished = await CloakWalletManager.isVaultPublished();
-      print('[ShieldPage] Vault published: $isPublished');
 
       // Fetch dynamic shield fee from chain
       final fee = await CloakWalletManager.getShieldFee();
-      print('[ShieldPage] Shield fee: $fee');
 
       if (mounted) {
         setState(() {
@@ -78,11 +72,8 @@ class _ShieldPageState extends State<ShieldPage> {
           _loadingVaultHash = false;
           _shieldFeeDisplay = fee;
         });
-        print('[ShieldPage] State updated, _vaultHash=${_vaultHash != null ? "set" : "null"}, published=$_vaultPublished');
       }
-    } catch (e, stack) {
-      print('[ShieldPage] Error loading vault hash: $e');
-      print('[ShieldPage] Stack: $stack');
+    } catch (_) {
       if (mounted) {
         setState(() => _loadingVaultHash = false);
       }
@@ -1082,7 +1073,6 @@ class _ShieldPageState extends State<ShieldPage> {
     String? balanceFontFamily,
     Color balanceTextColor,
   ) {
-    print('[ShieldPage] _buildVaultSection: _loadingVaultHash=$_loadingVaultHash, _vaultHash=${_vaultHash != null ? "exists" : "null"}');
     final hasVault = _vaultHash != null && _vaultHash!.isNotEmpty;
 
     if (_loadingVaultHash) {
@@ -1378,8 +1368,6 @@ class _ShieldPageState extends State<ShieldPage> {
     setState(() => _isPublishing = true);
 
     try {
-      print('[ShieldPage] Publishing vault directly for account: $telosAccount');
-
       final txId = await CloakWalletManager.publishVaultDirect();
 
       if (mounted) {
@@ -1449,8 +1437,6 @@ class _ShieldPageState extends State<ShieldPage> {
       final amount = double.parse(shieldStore.amount);
       final quantity = '${amount.toStringAsFixed(token.precision)} ${token.symbol}';
       final memo = 'AUTH:$vaultHash';
-
-      print('[ShieldPage] Vault deposit: $quantity to thezeosvault with memo $memo');
 
       // Build ESR with just a transfer action
       final esrUrl = EsrService.createSigningRequest(

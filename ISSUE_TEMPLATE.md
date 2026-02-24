@@ -2,7 +2,7 @@
 Describe your issue here.
 
 ### Your environment
-* version of YWallet
+* version of CLOAK Wallet
 * platform and version. Ex: Android 11, Windows 10, etc.
 * if you were upgrading, the previous version you had
 

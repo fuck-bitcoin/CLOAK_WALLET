@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../accounts.dart';
+import '../../cloak/cloak_wallet_manager.dart';
 import '../../theme/zashi_tokens.dart';
 import '../../widgets/nft_image_widget.dart';
 import '../accounts/send.dart';
@@ -251,58 +252,59 @@ class _NftLightboxOverlayState extends State<_NftLightboxOverlay> {
                       ),
                     ),
 
-                    // Send / Withdraw button (right)
-                    GestureDetector(
-                      onTap: () {
-                        final nft = widget.nfts[_currentIndex];
-                        Navigator.of(context).pop();
-                        // Navigate to send page with NFT pre-selected
-                        final sc = SendContext(
-                          '', // address — user will fill in
-                          7,
-                          Amount(1, false), // NFT sends always amount=1
-                          null,
-                          null, // fx
-                          null, // display
-                          false, // fromThread
-                          null, // threadIndex
-                          null, // threadCid
-                          null, // tokenSymbol
-                          null, // tokenContract
-                          null, // tokenPrecision
-                          widget.isVault ? activeVaultHash : null,
-                          nft.nftId,
-                          nft.contract,
-                          nft.imageUrl,
-                        );
-                        GoRouter.of(context).push(
-                          '/account/quick_send',
-                          extra: sc,
-                        );
-                      },
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 28,
-                          vertical: 12,
-                        ),
-                        decoration: ShapeDecoration(
-                          gradient: LinearGradient(
-                            begin: Alignment.topCenter,
-                            end: Alignment.bottomCenter,
-                            colors: [gradTop, gradBottom],
+                    // Send / Withdraw button (right) — hidden for view-only wallets
+                    if (!CloakWalletManager.isViewOnly)
+                      GestureDetector(
+                        onTap: () {
+                          final nft = widget.nfts[_currentIndex];
+                          Navigator.of(context).pop();
+                          // Navigate to send page with NFT pre-selected
+                          final sc = SendContext(
+                            '', // address — user will fill in
+                            7,
+                            Amount(1, false), // NFT sends always amount=1
+                            null,
+                            null, // fx
+                            null, // display
+                            false, // fromThread
+                            null, // threadIndex
+                            null, // threadCid
+                            null, // tokenSymbol
+                            null, // tokenContract
+                            null, // tokenPrecision
+                            widget.isVault ? activeVaultHash : null,
+                            nft.nftId,
+                            nft.contract,
+                            nft.imageUrl,
+                          );
+                          GoRouter.of(context).push(
+                            '/account/quick_send',
+                            extra: sc,
+                          );
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 28,
+                            vertical: 12,
                           ),
-                          shape: const StadiumBorder(),
-                        ),
-                        child: Text(
-                          widget.isVault ? 'Withdraw' : 'Send',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 15,
-                            fontWeight: FontWeight.bold,
+                          decoration: ShapeDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topCenter,
+                              end: Alignment.bottomCenter,
+                              colors: [gradTop, gradBottom],
+                            ),
+                            shape: const StadiumBorder(),
+                          ),
+                          child: Text(
+                            widget.isVault ? 'Withdraw' : 'Send',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 15,
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
                         ),
                       ),
-                    ),
                   ],
                 ),
               ),

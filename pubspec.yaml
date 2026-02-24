@@ -1,5 +1,5 @@
-name: YWallet
-description: CLOAK Privacy Wallet
+name: cloak_wallet
+description: CLOAK Wallet - Private shielded transactions on Telos
 
 # The following line prevents the package from being accidentally published to
 # pub.dev using `pub publish`. This is preferred for private packages.
@@ -33,7 +33,7 @@ dependencies:
   google_fonts: ^4.0.4
   qr_flutter:
     git:
-      url: https://github.com/hhanh00/qr.flutter.git
+      url: https://github.com/fuck-bitcoin/qr.flutter.git
       ref: 4bdb1126e553b474b80c8c91e9f9e43baf1e9c4e
   http: ^0.13.3
   intl: ^0.18.0
@@ -156,6 +156,9 @@ flutter:
   # the material Icons class.
   uses-material-design: true
 
+  shaders:
+    - shaders/orb.frag
+
   # To add assets to your application, add an assets section, like this:
   assets:
     - assets/welcome.png
@@ -186,25 +189,10 @@ flutter:
   # For details regarding adding assets from package dependencies, see
   # https://flutter.dev/assets-and-images/#from-packages
 
-  # To add custom fonts to your application, add a fonts section here,
-  # in this "flutter" section. Each entry in this list should have a
-  # "family" key with the font family name, and a "fonts" key with a
-  # list giving the asset and other descriptors for the font. For
-  # example:
-  # fonts:
-  #   - family: Schyler
-  #     fonts:
-  #       - asset: fonts/Schyler-Regular.ttf
-  #       - asset: fonts/Schyler-Italic.ttf
-  #         style: italic
-  #   - family: Trajan Pro
-  #     fonts:
-  #       - asset: fonts/TrajanPro.ttf
-  #       - asset: fonts/TrajanPro_Bold.ttf
-  #         weight: 700
-  #
-  # For details regarding fonts from package dependencies,
-  # see https://flutter.dev/custom-fonts/#from-packages
+  fonts:
+    - family: JosefinSans
+      fonts:
+        - asset: assets/fonts/JosefinSans[wght].ttf
 flutter_intl:
   enabled: true
 

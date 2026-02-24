@@ -4,7 +4,7 @@ This document provides guidelines for manually testing the photo chunking featur
 
 ## Prerequisites
 
-1. Two YWallet instances running (Instance A and Instance B)
+1. Two CLOAK Wallet instances running (Instance A and Instance B)
 2. Both instances synced with the blockchain
 3. Active chat conversation between the two instances
 

@@ -134,6 +134,17 @@ class TxPageState extends State<TxPage> {
   List<Tx> _filterTxs(List<Tx> txs) {
     var result = txs;
 
+    // For CLOAK view-only wallets (IVK), hide sent transactions and outgoing operations
+    if (CloakWalletManager.isCloak(aa.coin) && CloakWalletManager.isViewOnly) {
+      result = result.where((tx) {
+        // Hide outgoing transactions (tx.value < 0)
+        if (tx.value < 0) return false;
+        // Hide fee entries (those are associated with sent/vault operations)
+        if (isFeeEntry(tx)) return false;
+        return true;
+      }).toList();
+    }
+
     // Apply active filters (OR within same type doesn't apply here — each is independent)
     if (_activeFilters.isNotEmpty) {
       result = result.where((tx) {
@@ -196,13 +207,21 @@ class TxPageState extends State<TxPage> {
             Widget filterChip(TxFilter filter, String label) {
               final active = pending.contains(filter);
               final supported = _supportedFilters.contains(filter);
+              // View-only wallets can't see sent TXs or fees
+              final isViewOnly = CloakWalletManager.isCloak(aa.coin) && CloakWalletManager.isViewOnly;
+              final disabledForViewOnly = isViewOnly && (filter == TxFilter.sent || filter == TxFilter.fees);
+              final isEnabled = supported && !disabledForViewOnly;
+
               return GestureDetector(
                 onTap: () {
-                  if (!supported) {
-                    // Show "coming soon" snackbar
+                  if (!isEnabled) {
+                    // Show appropriate message
+                    final message = disabledForViewOnly
+                        ? '$label — not available for view-only wallets'
+                        : '$label — coming soon';
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
-                        content: Text('$label — coming soon'),
+                        content: Text(message),
                         duration: const Duration(seconds: 1),
                       ),
                     );
@@ -235,7 +254,7 @@ class TxPageState extends State<TxPage> {
                         style: TextStyle(
                           fontSize: 14,
                           fontWeight: FontWeight.w600,
-                          color: supported
+                          color: isEnabled
                               ? onSurf
                               : onSurf.withOpacity(0.4),
                         ),
@@ -1185,18 +1204,26 @@ class TxItem extends StatelessWidget {
         ? _isTelosAccount(addr)
         : addr.startsWith('t');
 
-    // Use shield+checkmark avatar for CLOAK shielded (incoming from Telos), arrow avatar otherwise
+    // CLOAK uses SVG icons: receive_quick (incoming), send_quick (outgoing), shield_check (shielded)
     final Widget av;
-    if (isCloak && _isTelosAccount(addr) && addr != 'thezeosvault' && tx.value >= 0) {
+    if (isCloak) {
       final zashi = theme.extension<ZashiThemeExt>();
       final bg = zashi != null
           ? Color.lerp(zashi.quickGradTop, zashi.quickGradBottom, 0.5)!
           : initialToColor(initial);
+      final String svgAsset;
+      if (_isTelosAccount(addr) && addr != 'thezeosvault' && tx.value >= 0) {
+        svgAsset = 'assets/icons/shield_check.svg';
+      } else if (tx.value >= 0) {
+        svgAsset = 'assets/icons/receive_quick.svg';
+      } else {
+        svgAsset = 'assets/icons/send_quick.svg';
+      }
       av = CircleAvatar(
         backgroundColor: bg,
         radius: 16.0,
         child: SvgPicture.asset(
-          'assets/icons/shield_check.svg',
+          svgAsset,
           width: 20,
           height: 20,
           colorFilter: ColorFilter.mode(onSurf, BlendMode.srcIn),

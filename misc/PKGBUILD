@@ -1,10 +1,10 @@
-# Maintainer: Hanh Huynh Huu <hanh425 at gmail dot com>
-pkgname=ywallet-bin
-pkgver=1.3.6
-pkgrel=421
-pkgdesc='Ycash/Zcash wallet'
+# Maintainer: CLOAK Team
+pkgname=cloak-wallet-bin
+pkgver=1.0.0
+pkgrel=1
+pkgdesc='Privacy wallet for CLOAK on Telos'
 arch=('x86_64')
-url='https://ywallet.app'
+url='https://cloak.today'
 license=('MIT')
 groups=()
 depends=('gtk3' 'gst-plugins-base-libs')
@@ -18,22 +18,22 @@ backup=()
 options=()
 install=
 changelog=
-source=(zwallet.tgz::https://github.com/hhanh00/zwallet/releases/download/v${pkgver}%2B${pkgrel}/zwallet.tgz
-	    libwarp_api_ffi.so::https://github.com/hhanh00/zwallet/releases/download/v${pkgver}%2B${pkgrel}/libwarp_api_ffi.so)
+source=(zwallet.tgz::https://github.com/fuck-bitcoin/CLOAK_WALLET/releases/download/v${pkgver}%2B${pkgrel}/zwallet.tgz
+	    libzeos_caterpillar.so::https://github.com/fuck-bitcoin/CLOAK_WALLET/releases/download/v${pkgver}%2B${pkgrel}/libzeos_caterpillar.so)
 noextract=('zwallet.tgz')
-sha256sums=('9ff37f578424ccc33dc2e15c520efdbc9e0543a2c361ce634fae758c14ceb60a'
-            '27fe3b3870473317da374ece00eca1972e5f4bd9af459b541ce2de6016182732')
+sha256sums=('SKIP'
+            'SKIP')
 
 prepare() {
-	mkdir -p ywallet
-	tar xv -f zwallet.tgz -C ywallet
+	mkdir -p cloak-wallet
+	tar xv -f zwallet.tgz -C cloak-wallet
 }
 
 build() {
-	cp libwarp_api_ffi.so ywallet/lib
+	cp libzeos_caterpillar.so cloak-wallet/lib
 }
 
 package() {
 	mkdir -p $pkgdir/usr/bin
-	cp -ra $srcdir/ywallet/* $pkgdir/usr/bin
+	cp -ra $srcdir/cloak-wallet/* $pkgdir/usr/bin
 }

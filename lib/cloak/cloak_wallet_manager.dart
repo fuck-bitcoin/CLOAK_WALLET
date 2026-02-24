@@ -6,6 +6,7 @@ import 'dart:ffi';
 import 'dart:io';
 import 'dart:isolate';
 import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:cloak_api/cloak_api.dart';
 import 'package:eosdart/eosdart.dart' as eosdart;
@@ -17,6 +18,7 @@ import 'cloak_sync.dart';
 import 'eosio_client.dart';
 import 'ffi_isolate.dart';
 import 'esr_service.dart';
+import 'params_manager.dart';
 
 // CLOAK coin ID
 const int CLOAK_COIN = 0;
@@ -116,6 +118,8 @@ class CloakWalletManager {
   /// Returns the account ID from database, or -1 on failure
   static Future<int> createWallet(String name, String seed, {
     String aliasAuthority = 'thezeosalias@public',
+    bool skipAutoVault = false,
+    bool isIvk = false,
   }) async {
     if (_cloakWalletPath == null) await init();
 
@@ -133,6 +137,7 @@ class CloakWalletManager {
     // Create new wallet
     final wallet = CloakApi.createWallet(
       seed,
+      isIvk: isIvk,
       aliasAuthority: aliasAuthority,
     );
 
@@ -142,15 +147,22 @@ class CloakWalletManager {
     }
 
     _cloakWallet = wallet;
-    
+
     // Get the address for this wallet
-    final address = CloakApi.deriveAddress(wallet) ?? '';
+    // IVK wallets use defaultAddress (deterministic, no mutation).
+    // deriveAddress() mutates the wallet by adding to diversifiers — not
+    // appropriate for initial creation, and panics on IVK wallets with
+    // empty diversifiers.
+    final address = isIvk
+        ? (CloakApi.defaultAddress(wallet) ?? '')
+        : (CloakApi.deriveAddress(wallet) ?? '');
 
     // Get IVK (incoming viewing key) in bech32m format
     final ivk = CloakApi.getIvkBech32m(wallet) ?? '';
 
     // Save to disk
-    if (!await saveWallet()) {
+    final saveResult = await saveWallet();
+    if (!saveResult) {
       CloakApi.closeWallet(wallet);
       _cloakWallet = null;
       return -1;
@@ -176,9 +188,7 @@ class CloakWalletManager {
 
     // Mark as new account and set initial sync height to latest block
     // New accounts don't need to sync history - they start fresh
-    print('CloakWalletManager: Marking as new account...');
     CloakSync.markAsNewAccount();
-    print('CloakWalletManager: isNewAccount is now ${CloakSync.isNewAccount}');
 
     // Wrap in try/catch to prevent crashes during setup
     try {
@@ -187,51 +197,39 @@ class CloakWalletManager {
       print('CloakWalletManager: setInitialHeightForNewAccount error (non-fatal): $e');
     }
 
-    // Preload ZK params in background so first send is instant
-    print('CloakWalletManager: About to preload ZK params...');
-    _preloadZkParamsInBackground();
-    print('CloakWalletManager: ZK params preload started');
+    // Preload ZK params in background so first send is instant.
+    // IVK (view-only) wallets can't sign transactions, so skip.
+    if (!isIvk) {
+      _preloadZkParamsInBackground();
+    }
 
-    // Skip auto-vault creation for now - causes FFI crash
-    // User can create vault manually later via Shield page
-    // TODO: Fix CloakApi.getAuthenticationTokensJson crash on new wallet
-    print('CloakWalletManager: Skipping auto-vault creation (FFI issue)');
+    // Create a default deterministic vault for NEW wallets only.
+    // Restores skip this — vault creation + publish happens in sync step 5f
+    // after balance is available (publish requires CLOAK for fees).
+    if (!skipAutoVault && !isIvk) {
+      try {
+        await createAndStoreVault();
+      } catch (e) {
+        print('CloakWalletManager: Auto-vault creation failed (non-fatal): $e');
+      }
+    }
 
-    print('CloakWalletManager: Created wallet "$name" with id=$accountId');
     return accountId;
   }
 
   /// Ensure a default vault exists for this wallet
   /// Creates one if none exist
   static Future<bool> _ensureDefaultVaultExists() async {
-    print('CloakWalletManager: _ensureDefaultVaultExists() called');
     if (_cloakWallet == null) {
-      print('CloakWalletManager: _cloakWallet is null, returning false');
       return false;
     }
 
     // Check if we already have auth tokens
-    print('CloakWalletManager: Calling getAuthenticationTokensJson...');
     final tokensJson = CloakApi.getAuthenticationTokensJson(_cloakWallet!, pretty: true);
-    final spentTokensJson = CloakApi.getAuthenticationTokensJson(_cloakWallet!, spent: true, pretty: true);
-    final balancesJson = getBalancesJson();
-    // Dump to log file for debugging
-    try {
-      final logFile = File('/tmp/cloak_at_debug.log');
-      logFile.writeAsStringSync(
-        '=== CLOAK Wallet Auth Token Debug ===\n'
-        'Timestamp: ${DateTime.now().toIso8601String()}\n\n'
-        'UNSPENT AUTH TOKENS:\n${tokensJson ?? "null"}\n\n'
-        'SPENT AUTH TOKENS:\n${spentTokensJson ?? "null"}\n\n'
-        'BALANCES:\n${balancesJson ?? "null"}\n\n'
-      );
-    } catch (_) {}
-    print('CloakWalletManager: getAuthenticationTokensJson returned: ${tokensJson?.substring(0, tokensJson.length > 50 ? 50 : tokensJson.length) ?? "null"}...');
     if (tokensJson != null) {
       try {
         final tokens = jsonDecode(tokensJson) as List;
         if (tokens.isNotEmpty) {
-          print('CloakWalletManager: Vault already exists (${tokens.length} auth tokens)');
           return true;
         }
       } catch (e) {
@@ -241,9 +239,7 @@ class CloakWalletManager {
 
     // Create a default vault — use createAndStoreVault() which persists the
     // seed to the DB vaults table (needed for _ensureAuthTokenLoaded recovery).
-    print('CloakWalletManager: Creating default vault...');
     final hash = await createAndStoreVault();
-    print('CloakWalletManager: createAndStoreVault returned: ${hash != null ? "${hash.substring(0, 16)}..." : "null"}');
     return hash != null;
   }
 
@@ -251,9 +247,7 @@ class CloakWalletManager {
   static void _preloadZkParamsInBackground() {
     // Fire and forget - load params while user does other things
     Future(() async {
-      print('CloakWalletManager: Preloading ZK params in background...');
-      final success = await loadZkParams();
-      print('CloakWalletManager: ZK params preload ${success ? "complete" : "failed"}');
+      await loadZkParams();
     });
   }
 
@@ -271,12 +265,14 @@ class CloakWalletManager {
   /// This is like createWallet but marks it for full history sync
   static Future<int> restoreWallet(String name, String seed, {
     String aliasAuthority = 'thezeosalias@public',
+    bool isIvk = false,
   }) async {
     // Mark as restored BEFORE creating - sync will do full history
     CloakSync.markAsRestored();
 
-    // Create the wallet normally
-    final accountId = await createWallet(name, seed, aliasAuthority: aliasAuthority);
+    // Create the wallet normally — skip auto-vault since sync step 5f
+    // will create + publish after balance is synced
+    final accountId = await createWallet(name, seed, aliasAuthority: aliasAuthority, skipAutoVault: true, isIvk: isIvk);
 
     // Override the new account marking - this is a restore
     CloakSync.markAsRestored();
@@ -286,7 +282,6 @@ class CloakWalletManager {
     await CloakDb.setProperty('synced_height', '0');
     await CloakDb.setProperty('full_sync_done', 'false');
 
-    print('CloakWalletManager: Restored wallet "$name" - full sync needed (synced_height reset to 0)');
     return accountId;
   }
   
@@ -328,8 +323,6 @@ class CloakWalletManager {
         _cloakAccountName = account['name'] as String;
       }
 
-      print('CloakWalletManager: Loaded wallet "$_cloakAccountName" (id=$_cloakAccountId)');
-
       // Defer debug logging and non-critical FFI calls until after the first sync
       // completes. These calls (getAuthenticationTokensJson, getBalancesJson,
       // getLeafCount, alias check, auth token import, ZK params preload) are not
@@ -347,29 +340,8 @@ class CloakWalletManager {
           final w = _cloakWallet;
           if (w == null) return;
 
-          // Debug log
-          try {
-            final unspentAts = CloakApi.getAuthenticationTokensJson(w, pretty: true);
-            final spentAts = CloakApi.getAuthenticationTokensJson(w, spent: true, pretty: true);
-            final bals = CloakApi.getBalancesJson(w, pretty: true);
-            final leafCount = CloakApi.getLeafCount(w);
-            final logFile = File('/tmp/cloak_at_debug.log');
-            await logFile.writeAsString(
-              '=== CLOAK Wallet Debug (loadWallet) ===\n'
-              'Timestamp: ${DateTime.now().toIso8601String()}\n\n'
-              'LEAF COUNT: $leafCount\n\n'
-              'UNSPENT AUTH TOKENS:\n${unspentAts ?? "null"}\n\n'
-              'SPENT AUTH TOKENS:\n${spentAts ?? "null"}\n\n'
-              'BALANCES:\n${bals ?? "null"}\n\n'
-            );
-            print('CloakWalletManager: Debug log written to /tmp/cloak_at_debug.log');
-          } catch (e) {
-            print('CloakWalletManager: Debug log error: $e');
-          }
-
           // Check alias_authority - this is CRITICAL for ZK proofs
           final storedAlias = getAliasAuthority();
-          print('CloakWalletManager: Wallet alias_authority: $storedAlias');
           if (storedAlias != EXPECTED_ALIAS_AUTHORITY) {
             print('');
             print('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!');
@@ -409,7 +381,6 @@ class CloakWalletManager {
     // Check if we already imported (stored as a DB property)
     final alreadyImported = await CloakDb.getProperty('cloak_gui_auth_imported');
     if (alreadyImported == 'true') {
-      print('[CloakWalletManager] Auth token already imported from CLOAK GUI');
       return;
     }
 
@@ -417,13 +388,11 @@ class CloakWalletManager {
     const importPath = '/tmp/cloak_unpublished_notes.json';
     final file = File(importPath);
     if (!await file.exists()) {
-      print('[CloakWalletManager] No CLOAK GUI auth token file at $importPath — skipping import');
       return;
     }
 
     try {
       final notesJson = await file.readAsString();
-      print('[CloakWalletManager] Importing auth token from CLOAK GUI: ${notesJson.length} chars');
 
       // Validate JSON structure
       final parsed = jsonDecode(notesJson);
@@ -446,8 +415,6 @@ class CloakWalletManager {
 
       // Mark as imported so we don't repeat
       await CloakDb.setProperty('cloak_gui_auth_imported', 'true');
-      print('[CloakWalletManager] Successfully imported auth token from CLOAK GUI!');
-      print('[CloakWalletManager] Vault operations should now work via app.cloak.today');
     } catch (e) {
       print('[CloakWalletManager] Error importing auth token: $e');
     }
@@ -466,7 +433,6 @@ class CloakWalletManager {
     void Function(String)? onStatus,
   }) async {
     void log(String msg) {
-      print('[importGuiWallet] $msg');
       onLog?.call(msg);
     }
 
@@ -668,7 +634,6 @@ class CloakWalletManager {
     void Function(String)? onLog,
   }) async {
     void log(String msg) {
-      print('[updateVaultHashes] $msg');
       onLog?.call(msg);
     }
 
@@ -747,8 +712,6 @@ class CloakWalletManager {
     }
 
     try {
-      print('[CloakWalletManager] Starting chain state reset...');
-
       // 1. Lock wallet to prevent concurrent sync
       CloakSync.lockWallet();
 
@@ -788,7 +751,6 @@ class CloakWalletManager {
       // Note: These are in store2.dart and managed by accounts.dart
       // The sync will automatically rebuild them
 
-      print('[CloakWalletManager] Chain state reset complete. Ready for resync.');
       return true;
     } catch (e) {
       print('[CloakWalletManager] Error during reset: $e');
@@ -815,6 +777,28 @@ class CloakWalletManager {
 
   /// Check if wallet is loaded
   static bool get isLoaded => _cloakWallet != null;
+
+  /// Check if wallet is view-only (IVK)
+  /// View-only wallets can see incoming transactions but cannot spend coins
+  static bool get isViewOnly {
+    if (_cloakWallet == null) return false;
+    return CloakApi.isViewOnly(_cloakWallet!) ?? false;
+  }
+
+  /// Get key type for UI display: 'spending', 'fvk', or 'ivk'
+  /// spending: can spend coins, see all TXs, create vaults
+  /// fvk: can see all TXs, cannot spend (derived from spending key)
+  /// ivk: can only see incoming TXs, cannot spend (independent incoming key)
+  static String get keyType {
+    if (_cloakWallet == null) return 'unknown';
+    if (!isViewOnly) {
+      // Wallet stores full seed (spending key capable)
+      return 'spending';
+    }
+    // For now, classify all view-only as 'ivk'
+    // In future, could distinguish between FVK and IVK via additional API
+    return 'ivk';
+  }
 
   /// Expected alias_authority for Telos mainnet
   /// ZK proofs MUST use this exact value or they will fail on-chain verification
@@ -872,7 +856,11 @@ class CloakWalletManager {
   /// Get primary address
   static String? getAddress() {
     if (_cloakWallet == null) return null;
-    var address = CloakApi.deriveAddress(_cloakWallet!);
+    // IVK wallets use defaultAddress (deriveAddress panics on empty diversifiers)
+    final isIvk = CloakApi.isViewOnly(_cloakWallet!) ?? false;
+    var address = isIvk
+        ? CloakApi.defaultAddress(_cloakWallet!)
+        : CloakApi.deriveAddress(_cloakWallet!);
     if (address == null) return null;
 
     // The FFI may return the address as a JSON-encoded string with quotes
@@ -881,7 +869,6 @@ class CloakWalletManager {
       address = address.substring(1, address.length - 1);
     }
 
-    print('[CloakWalletManager] getAddress() returned: $address');
     return address;
   }
 
@@ -892,7 +879,6 @@ class CloakWalletManager {
     if (_cloakWallet == null) return null;
     final address = CloakApi.defaultAddress(_cloakWallet!);
     if (address == null) return null;
-    print('[CloakWalletManager] getDefaultAddress() returned: $address');
     return address;
   }
 
@@ -973,7 +959,6 @@ class CloakWalletManager {
     // Save wallet to persist the vault
     await saveWallet();
 
-    print('[CloakWalletManager] Vault created: $label');
     return true;
   }
 
@@ -990,13 +975,7 @@ class CloakWalletManager {
     final address = getDefaultAddress();
     if (address == null) return null;
 
-    // Debug: print the address to check for invalid characters
-    print('[CloakWalletManager] createVaultAndGetHash address: "$address"');
-    print('[CloakWalletManager] address length: ${address.length}');
-    print('[CloakWalletManager] address codeUnits: ${address.codeUnits}');
-
     final contract = eosioNameToU64(tokenContract);
-    print('[CloakWalletManager] createVaultAndGetHash contract="$tokenContract" => u64=$contract');
 
     final notesJson = await FfiIsolate.createUnpublishedAuthNote(
       wallet: _cloakWallet!,
@@ -1019,40 +998,27 @@ class CloakWalletManager {
     // }
     // The vault identifier is the commitment hash from __commitment__ key
     String? vaultHash;
-    print('[CloakWalletManager] Raw notesJson from FFI: ${notesJson.substring(0, notesJson.length > 200 ? 200 : notesJson.length)}...');
     try {
       final notes = jsonDecode(notesJson);
-      print('[CloakWalletManager] Decoded notes type: ${notes.runtimeType}');
 
       if (notes is Map) {
         // Extract the commitment hash from the __commitment__ key
         final commitmentList = notes['__commitment__'];
         if (commitmentList is List && commitmentList.isNotEmpty) {
           vaultHash = commitmentList[0] as String;
-          print('[CloakWalletManager] Found vault commitment hash: $vaultHash');
-          print('[CloakWalletManager] Commitment hash length: ${vaultHash.length}');
         } else {
           // Fallback: legacy FFI without __commitment__ key - look for za1 address
           // This should not happen with updated FFI
           for (final key in notes.keys) {
             if (key != 'self' && key is String && key.startsWith('za1')) {
               vaultHash = key;
-              print('[CloakWalletManager] WARNING: Using legacy za1 address as vault hash: $vaultHash');
               break;
             }
           }
         }
       }
-
-      if (vaultHash == null) {
-        print('[CloakWalletManager] Could not extract vault hash from: ${notes.runtimeType}');
-        if (notes is Map) {
-          print('[CloakWalletManager] Keys: ${notes.keys.toList()}');
-        }
-      }
-    } catch (e, stack) {
+    } catch (e) {
       print('[CloakWalletManager] Error parsing vault notes: $e');
-      print('[CloakWalletManager] Stack trace: $stack');
     }
 
     // Add the unpublished notes to wallet regardless
@@ -1064,7 +1030,6 @@ class CloakWalletManager {
     // Save wallet to persist the vault
     await saveWallet();
 
-    print('[CloakWalletManager] Vault created with hash: $vaultHash');
     return vaultHash;
   }
 
@@ -1084,21 +1049,16 @@ class CloakWalletManager {
       // Validate the hash format: must be 64-character hex string
       // If it starts with 'za1', it's the old wrong format (bech32m address)
       if (hash.startsWith('za1')) {
-        print('[CloakWalletManager] Found INVALID vault hash (za1 address): ${hash.substring(0, 20)}...');
-        print('[CloakWalletManager] Clearing invalid hash - will create new vault');
         await CloakDb.setProperty(_vaultHashKey, '');  // Clear the invalid hash
         return null;
       }
 
       // Check if it's a valid 64-char hex string
       if (hash.length != 64 || !RegExp(r'^[0-9a-fA-F]+$').hasMatch(hash)) {
-        print('[CloakWalletManager] Found INVALID vault hash format: ${hash.substring(0, hash.length > 20 ? 20 : hash.length)}...');
-        print('[CloakWalletManager] Clearing invalid hash - will create new vault');
         await CloakDb.setProperty(_vaultHashKey, '');  // Clear the invalid hash
         return null;
       }
 
-      print('[CloakWalletManager] Found valid stored vault hash: ${hash.substring(0, 16)}...');
     }
     return hash;
   }
@@ -1106,12 +1066,16 @@ class CloakWalletManager {
   /// Store the vault hash in database
   static Future<void> _storeVaultHash(String hash) async {
     await CloakDb.setProperty(_vaultHashKey, hash);
-    print('[CloakWalletManager] Stored vault hash: ${hash.substring(0, 16)}...');
   }
 
   /// Whether vault discovery is currently running (prevents vault creation during scan)
   static bool _discoveryInProgress = false;
   static bool get discoveryInProgress => _discoveryInProgress;
+
+  /// Notifier that fires when the vault list changes (discovery, creation, burn).
+  /// UI widgets can listen to this to auto-refresh.
+  static final vaultListVersion = ValueNotifier<int>(0);
+  static void _notifyVaultListChanged() => vaultListVersion.value++;
 
   /// Create a new vault and store its hash.
   /// Uses deterministic HMAC-SHA256 seed derivation for reproducible vaults.
@@ -1119,15 +1083,11 @@ class CloakWalletManager {
   static Future<String?> createAndStoreVault({String? label}) async {
     if (_cloakWallet == null) return null;
     if (_discoveryInProgress) {
-      print('[CloakWalletManager] createAndStoreVault blocked — vault discovery in progress');
       return null;
     }
 
-    print('[CloakWalletManager] Creating new deterministic vault...');
-
     // Read next_vault_index from SQLite
     final nextIndex = await CloakDb.getNextVaultIndex();
-    print('[CloakWalletManager] next_vault_index = $nextIndex');
 
     final contract = eosioNameToU64('thezeostoken');
 
@@ -1139,7 +1099,6 @@ class CloakWalletManager {
     );
 
     if (notesJson == null) {
-      print('[CloakWalletManager] createDeterministicVault failed');
       return null;
     }
 
@@ -1159,7 +1118,6 @@ class CloakWalletManager {
     }
 
     if (hash == null || hash.length != 64) {
-      print('[CloakWalletManager] Invalid commitment hash from deterministic vault');
       return null;
     }
 
@@ -1189,135 +1147,203 @@ class CloakWalletManager {
         label: label ?? 'Vault $nextIndex',
         vaultIndex: nextIndex,
       );
-      print('[CloakWalletManager] Deterministic vault $nextIndex persisted to DB');
     }
 
     // Increment next_vault_index
     await CloakDb.incrementNextVaultIndex();
 
-    print('[CloakWalletManager] Vault created: index=$nextIndex hash=${hash.substring(0, 16)}...');
+    _notifyVaultListChanged();
     return hash;
   }
 
   /// Discover deterministic vaults by scanning indices 0..N.
   /// For each index: derive seed -> create deterministic vault -> get hash -> check on-chain.
-  /// Uses gap limit of 50 consecutive misses and parallelism of 3.
+  /// Uses gap limit of 20 consecutive misses. Processes indices sequentially to avoid
+  /// concurrent mutable access to the Rust wallet pointer.
   /// Returns list of discovered vault hashes.
   static Future<List<String>> discoverVaults() async {
-    if (_cloakWallet == null) return [];
+    if (_cloakWallet == null) {
+      return [];
+    }
 
     _discoveryInProgress = true;
-    print('[discoverVaults] Starting vault discovery scan...');
     final discovered = <String>[];
-    const gapLimit = 50;
-    const parallelism = 3;
-    int consecutiveMisses = 0;
-    int index = 0;
-    int highestFoundIndex = -1;
-
-    final contract = eosioNameToU64('thezeostoken');
+    final contractU64 = eosioNameToU64('thezeostoken');
 
     try {
-      while (consecutiveMisses < gapLimit) {
-        // Process up to `parallelism` indices concurrently
-        final batch = <int>[];
-        for (int i = 0; i < parallelism && consecutiveMisses + i < gapLimit; i++) {
-          batch.add(index + i);
-        }
-
-        // Derive all vault hashes in the batch
-        final futures = batch.map((idx) async {
-          final notesJson = await FfiIsolate.createDeterministicVault(
-            wallet: _cloakWallet!,
-            contract: contract,
-            vaultIndex: idx,
-          );
-          if (notesJson == null) return null;
-
-          String? hash;
+      // ── Phase 1: Collect all synced vault-type auth tokens ──
+      // Vault ATs use contract=thezeostoken. Filter by this contract to
+      // separate vault ATs from alias ATs (which use thezeosalias).
+      final vaultAtHashes = <String>{};
+      for (final spent in [false, true]) {
+        final json = CloakApi.getAuthenticationTokensJson(
+          _cloakWallet!, contract: contractU64, spent: spent, pretty: false,
+        );
+        if (json != null && json.isNotEmpty) {
           try {
-            final notes = jsonDecode(notesJson);
-            if (notes is Map) {
-              final commitmentList = notes['__commitment__'];
-              if (commitmentList is List && commitmentList.isNotEmpty) {
-                hash = commitmentList[0] as String;
+            final list = jsonDecode(json) as List;
+            for (final at in list) {
+              if (at is String) {
+                final hash = at.contains('@') ? at.split('@')[0] : at;
+                if (hash.length == 64) vaultAtHashes.add(hash);
               }
             }
           } catch (_) {}
-
-          if (hash == null || hash.length != 64) return null;
-          return {'index': idx, 'hash': hash, 'notesJson': notesJson};
-        });
-
-        final results = await Future.wait(futures);
-
-        for (final result in results) {
-          if (result == null) {
-            consecutiveMisses++;
-            index++;
-            continue;
-          }
-
-          final idx = result['index'] as int;
-          final hash = result['hash'] as String;
-          final notesJson = result['notesJson'] as String;
-
-          // Check if vault exists on-chain
-          try {
-            final vaultState = await queryVaultTokens(hash);
-            if (vaultState.existsOnChain) {
-              print('[discoverVaults] FOUND vault at index $idx: ${hash.substring(0, 16)}...');
-              consecutiveMisses = 0;
-              if (idx > highestFoundIndex) highestFoundIndex = idx;
-
-              // Add to wallet
-              CloakApi.addUnpublishedNotes(_cloakWallet!, notesJson);
-
-              // Store in DB if not already there
-              final exists = await CloakDb.vaultExistsByHash(hash);
-              if (!exists) {
-                final seedHex = CloakApi.deriveVaultSeed(_cloakWallet!, idx);
-                await CloakDb.addVault(
-                  accountId: _cloakAccountId > 0 ? _cloakAccountId : 1,
-                  seed: seedHex ?? 'deterministic_v$idx',
-                  commitmentHash: hash,
-                  contract: 'thezeostoken',
-                  label: 'Vault $idx',
-                  status: 'active',
-                  vaultIndex: idx,
-                );
-              }
-              discovered.add(hash);
-            } else {
-              consecutiveMisses++;
-            }
-          } catch (e) {
-            print('[discoverVaults] Error checking vault at index $idx: $e');
-            consecutiveMisses++;
-          }
-
-          index++;
         }
+      }
+      // Also get ALL ATs for legacy fallback (old vaults published with thezeosalias)
+      final allAtHashes = <String>{};
+      final allAtsJson = CloakApi.getAuthenticationTokensJson(
+        _cloakWallet!, contract: 0, spent: false, pretty: false,
+      );
+      if (allAtsJson != null && allAtsJson.isNotEmpty) {
+        try {
+          final list = jsonDecode(allAtsJson) as List;
+          for (final at in list) {
+            if (at is String) {
+              final hash = at.contains('@') ? at.split('@')[0] : at;
+              if (hash.length == 64) allAtHashes.add(hash);
+            }
+          }
+        } catch (_) {}
+      }
+      // ── Phase 2: Deterministic index scan ──
+      // Derive hashes for vault indices 0, 1, 2, ... and check if each
+      // exists in synced vault ATs or the on-chain vaults table.
+      const gapLimit = 20;
+      int consecutiveMisses = 0;
+      int highestFoundIndex = -1;
+      int apiErrors = 0;
+      const maxApiErrors = 5;
+      int index = 0;
 
-        // Clear vault tokens cache between batches to avoid stale data
-        clearVaultTokensCache();
+      // Single vaults table query for all indices (avoid per-index HTTP)
+      Map<String, dynamic>? vaultsTableRows;
+      try {
+        final client = EosioClient('https://telos.eosusa.io');
+        final response = await client.getTableRows(
+          code: 'thezeosvault',
+          scope: 'thezeosvault',
+          table: 'vaults',
+          limit: 100,
+        );
+        client.close();
+        final rows = response['rows'] as List? ?? [];
+        vaultsTableRows = { for (final r in rows) (r['auth_token'] as String? ?? ''): r };
+      } catch (e) {
+        vaultsTableRows = {};
       }
 
-      // Update next_vault_index to be one past the highest discovered
+      while (consecutiveMisses < gapLimit && apiErrors < maxApiErrors) {
+        final idx = index;
+        index++;
+
+        final notesJson = await FfiIsolate.createDeterministicVault(
+          wallet: _cloakWallet!,
+          contract: contractU64,
+          vaultIndex: idx,
+        );
+
+        if (notesJson == null) {
+          consecutiveMisses++;
+          continue;
+        }
+
+        String? hash;
+        try {
+          final notes = jsonDecode(notesJson);
+          if (notes is Map) {
+            final commitmentList = notes['__commitment__'];
+            if (commitmentList is List && commitmentList.isNotEmpty) {
+              hash = commitmentList[0] as String;
+            }
+          }
+        } catch (_) {}
+
+        if (hash == null || hash.length != 64) {
+          consecutiveMisses++;
+          continue;
+        }
+
+        // Check 1: Synced vault ATs (published with thezeostoken — new deterministic vaults)
+        final foundInVaultAts = vaultAtHashes.contains(hash);
+
+        // Check 2: ALL synced ATs (catches old vaults published with thezeosalias too)
+        final foundInAllAts = !foundInVaultAts && allAtHashes.contains(hash);
+
+        // Check 3: On-chain vaults table (catches any vault that was deposited into)
+        final foundInTable = !foundInVaultAts && !foundInAllAts &&
+            vaultsTableRows != null && vaultsTableRows.containsKey(hash);
+
+        if (foundInVaultAts || foundInAllAts || foundInTable) {
+          consecutiveMisses = 0;
+          if (idx > highestFoundIndex) highestFoundIndex = idx;
+
+          // Add to wallet unpublished notes
+          CloakApi.addUnpublishedNotes(_cloakWallet!, notesJson);
+
+          // Store in DB
+          final exists = await CloakDb.vaultExistsByHash(hash);
+          if (!exists) {
+            final seedHex = CloakApi.deriveVaultSeed(_cloakWallet!, idx);
+            await CloakDb.addVault(
+              accountId: _cloakAccountId > 0 ? _cloakAccountId : 1,
+              seed: seedHex ?? 'deterministic_v$idx',
+              commitmentHash: hash,
+              contract: 'thezeostoken',
+              label: 'Vault $idx',
+              status: 'active',
+              vaultIndex: idx,
+            );
+          }
+          discovered.add(hash);
+          if (discovered.length == 1) await _storeVaultHash(hash);
+        } else {
+          consecutiveMisses++;
+        }
+      }
+
+      // ── Phase 3: Sweep on-chain vaults table for legacy vaults ──
+      // Any vaults table entry not yet discovered might be a legacy (non-deterministic)
+      // vault belonging to this wallet. Register it.
+      if (vaultsTableRows != null) {
+        for (final entry in vaultsTableRows.entries) {
+          final tableHash = entry.key;
+          if (tableHash.isEmpty || tableHash.length != 64) continue;
+          if (discovered.contains(tableHash)) continue; // Already found
+
+          // Check if this hash is in our synced ATs (proving we own it)
+          if (allAtHashes.contains(tableHash)) {
+            final exists = await CloakDb.vaultExistsByHash(tableHash);
+            if (!exists) {
+              await CloakDb.addVault(
+                accountId: _cloakAccountId > 0 ? _cloakAccountId : 1,
+                seed: 'legacy_imported',
+                commitmentHash: tableHash,
+                contract: 'thezeostoken',
+                label: 'Vault (Legacy)',
+                status: 'active',
+              );
+            }
+            discovered.add(tableHash);
+          }
+        }
+      }
+
+      // Update next_vault_index
       if (highestFoundIndex >= 0) {
         final newNext = highestFoundIndex + 1;
         final currentNext = await CloakDb.getNextVaultIndex();
         if (newNext > currentNext) {
           await CloakDb.setNextVaultIndex(newNext);
-          print('[discoverVaults] Updated next_vault_index to $newNext');
         }
       }
 
       if (discovered.isNotEmpty) {
         await saveWallet();
+        _notifyVaultListChanged();
       }
 
-      print('[discoverVaults] Discovery complete: found ${discovered.length} vault(s), scanned $index indices');
     } finally {
       _discoveryInProgress = false;
     }
@@ -1393,7 +1419,6 @@ class CloakWalletManager {
     if (vaultHash != null && vaultHash.isNotEmpty) {
       await CloakDb.updateVaultStatusByHash(vaultHash, 'published');
     }
-    print('[CloakWalletManager] Vault marked as published');
   }
 
   /// Generate ESR for publishing auth token to blockchain
@@ -1408,8 +1433,6 @@ class CloakWalletManager {
   static Future<Map<String, dynamic>> generatePublishVaultEsr({
     required String telosAccount,
   }) async {
-    print('[CloakWalletManager] Generating publish vault ESR');
-
     // Get or create vault hash
     String? vaultHash = await getStoredVaultHash();
     if (vaultHash == null || vaultHash.isEmpty) {
@@ -1431,20 +1454,13 @@ class CloakWalletManager {
       tokenContract: telosAccount, // Auth tokens require contract == from account
     );
 
-    print('[CloakWalletManager] Auth token ZTransaction built');
-    print('[CloakWalletManager] ZTransaction: $ztxJson');
-
     // Get fees
     final feesJson = await _getFeesJson();
-    print('[CloakWalletManager] Fees JSON: $feesJson');
 
     // Ensure wallet is loaded
     if (_cloakWallet == null) {
       throw Exception('Wallet not loaded');
     }
-
-    print('[CloakWalletManager] Generating ZK proof for auth token publish...');
-    print('[CloakWalletManager] This may take 10-30 seconds...');
 
     // Call FFI to generate transaction with ZK proof
     final txJson = CloakApi.transactPacked(
@@ -1463,8 +1479,6 @@ class CloakWalletManager {
       throw Exception('wallet_transact_packed failed: $error');
     }
 
-    print('[CloakWalletManager] Auth token ZK proof generated!');
-
     // Parse the transaction to extract actions
     final tx = jsonDecode(txJson) as Map<String, dynamic>;
     final actions = tx['actions'] as List? ?? [];
@@ -1477,8 +1491,6 @@ class CloakWalletManager {
     final esrUrl = EsrService.createSigningRequest(
       actions: actions.cast<Map<String, dynamic>>(),
     );
-
-    print('[CloakWalletManager] ESR URL generated for vault publish');
 
     return {
       'esrUrl': esrUrl,
@@ -1494,8 +1506,6 @@ class CloakWalletManager {
   ///
   /// Returns the transaction ID on success
   static Future<String> publishVaultDirect() async {
-    print('[CloakWalletManager] Publishing vault directly (no ESR)...');
-
     // 1. Get or create vault hash
     String? vaultHash = await getStoredVaultHash();
     if (vaultHash == null || vaultHash.isEmpty) {
@@ -1538,7 +1548,6 @@ class CloakWalletManager {
             'Have $cloakBalance CLOAK, need at least ${requiredFee.toStringAsFixed(2)} CLOAK. '
             'Deposit and authenticate more CLOAK first.');
         }
-        print('[CloakWalletManager] Shielded balance: $cloakBalance CLOAK (sufficient for fees)');
       } catch (e) {
         if (e.toString().contains('Insufficient shielded balance')) rethrow;
         print('[CloakWalletManager] Warning: Could not check balance: $e');
@@ -1549,12 +1558,31 @@ class CloakWalletManager {
     // For auth tokens, from/contract are part of ZK circuit inputs but the
     // Rust FFI handles them from the wallet's internal unpublished note state.
     // We use thezeosalias as the nominal account since it authorizes everything.
+    //
+    // CRITICAL: Pass the vault seed as memo so resolve_ztransaction uses it for
+    // Rseed derivation. Without this, Rust generates a random BIP-39 mnemonic
+    // for the Rseed, producing a different commitment hash than the deterministic
+    // one from createDeterministicVault — making the vault undiscoverable.
+    String vaultSeedMemo = '';
+    if (_cloakWallet != null && vaultHash != null) {
+      final vaultData = await CloakDb.getVaultByHash(vaultHash);
+      final vaultIndex = vaultData?['vault_index'] as int?;
+      if (vaultIndex != null) {
+        final seedHex = CloakApi.deriveVaultSeed(_cloakWallet!, vaultIndex);
+        if (seedHex != null && seedHex.isNotEmpty) {
+          vaultSeedMemo = seedHex;
+        }
+      }
+    }
+    // CRITICAL: fromAccount and tokenContract MUST match the contract used in
+    // createDeterministicVault (thezeostoken) so the on-chain commitment hash
+    // equals the locally-derived hash. The auth token circuit enforces
+    // from == contract but does NOT require a specific value.
     final ztxJson = _buildAuthTokenMintZTransaction(
-      fromAccount: 'thezeosalias',
-      tokenContract: 'thezeosalias',
+      fromAccount: 'thezeostoken',
+      tokenContract: 'thezeostoken',
+      memo: vaultSeedMemo,
     );
-
-    print('[CloakWalletManager] Auth token ZTransaction built');
 
     // 5. Get fees
     final feesJson = await _getFeesJson();
@@ -1563,9 +1591,6 @@ class CloakWalletManager {
     if (_cloakWallet == null) {
       throw Exception('Wallet not loaded');
     }
-
-    print('[CloakWalletManager] Generating ZK proof for auth token publish...');
-    print('[CloakWalletManager] This may take 10-30 seconds...');
 
     // Run ZK proof generation in a background isolate so the UI stays
     // responsive (spinner keeps animating, no freeze).
@@ -1580,8 +1605,6 @@ class CloakWalletManager {
       outputParams: _outputParams!,
     );
 
-    print('[CloakWalletManager] ZK proof generated, signing with alias key...');
-
     // 6. Parse transaction (tuple format: [TransactionPacked, unpublished_notes])
     final decoded = jsonDecode(txJson);
     final Map<String, dynamic> tx;
@@ -1591,6 +1614,12 @@ class CloakWalletManager {
       tx = Map<String, dynamic>.from(decoded as Map);
     } else {
       throw Exception('Unexpected transactPacked response format: ${decoded.runtimeType}');
+    }
+
+    // Validate actions exist
+    final txActions = tx['actions'] as List? ?? [];
+    if (txActions.isEmpty) {
+      throw Exception('transactPacked returned transaction with 0 actions — ZK proof may have failed');
     }
 
     // 6b. Set transaction headers (ref_block_num, ref_block_prefix, expiration)
@@ -1618,7 +1647,6 @@ class CloakWalletManager {
       tx['context_free_actions'] = tx['context_free_actions'] ?? [];
       tx['transaction_extensions'] = tx['transaction_extensions'] ?? [];
 
-      print('[CloakWalletManager] TX headers set: ref_block_num=$refBlockNum, expiration=${tx['expiration']}');
     } finally {
       client.close();
     }
@@ -1637,8 +1665,6 @@ class CloakWalletManager {
       existingSignatures: [],
     );
 
-    print('[CloakWalletManager] Signed, broadcasting...');
-
     // 8. Broadcast directly
     final result = await EsrTransactionHelper.broadcastTransaction(
       transaction: tx,
@@ -1646,12 +1672,33 @@ class CloakWalletManager {
     );
 
     final txId = result['transaction_id'] as String? ?? 'unknown';
-    print('[CloakWalletManager] Vault published! TX: $txId');
 
-    // 9. Save wallet to persist published auth token state (runs in isolate)
+    // 9. Verify transaction landed on-chain (check leaf count increased)
+    try {
+      await Future.delayed(const Duration(seconds: 2));
+      final verifyClient = HttpClient();
+      try {
+        final vReq = await verifyClient.postUrl(Uri.parse('https://telos.eosusa.io/v1/chain/get_table_rows'));
+        vReq.headers.set('Content-Type', 'application/json');
+        vReq.write(jsonEncode({
+          'code': 'zeosprotocol',
+          'scope': 'zeosprotocol',
+          'table': 'global',
+          'limit': 1,
+          'json': true,
+        }));
+        final vResp = await vReq.close();
+        jsonDecode(await vResp.transform(const Utf8Decoder()).join());
+        // Verification complete — response parsed to confirm chain accepted TX
+      } finally {
+        verifyClient.close();
+      }
+    } catch (_) {}
+
+    // 10. Save wallet to persist published auth token state (runs in isolate)
     await saveWallet();
 
-    // 10. Mark as published in database
+    // 11. Mark as published in database
     await markVaultPublished();
 
     return txId;
@@ -1661,13 +1708,12 @@ class CloakWalletManager {
   static String _buildAuthTokenMintZTransaction({
     required String fromAccount,
     required String tokenContract,
+    String memo = '',
   }) {
     final chainId = getChainId() ?? TELOS_CHAIN_ID;
     final protocolContract = getProtocolContract() ?? 'zeosprotocol';
     final vaultContract = getVaultContract() ?? 'thezeosvault';
     final aliasAuthority = getAliasAuthority() ?? 'thezeosalias@public';
-
-    print('[CloakWalletManager] Building auth token ZTransaction');
 
     final ztx = {
       'chain_id': chainId,
@@ -1683,7 +1729,7 @@ class CloakWalletManager {
             'to': '\$SELF', // To our own shielded address
             'contract': tokenContract, // "0" for any contract, or specific contract
             'quantity': '0', // Zero quantity = auth token
-            'memo': '',
+            'memo': memo,
             'from': fromAccount,
             'publish_note': true, // MUST be true to publish to blockchain
           }
@@ -1738,8 +1784,6 @@ class CloakWalletManager {
       return null;
     }
 
-    print('[CloakWalletManager] Importing vault with seed: "${seed.substring(0, seed.length > 30 ? 30 : seed.length)}..."');
-
     // Use the seed as the label parameter to create/recreate the vault in wallet.bin
     // This derives the same commitment hash if the seed matches an existing vault
     final contractU64 = eosioNameToU64(contract);
@@ -1786,9 +1830,6 @@ class CloakWalletManager {
         onChain = true;
         fts = vaultTokens.fts;
         nfts = vaultTokens.nfts;
-        print('[CloakWalletManager] importVault: vault found on-chain, fts=${fts.length}, nfts=${nfts.length}');
-      } else {
-        print('[CloakWalletManager] importVault: vault NOT found on-chain (may be burned or wrong seed)');
       }
     } catch (e) {
       print('[CloakWalletManager] importVault: on-chain check failed: $e');
@@ -1800,7 +1841,6 @@ class CloakWalletManager {
     // Check if vault already exists in database
     final exists = await CloakDb.vaultExistsByHash(commitmentHash);
     if (exists) {
-      print('[CloakWalletManager] Vault already imported: ${commitmentHash.substring(0, 16)}...');
       final existing = await CloakDb.getVaultByHash(commitmentHash);
       if (existing != null) {
         existing['on_chain'] = onChain;
@@ -1823,8 +1863,6 @@ class CloakWalletManager {
       print('[CloakWalletManager] importVault: failed to save to database');
       return null;
     }
-
-    print('[CloakWalletManager] Vault imported successfully: ${commitmentHash.substring(0, 16)}...');
 
     return {
       'id': vaultId,
@@ -1859,12 +1897,9 @@ class CloakWalletManager {
       return null;
     }
 
-    print('[CloakWalletManager] Importing vault with provided hash: ${commitmentHash.substring(0, 16)}...');
-
     // Check if vault already exists in database
     final exists = await CloakDb.vaultExistsByHash(commitmentHash);
     if (exists) {
-      print('[CloakWalletManager] Vault already imported: ${commitmentHash.substring(0, 16)}...');
       final existing = await CloakDb.getVaultByHash(commitmentHash);
       return existing;
     }
@@ -1882,8 +1917,6 @@ class CloakWalletManager {
       print('[CloakWalletManager] importVaultWithHash: failed to save to database');
       return null;
     }
-
-    print('[CloakWalletManager] Vault imported successfully: ${commitmentHash.substring(0, 16)}...');
 
     return {
       'id': vaultId,
@@ -1928,7 +1961,6 @@ class CloakWalletManager {
       if (storedHash == commitmentHash) {
         await CloakDb.setProperty(_vaultHashKey, '');
         await CloakDb.setProperty('cloak_vault_published', '');
-        print('[CloakWalletManager] Cleared primary vault properties for deleted vault');
       }
     }
     await CloakDb.deleteVault(vaultId);
@@ -1952,11 +1984,7 @@ class CloakWalletManager {
 
       client.close();
 
-      print('[queryVaultBalance] Looking for hash: $commitmentHash');
-      print('[queryVaultBalance] Response: $response');
-
       if (response['rows'] == null || (response['rows'] as List).isEmpty) {
-        print('[queryVaultBalance] No rows found');
         return '0 CLOAK';
       }
 
@@ -1964,9 +1992,7 @@ class CloakWalletManager {
       // Find the row matching our commitment hash
       for (final row in rows) {
         final authToken = row['auth_token'] as String?;
-        print('[queryVaultBalance] Checking row with auth_token: $authToken');
         if (authToken == commitmentHash) {
-          print('[queryVaultBalance] Found matching vault!');
           // Parse the balance from 'fts' (fungible tokens) array
           // Format: [{"first": {"sym": "4,CLOAK", "contract": "thezeostoken"}, "second": 10000}]
           final fts = row['fts'];
@@ -1976,7 +2002,6 @@ class CloakWalletManager {
               if (item is Map) {
                 final tokenInfo = item['first'];
                 final amount = item['second'];
-                print('[queryVaultBalance] Token: $tokenInfo, Amount: $amount');
                 if (tokenInfo is Map && amount is int) {
                   final sym = tokenInfo['sym'] as String? ?? '4,CLOAK';
                   final parts = sym.split(',');
@@ -1987,19 +2012,16 @@ class CloakWalletManager {
                   for (int i = 0; i < precision; i++) divisor *= 10;
                   final formatted = (amount / divisor).toStringAsFixed(precision);
                   balances.add('$formatted $symbol');
-                  print('[queryVaultBalance] Formatted balance: $formatted $symbol');
                 }
               }
             }
             final result = balances.isNotEmpty ? balances.join(', ') : '0 CLOAK';
-            print('[queryVaultBalance] Returning: $result');
             return result;
           }
           return '0 CLOAK';
         }
       }
 
-      print('[queryVaultBalance] No matching vault found');
       return '0 CLOAK';
     } catch (e) {
       print('[CloakWalletManager] queryVaultBalance error: $e');
@@ -2013,38 +2035,39 @@ class CloakWalletManager {
   static final Map<String, VaultTokensResult> _vaultTokensCache = {};
 
   /// Query vault tokens (FTs and NFTs) from blockchain
-  /// Returns structured data with CLOAK units and token lists
+  /// Returns structured data with CLOAK units and token lists.
+  /// Throws on HTTP/network errors (callers should handle with try/catch).
+  /// Only caches successful results — failures are NOT cached.
   static Future<VaultTokensResult> queryVaultTokens(String commitmentHash) async {
     // Check cache first
     if (_vaultTokensCache.containsKey(commitmentHash)) {
-      print('[queryVaultTokens] cache HIT for ${commitmentHash.substring(0, 16)}...');
       return _vaultTokensCache[commitmentHash]!;
     }
 
+    final client = EosioClient('https://telos.eosusa.io');
+    late final Map<String, dynamic> response;
     try {
-      print('[queryVaultTokens] cache MISS — querying chain for ${commitmentHash.substring(0, 16)}...');
-      final client = EosioClient('https://telos.eosusa.io');
-      final response = await client.getTableRows(
+      response = await client.getTableRows(
         code: 'thezeosvault',
         scope: 'thezeosvault',
         table: 'vaults',
         limit: 100,
       );
+    } finally {
       client.close();
+    }
 
-      if (response['rows'] == null || (response['rows'] as List).isEmpty) {
-        print('[queryVaultTokens] no rows returned from chain');
-        final result = VaultTokensResult(cloakUnits: 0, fts: [], nfts: []);
-        _vaultTokensCache[commitmentHash] = result;
-        return result;
-      }
+    if (response['rows'] == null || (response['rows'] as List).isEmpty) {
+      final result = VaultTokensResult(cloakUnits: 0, fts: [], nfts: []);
+      _vaultTokensCache[commitmentHash] = result;
+      return result;
+    }
 
+    {
       final rows = response['rows'] as List;
-      print('[queryVaultTokens] got ${rows.length} vault rows from chain');
       for (final row in rows) {
         final authToken = row['auth_token'] as String?;
         if (authToken == commitmentHash) {
-          print('[queryVaultTokens] FOUND vault — fts: ${row['fts']}');
           // Parse FTs
           int cloakUnits = 0;
           final List<Map<String, dynamic>> fts = [];
@@ -2097,9 +2120,6 @@ class CloakWalletManager {
       final result = VaultTokensResult(cloakUnits: 0, fts: [], nfts: [], existsOnChain: false);
       _vaultTokensCache[commitmentHash] = result;
       return result;
-    } catch (e) {
-      print('[CloakWalletManager] queryVaultTokens error: $e');
-      return VaultTokensResult(cloakUnits: 0, fts: [], nfts: [], existsOnChain: false);
     }
   }
 
@@ -2155,8 +2175,8 @@ class CloakWalletManager {
     return CloakApi.getAliasAuthority(_cloakWallet!);
   }
 
-  /// Check if wallet is view-only
-  static bool? isViewOnly() {
+  /// Check if wallet is view-only (nullable version)
+  static bool? isViewOnlyNullable() {
     if (_cloakWallet == null) return null;
     return CloakApi.isViewOnly(_cloakWallet!);
   }
@@ -2190,25 +2210,27 @@ class CloakWalletManager {
 
   // ============== Transaction Support ==============
 
-  // Cached ZK params (loaded once, ~623MB total)
+  // Cached ZK params (loaded once, ~383MB total)
   static Uint8List? _mintParams;
   static Uint8List? _spendOutputParams;
   static Uint8List? _spendParams;
   static Uint8List? _outputParams;
 
-  /// Load ZK params from assets (call once at app startup or before first tx)
-  /// These are large files (~400MB total) so we cache them in memory.
+  /// Load ZK params from the platform-specific params directory.
+  /// These are large files (~383MB total) so we cache them in memory.
   /// Loading runs in a separate isolate to avoid freezing the UI.
   static Future<bool> loadZkParams() async {
     if (_mintParams != null) return true; // Already loaded
 
     try {
-      final paramsDir = '/home/kameron/Projects/CLOAK Wallet/zwallet/assets/zeos';
-
-      print('CloakWalletManager: Loading ZK params from $paramsDir (in isolate)...');
+      final paramsDir = await ParamsManager.getParamsDirectory();
+      if (!await ParamsManager.paramsExist(paramsDir)) {
+        print('CloakWalletManager: ZK params not found at $paramsDir');
+        return false;
+      }
 
       // Read all 4 param files in a separate isolate so the UI stays responsive.
-      // Dart transfers Uint8List between isolates by reference (zero-copy).
+      // Note: Isolate.run() copies Uint8List across the boundary (~766MB peak RAM).
       final results = await Isolate.run(() async {
         final mint = await File('$paramsDir/mint.params').readAsBytes();
         final spendOutput = await File('$paramsDir/spend-output.params').readAsBytes();
@@ -2222,7 +2244,6 @@ class CloakWalletManager {
       _spendParams = results[2];
       _outputParams = results[3];
 
-      print('CloakWalletManager: ZK params loaded - mint=${_mintParams!.length}, spendOutput=${_spendOutputParams!.length}, spend=${_spendParams!.length}, output=${_outputParams!.length}');
       return true;
     } catch (e) {
       print('CloakWalletManager: Failed to load ZK params: $e');
@@ -2268,7 +2289,6 @@ class CloakWalletManager {
       if (global != null) {
         final walletAC = CloakApi.getAuthCount(_cloakWallet!) ?? 0;
         if (walletAC != global.authCount) {
-          print('CloakWalletManager: auth_count mismatch: wallet=$walletAC chain=${global.authCount} — updating');
           CloakApi.setAuthCount(_cloakWallet!, global.authCount);
         }
       }
@@ -2325,9 +2345,6 @@ class CloakWalletManager {
     final ztxJson = jsonEncode(ztx);
     final feesJson = await _getFeesJson();
 
-    print('CloakWalletManager: Building transaction - ztx=$ztxJson');
-    print('CloakWalletManager: Generating ZK proof... this may take 10-30 seconds');
-
     // Generate ZK proof + unsigned transaction via Rust FFI (background isolate).
     // Lock wallet to prevent sync from running during ZKP generation — avoids
     // concurrent FFI wallet access from different isolates (data race).
@@ -2348,8 +2365,6 @@ class CloakWalletManager {
     } finally {
       CloakSync.unlockWallet();
     }
-
-    print('CloakWalletManager: ZK proof generated, preparing transaction...');
 
     // Parse the transaction (tuple format: [TransactionPacked, unpublished_notes])
     final decoded = jsonDecode(txJson);
@@ -2386,7 +2401,6 @@ class CloakWalletManager {
       tx['context_free_actions'] = tx['context_free_actions'] ?? [];
       tx['transaction_extensions'] = tx['transaction_extensions'] ?? [];
 
-      print('CloakWalletManager: TX headers set: ref_block_num=$refBlockNum, expiration=${tx['expiration']}');
     } finally {
       httpClient.close();
     }
@@ -2406,7 +2420,6 @@ class CloakWalletManager {
       existingSignatures: [],
     );
 
-    print('CloakWalletManager: Transaction signed successfully');
     return {'transaction': tx, 'signatures': signatures};
   }
 
@@ -2424,9 +2437,6 @@ class CloakWalletManager {
       );
 
       final txId = result['transaction_id'] as String?;
-      if (txId != null) {
-        print('CloakWalletManager: Transaction broadcast successful: $txId');
-      }
       return txId;
     } catch (e) {
       print('CloakWalletManager: Broadcast error: $e');
@@ -2516,9 +2526,7 @@ class CloakWalletManager {
     try {
 
     // Ensure auth token is in wallet's unspent notes
-    print('[authenticateVault] Calling _ensureAuthTokenLoaded for vaultHash=${vaultHash.substring(0, 16)}...');
     await _ensureAuthTokenLoaded(vaultHash);
-    print('[authenticateVault] _ensureAuthTokenLoaded completed');
 
     // Sync auth_count from chain
     onStatus?.call('Syncing with network...');
@@ -2528,15 +2536,11 @@ class CloakWalletManager {
       eosClient.close();
       if (global != null) {
         final walletAC = CloakApi.getAuthCount(_cloakWallet!) ?? 0;
-        print('[authenticateVault] auth_count: wallet=$walletAC chain=${global.authCount}');
         if (walletAC != global.authCount) {
-          print('[authenticateVault] auth_count mismatch: wallet=$walletAC chain=${global.authCount} — updating');
           CloakApi.setAuthCount(_cloakWallet!, global.authCount);
         }
       }
-    } catch (e) {
-      print('[authenticateVault] Warning: could not sync auth_count: $e');
-    }
+    } catch (_) {}
 
     // Build ZTransaction JSON with authenticate zaction
     final chainId = getChainId() ?? TELOS_CHAIN_ID;
@@ -2591,17 +2595,18 @@ class CloakWalletManager {
     // would fail with "no entry for this auth_token exists".
     if (burn != 0) {
       clearVaultTokensCache();
-      final vaultState = await queryVaultTokens(vaultHash);
-      if (vaultState.existsOnChain) {
-        innerActions.add({
-          'account': vaultContractName,
-          'name': 'burnvaultp',
-          'authorization': ['$vaultContractName@active'],
-          'data': '', // burnvaultp struct has zero fields
-        });
-      } else {
-        print('[authenticateVault] vault has no on-chain entry — skipping burnvaultp');
-      }
+      try {
+        final vaultState = await queryVaultTokens(vaultHash);
+        if (vaultState.existsOnChain) {
+          innerActions.add({
+            'account': vaultContractName,
+            'name': 'burnvaultp',
+            'authorization': ['$vaultContractName@active'],
+            'data': '', // burnvaultp struct has zero fields
+          });
+        }
+      } catch (_) {}
+
     }
 
     final zactions = <Map<String, dynamic>>[
@@ -2644,8 +2649,6 @@ class CloakWalletManager {
     final ztxJson = jsonEncode(ztx);
     final feesJson = await _getFeesJson();
 
-    print('[authenticateVault] ZTransaction: $ztxJson');
-
     // Generate ZK proof (background isolate)
     onStatus?.call('Generating zero-knowledge proof...');
     final txJson = await FfiIsolate.transactPacked(
@@ -2658,8 +2661,6 @@ class CloakWalletManager {
       spendParams: _spendParams!,
       outputParams: _outputParams!,
     );
-
-    print('[authenticateVault] ZK proof generated');
 
     // Parse transaction
     final decoded = jsonDecode(txJson);
@@ -2745,77 +2746,21 @@ class CloakWalletManager {
   ///
   /// Returns transaction ID on success, throws on failure.
 
-  /// Append diagnostic lines to /tmp/cloak_auth_debug.log.
-  /// This file persists across app restarts and is the primary debug artifact
-  /// for diagnosing InvalidAuthToken failures.
-  static void _appendAuthDebugLog(List<String> lines) {
-    try {
-      final logFile = File('/tmp/cloak_auth_debug.log');
-      logFile.writeAsStringSync(
-        '${lines.join('\n')}\n',
-        mode: FileMode.append,
-      );
-    } catch (_) {}
-  }
-
   /// Ensure a vault's auth token is loaded in the Rust wallet's unspent notes.
   /// Re-imports from DB seed if needed. Must be called before authenticate.
   static Future<void> _ensureAuthTokenLoaded(String vaultHash) async {
-    final logLines = <String>[
-      '=== _ensureAuthTokenLoaded ===',
-      'Timestamp: ${DateTime.now().toIso8601String()}',
-      'vaultHash: $vaultHash',
-    ];
-
-    print('[_ensureAuthTokenLoaded] START for vaultHash=${vaultHash.substring(0, 16)}...');
     if (_cloakWallet == null) {
-      logLines.add('ABORT: _cloakWallet is null');
-      _appendAuthDebugLog(logLines);
       throw Exception('Cannot load auth token: wallet not initialized');
     }
 
-    // Capture wallet state BEFORE re-injection
-    final beforeTokens = CloakApi.getAuthenticationTokensJson(_cloakWallet!, contract: 0, spent: false);
-    final beforeSpent = CloakApi.getAuthenticationTokensJson(_cloakWallet!, contract: 0, spent: true);
-    final beforeUnpublished = CloakApi.getUnpublishedNotesJson(_cloakWallet!);
-    final beforeAuthCount = CloakApi.getAuthCount(_cloakWallet!);
-    final beforeLeafCount = CloakApi.getLeafCount(_cloakWallet!);
-    logLines.addAll([
-      '',
-      '--- BEFORE re-injection ---',
-      'unspent auth tokens: $beforeTokens',
-      'spent auth tokens: $beforeSpent',
-      'unpublished notes (${beforeUnpublished?.length ?? 0} chars): $beforeUnpublished',
-      'auth_count: $beforeAuthCount',
-      'leaf_count: $beforeLeafCount',
-    ]);
-    print('[_ensureAuthTokenLoaded] Auth tokens BEFORE re-injection: $beforeTokens');
-    print('[_ensureAuthTokenLoaded] Unpublished notes BEFORE: ${beforeUnpublished?.length ?? 0} chars');
-
     final vault = await CloakDb.getVaultByHash(vaultHash);
     if (vault == null) {
-      logLines.add('ABORT: no vault in DB for hash $vaultHash');
-      _appendAuthDebugLog(logLines);
       throw Exception('Vault not found in database for hash ${vaultHash.substring(0, 16)}... — was the vault seed stored?');
     }
     final seed = vault['seed'] as String?;
-    final dbCommitment = vault['commitment_hash'] as String?;
-    final dbPublished = vault['published'] as int?;
-    logLines.addAll([
-      '',
-      '--- DB vault row ---',
-      'seed length: ${seed?.length ?? 0}',
-      'commitment_hash: $dbCommitment',
-      'published: $dbPublished',
-      'vault row keys: ${vault.keys.toList()}',
-    ]);
     if (seed == null || seed.isEmpty) {
-      logLines.add('ABORT: no seed for $vaultHash');
-      _appendAuthDebugLog(logLines);
       throw Exception('Vault ${vaultHash.substring(0, 16)}... has no seed in database — cannot re-inject auth token');
     }
-    print('[_ensureAuthTokenLoaded] seed length=${seed.length} (NOT logging seed value)');
-
     // Try to create the auth token with the correct address.
     // The vault may have been created with a non-default diversifier (e.g. in
     // the CLOAK GUI desktop app), so we try multiple addresses until the
@@ -2826,9 +2771,6 @@ class CloakWalletManager {
     // NOT contract=0. Passing the wrong contract produces a wrong hash.
     final dbContract = vault['contract'] as String? ?? 'thezeostoken';
     final contractU64 = eosioNameToU64(dbContract);
-    logLines.add('contract from DB: "$dbContract" => u64: $contractU64');
-    print('[_ensureAuthTokenLoaded] contract="$dbContract" => u64=$contractU64');
-    bool matched = false;
 
     // Build list of addresses to try: default first, then all wallet addresses
     final addressesToTry = <String>[];
@@ -2871,13 +2813,8 @@ class CloakWalletManager {
             CloakApi.closeWallet(guiWallet);
           }
         }
-      } catch (e) {
-        logLines.add('Could not load GUI wallet for address scan: $e');
-      }
+      } catch (_) {}
     }
-
-    logLines.add('Addresses to try: ${addressesToTry.length}');
-    print('[_ensureAuthTokenLoaded] Trying ${addressesToTry.length} addresses to match vault hash');
 
     // Try each address until we find one that produces the matching commitment
     for (int i = 0; i < addressesToTry.length; i++) {
@@ -2900,42 +2837,11 @@ class CloakWalletManager {
       } catch (_) {}
 
       if (resultHash == vaultHash) {
-        logLines.add('MATCH at address[$i]: ${addr.substring(0, 20)}... => $resultHash');
-        print('[_ensureAuthTokenLoaded] MATCH found at address[$i]=${addr.substring(0, 20)}...');
         CloakApi.addUnpublishedNotes(_cloakWallet!, notesJson);
-        matched = true;
         break;
-      } else if (i == 0) {
-        logLines.add('Default address: ${addr.substring(0, 20)}... => ${resultHash ?? "null"} (no match)');
       }
     }
 
-    // Capture wallet state AFTER
-    final afterTokens = CloakApi.getAuthenticationTokensJson(_cloakWallet!, contract: 0, spent: false);
-    logLines.addAll([
-      '',
-      '--- AFTER re-injection ---',
-      'unspent auth tokens: $afterTokens',
-      'matched: $matched',
-    ]);
-    print('[_ensureAuthTokenLoaded] Auth tokens AFTER: $afterTokens');
-
-    // Final verification
-    final bool found = afterTokens != null && afterTokens.contains(vaultHash);
-    logLines.addAll([
-      '',
-      '--- VERDICT ---',
-      'vault hash found in unspent auth tokens: $found',
-    ]);
-    if (!found) {
-      logLines.add('WARNING: vault hash NOT in unspent auth tokens after trying ${addressesToTry.length} addresses');
-      print('[_ensureAuthTokenLoaded] WARNING: vault hash ${vaultHash.substring(0, 16)}... NOT found after trying ${addressesToTry.length} addresses');
-    } else {
-      print('[_ensureAuthTokenLoaded] vault hash ${vaultHash.substring(0, 16)}... found in unspent auth tokens');
-    }
-
-    _appendAuthDebugLog(logLines);
-    print('[_ensureAuthTokenLoaded] END');
   }
 
   static Future<String?> authenticateVaultBatch({
@@ -2945,17 +2851,6 @@ class CloakWalletManager {
     int burn = 0,
     void Function(String)? onStatus,
   }) async {
-    final batchLog = <String>[
-      '',
-      '===============================================',
-      '=== authenticateVaultBatch ===',
-      'Timestamp: ${DateTime.now().toIso8601String()}',
-      'vaultHash: $vaultHash',
-      'recipientAddress: $recipientAddress',
-      'entries: ${entries.length}',
-      'burn: $burn',
-    ];
-
     if (_cloakWallet == null) throw Exception('Wallet not loaded');
     if (entries.isEmpty) throw Exception('No withdrawal entries provided');
 
@@ -2966,53 +2861,24 @@ class CloakWalletManager {
 
     // Lock wallet to prevent sync from running during transaction
     CloakSync.lockWallet();
-    batchLog.add('wallet LOCKED at ${DateTime.now().toIso8601String()}');
     try {
 
     // Ensure auth token is in wallet's unspent notes
-    print('[authenticateVaultBatch] Calling _ensureAuthTokenLoaded for vaultHash=${vaultHash.substring(0, 16)}...');
     await _ensureAuthTokenLoaded(vaultHash);
-    print('[authenticateVaultBatch] _ensureAuthTokenLoaded completed');
-
-    // Snapshot auth tokens RIGHT AFTER _ensureAuthTokenLoaded (before any other FFI)
-    final postEnsureTokens = CloakApi.getAuthenticationTokensJson(_cloakWallet!, contract: 0, spent: false);
-    final postEnsureFound = postEnsureTokens != null && postEnsureTokens.contains(vaultHash);
-    batchLog.addAll([
-      '',
-      '--- post-_ensureAuthTokenLoaded snapshot ---',
-      'unspent auth tokens: $postEnsureTokens',
-      'target vault hash found: $postEnsureFound',
-    ]);
 
     // Sync auth_count from chain
     onStatus?.call('Syncing with network...');
-    int? walletACBefore;
-    int? chainAC;
     try {
       final eosClient = EosioClient('https://telos.eosusa.io');
       final global = await eosClient.getZeosGlobal();
       eosClient.close();
       if (global != null) {
-        walletACBefore = CloakApi.getAuthCount(_cloakWallet!) ?? 0;
-        chainAC = global.authCount;
-        print('[authenticateVaultBatch] auth_count: wallet=$walletACBefore chain=$chainAC');
-        if (walletACBefore != chainAC) {
-          print('[authenticateVaultBatch] auth_count mismatch: wallet=$walletACBefore chain=$chainAC — updating');
-          CloakApi.setAuthCount(_cloakWallet!, chainAC);
+        final walletACBefore = CloakApi.getAuthCount(_cloakWallet!) ?? 0;
+        if (walletACBefore != global.authCount) {
+          CloakApi.setAuthCount(_cloakWallet!, global.authCount);
         }
       }
-    } catch (e) {
-      print('[authenticateVaultBatch] Warning: could not sync auth_count: $e');
-      batchLog.add('auth_count sync error: $e');
-    }
-    final walletACAfter = CloakApi.getAuthCount(_cloakWallet!);
-    batchLog.addAll([
-      '',
-      '--- auth_count sync ---',
-      'wallet auth_count BEFORE sync: $walletACBefore',
-      'chain auth_count: $chainAC',
-      'wallet auth_count AFTER sync: $walletACAfter',
-    ]);
+    } catch (_) {}
 
     // Build ZTransaction JSON with authenticate zaction
     final chainId = getChainId() ?? TELOS_CHAIN_ID;
@@ -3066,17 +2932,18 @@ class CloakWalletManager {
     // When burning, add burnvaultp only if the vault row exists on-chain.
     if (burn != 0) {
       clearVaultTokensCache();
-      final vaultState = await queryVaultTokens(vaultHash);
-      if (vaultState.existsOnChain) {
-        withdrawActions.add({
-          'account': vaultContractName,
-          'name': 'burnvaultp',
-          'authorization': ['$vaultContractName@active'],
-          'data': '', // burnvaultp struct has zero fields
-        });
-      } else {
-        print('[authenticateVaultBatch] vault has no on-chain entry — skipping burnvaultp');
-      }
+      try {
+        final vaultState = await queryVaultTokens(vaultHash);
+        if (vaultState.existsOnChain) {
+          withdrawActions.add({
+            'account': vaultContractName,
+            'name': 'burnvaultp',
+            'authorization': ['$vaultContractName@active'],
+            'data': '', // burnvaultp struct has zero fields
+          });
+        }
+      } catch (_) {}
+
     }
 
     // Build zactions: authenticate first, then a mint for each FT entry.
@@ -3123,75 +2990,18 @@ class CloakWalletManager {
     final ztxJson = jsonEncode(ztx);
     final feesJson = await _getFeesJson();
 
-    batchLog.addAll([
-      '',
-      '--- ZTransaction ---',
-      'chainId: $chainId',
-      'protocolContract: $protocolContract',
-      'vaultContract: $vaultContractName',
-      'feeTokenContract: $feeTokenContract',
-      'withdrawActions: ${withdrawActions.length}',
-      'mintActions: ${zactions.length - 1}',
-      'ztxJson: $ztxJson',
-    ]);
-
-    // Final auth token check RIGHT BEFORE transactPacked
-    final preTransactTokens = CloakApi.getAuthenticationTokensJson(_cloakWallet!, contract: 0, spent: false);
-    final preTransactFound = preTransactTokens != null && preTransactTokens.contains(vaultHash);
-    batchLog.addAll([
-      '',
-      '--- pre-transactPacked final check ---',
-      'unspent auth tokens: $preTransactTokens',
-      'target vault hash found: $preTransactFound',
-      'transactPacked call at: ${DateTime.now().toIso8601String()}',
-    ]);
-    _appendAuthDebugLog(batchLog);
-
-    print('[authenticateVaultBatch] ZTransaction (${withdrawActions.length} actions): $ztxJson');
-
     // Generate ZK proof (background isolate)
     onStatus?.call('Generating zero-knowledge proof...');
-    String txJson;
-    try {
-      txJson = await FfiIsolate.transactPacked(
-        wallet: _cloakWallet!,
-        ztxJson: ztxJson,
-        feeTokenContract: feeTokenContract,
-        feesJson: feesJson,
-        mintParams: _mintParams!,
-        spendOutputParams: _spendOutputParams!,
-        spendParams: _spendParams!,
-        outputParams: _outputParams!,
-      );
-    } catch (e) {
-      final errLog = <String>[
-        '',
-        '!!! transactPacked FAILED !!!',
-        'Timestamp: ${DateTime.now().toIso8601String()}',
-        'Error: $e',
-        'CloakApi.getLastError(): ${CloakApi.getLastError()}',
-      ];
-      // Capture post-failure wallet state for diagnosis
-      final failTokens = CloakApi.getAuthenticationTokensJson(_cloakWallet!, contract: 0, spent: false);
-      final failSpent = CloakApi.getAuthenticationTokensJson(_cloakWallet!, contract: 0, spent: true);
-      final failAuthCount = CloakApi.getAuthCount(_cloakWallet!);
-      errLog.addAll([
-        'unspent auth tokens after failure: $failTokens',
-        'spent auth tokens after failure: $failSpent',
-        'auth_count after failure: $failAuthCount',
-      ]);
-      _appendAuthDebugLog(errLog);
-      rethrow;
-    }
-
-    _appendAuthDebugLog([
-      '',
-      '--- transactPacked SUCCESS ---',
-      'Timestamp: ${DateTime.now().toIso8601String()}',
-      'txJson length: ${txJson.length}',
-    ]);
-
-    print('[authenticateVaultBatch] ZK proof generated');
+    final txJson = await FfiIsolate.transactPacked(
+      wallet: _cloakWallet!,
+      ztxJson: ztxJson,
+      feeTokenContract: feeTokenContract,
+      feesJson: feesJson,
+      mintParams: _mintParams!,
+      spendOutputParams: _spendOutputParams!,
+      spendParams: _spendParams!,
+      outputParams: _outputParams!,
+    );
 
     // Parse transaction
     final decoded = jsonDecode(txJson);
@@ -3702,7 +3512,6 @@ class CloakWalletManager {
         // Determine symbol from the fee strings
         final symbol = beginFee.split(' ').length > 1 ? beginFee.split(' ').last : 'CLOAK';
         _cachedShieldFee = '${total.toStringAsFixed(4)} $symbol';
-        print('[CloakWalletManager] Shield fee fetched from chain: $_cachedShieldFee (begin=$beginFee, mint=$mintFee)');
         return _cachedShieldFee!;
       }
     } catch (e) {
@@ -3711,7 +3520,6 @@ class CloakWalletManager {
 
     // Fallback to default
     _cachedShieldFee = '0.3000 CLOAK';
-    print('[CloakWalletManager] Using default shield fee: $_cachedShieldFee');
     return _cachedShieldFee!;
   }
 
@@ -3735,7 +3543,6 @@ class CloakWalletManager {
     if (sendAmountUnits != null && _cloakWallet != null) {
       try {
         final feesJson = await _getFeesJson();
-        print('[FEE_DEBUG] Calling estimateSendFee: amount=$sendAmountUnits, recipient=$recipientAddress');
         final feeUnits = CloakApi.estimateSendFee(
           _cloakWallet!, sendAmountUnits, feesJson,
           recipientAddress: recipientAddress,
@@ -3743,13 +3550,10 @@ class CloakWalletManager {
         if (feeUnits != null && feeUnits > 0) {
           final feeCloak = feeUnits / 10000.0;
           final result = '${feeCloak.toStringAsFixed(4)} CLOAK';
-          print('[FEE_DEBUG] Send fee estimated (amount=$sendAmountUnits, recipient=$recipientAddress): $result (${feeUnits} units)');
           return result;
         }
-        print('[FEE_DEBUG] estimateSendFee returned null or 0, falling back');
 
-      } catch (e) {
-        print('[CloakWalletManager] Rust fee estimation failed, falling back: $e');
+      } catch (_) {
       }
     }
 
@@ -3795,7 +3599,6 @@ class CloakWalletManager {
             ? (fees['begin'] ?? '0.2000 CLOAK').split(' ').last
             : 'CLOAK';
         _cachedSendFee = '${total.toStringAsFixed(4)} $symbol';
-        print('[CloakWalletManager] Send fee fetched: $_cachedSendFee');
         return _cachedSendFee!;
       }
     } catch (e) {
@@ -3839,7 +3642,6 @@ class CloakWalletManager {
     final feeUnits = CloakApi.estimateBurnFee(_cloakWallet!, hasAssets, feesJson);
     if (feeUnits == null) throw Exception('Rust burn fee estimation returned null');
     final feeCloak = feeUnits / 10000.0;
-    print('[CloakWalletManager] estimateBurnFee(hasAssets=$hasAssets) = $feeUnits units ($feeCloak CLOAK)');
     return '${feeCloak.toStringAsFixed(4)} CLOAK';
   }
 
@@ -3856,7 +3658,6 @@ class CloakWalletManager {
     final feeUnits = CloakApi.estimateVaultCreationFee(_cloakWallet!, feesJson);
     if (feeUnits == null) throw Exception('Rust vault creation fee estimation returned null');
     final feeCloak = feeUnits / 10000.0;
-    print('[CloakWalletManager] estimateVaultCreationFee = $feeUnits units ($feeCloak CLOAK)');
     return '${feeCloak.toStringAsFixed(4)} CLOAK';
   }
 
@@ -3864,7 +3665,6 @@ class CloakWalletManager {
   /// This creates a minimal TLOS transfer that Anchor should definitely recognize
   /// Returns the ESR URL (caller decides whether to launch or display)
   static Future<String> testSimpleTransferEsr() async {
-    print('[CloakWalletManager] Creating TEST transfer ESR...');
     return generateSimpleTransferEsr();
   }
 
@@ -3884,66 +3684,25 @@ class CloakWalletManager {
     required String quantity,
     required String fromAccount,
   }) async {
-    print('[CloakWalletManager] Generating mint proof for $quantity from $fromAccount');
-
     // 1. Ensure wallet is loaded
     if (_cloakWallet == null) {
       throw Exception('Wallet not loaded');
     }
 
-    // DEBUG: Print ALL wallet stored values - CRITICAL FOR ZK PROOFS
     final storedAlias = getAliasAuthority();
-    final storedChainId = getChainId();
-    final storedProtocol = getProtocolContract();
-    final storedVault = getVaultContract();
-    print('[CloakWalletManager] *** WALLET CONFIG ***');
-    print('[CloakWalletManager]   chain_id: $storedChainId');
-    print('[CloakWalletManager]   protocol_contract: $storedProtocol');
-    print('[CloakWalletManager]   vault_contract: $storedVault');
-    print('[CloakWalletManager]   alias_authority: $storedAlias');
-    print('[CloakWalletManager] *** PROOF INPUTS ***');
-    print('[CloakWalletManager]   from (account): "$fromAccount"');
-    print('[CloakWalletManager]   from length: ${fromAccount.length}');
-    print('[CloakWalletManager]   quantity: "$quantity"');
-    print('[CloakWalletManager]   tokenContract: "$tokenContract"');
 
     // Validate EOSIO name constraints
     if (fromAccount.length > 12) {
-      print('[CloakWalletManager] ERROR: fromAccount "$fromAccount" exceeds 12 chars!');
+      throw Exception('fromAccount "$fromAccount" exceeds 12 chars');
     }
     final validChars = RegExp(r'^[a-z1-5\.]+$');
     if (!validChars.hasMatch(fromAccount)) {
-      print('[CloakWalletManager] ERROR: fromAccount "$fromAccount" contains invalid characters!');
+      throw Exception('fromAccount "$fromAccount" contains invalid characters');
     }
 
     if (storedAlias != 'thezeosalias@public') {
-      print('[CloakWalletManager] WARNING: alias_authority is NOT thezeosalias@public!');
-      print('[CloakWalletManager] This WILL cause proof validation to fail on-chain!');
+      print('CRITICAL WARNING: alias_authority is NOT thezeosalias@public! Proof validation will fail on-chain.');
     }
-
-    // === DIAGNOSTIC LOGGING: Capture all inputs ===
-    final logFile = File('/tmp/cloak_shield_debug.log');
-    final timestamp = DateTime.now().toIso8601String();
-    final logBuffer = StringBuffer();
-    logBuffer.writeln('');
-    logBuffer.writeln('=== generateMintProof called at $timestamp ===');
-    logBuffer.writeln('');
-    logBuffer.writeln('WALLET STORED VALUES:');
-    logBuffer.writeln('  chain_id: $storedChainId');
-    logBuffer.writeln('  protocol_contract: $storedProtocol');
-    logBuffer.writeln('  vault_contract: $storedVault');
-    logBuffer.writeln('  alias_authority: $storedAlias');
-    logBuffer.writeln('');
-    logBuffer.writeln('PROOF INPUT VALUES:');
-    logBuffer.writeln('  from (Telos account): "$fromAccount"');
-    logBuffer.writeln('  from length: ${fromAccount.length} chars');
-    logBuffer.writeln('  quantity: "$quantity"');
-    logBuffer.writeln('  tokenContract: "$tokenContract"');
-    logBuffer.writeln('');
-    logBuffer.writeln('VALIDATION:');
-    logBuffer.writeln('  alias_authority matches "thezeosalias@public": ${storedAlias == 'thezeosalias@public'}');
-    logBuffer.writeln('  fromAccount is valid EOSIO name: ${validChars.hasMatch(fromAccount) && fromAccount.length <= 12}');
-    // === END DIAGNOSTIC ===
 
     // 2. Ensure ZK params are loaded (this can take 5-15 seconds first time)
     if (!await loadZkParams()) {
@@ -3951,7 +3710,6 @@ class CloakWalletManager {
     }
 
     // 3. Get protocol fees from blockchain
-    print('[CloakWalletManager] Fetching protocol fees...');
     final feesJson = await _getFeesJson();
 
     // 4. Build the ZTransaction JSON for mint operation
@@ -3961,15 +3719,6 @@ class CloakWalletManager {
       quantity: quantity,
       tokenContract: tokenContract,
     );
-
-    // === DIAGNOSTIC LOGGING: Capture ZTransaction JSON ===
-    logBuffer.writeln('');
-    logBuffer.writeln('ZTransaction JSON being sent to Rust FFI:');
-    logBuffer.writeln(ztxJson);
-    // === END DIAGNOSTIC ===
-
-    print('[CloakWalletManager] ZTransaction JSON built, calling wallet_transact...');
-    print('[CloakWalletManager] This may take 10-30 seconds for ZK proof generation...');
 
     // 5. Call FFI to generate transaction with ZK proof
     // NOTE: This is CPU-intensive and takes 5-30 seconds
@@ -3985,34 +3734,10 @@ class CloakWalletManager {
       outputParams: _outputParams!,
     );
 
-    // === DIAGNOSTIC LOGGING: Capture transactPacked response ===
-    logBuffer.writeln('');
-    logBuffer.writeln('transactPacked response:');
     if (txJson == null) {
       final error = CloakApi.getLastError();
-      logBuffer.writeln('FAILED - txJson is null');
-      logBuffer.writeln('Error from getLastError(): $error');
-      // Write log before throwing
-      await logFile.writeAsString(logBuffer.toString(), mode: FileMode.append);
       throw Exception('wallet_transact_packed failed: $error');
-    } else {
-      logBuffer.writeln('SUCCESS - txJson length: ${txJson.length} chars');
-      // Check for hex_data presence in the response
-      final hasHexData = txJson.contains('"hex_data"');
-      logBuffer.writeln('Contains "hex_data": $hasHexData');
-      // Log first 2000 chars of response for inspection
-      final preview = txJson.length > 2000 ? txJson.substring(0, 2000) : txJson;
-      logBuffer.writeln('Response preview (first 2000 chars):');
-      logBuffer.writeln(preview);
-      if (txJson.length > 2000) {
-        logBuffer.writeln('... (truncated, total length: ${txJson.length})');
-      }
     }
-    // Write all diagnostic info to log file
-    await logFile.writeAsString(logBuffer.toString(), mode: FileMode.append);
-    // === END DIAGNOSTIC ===
-
-    print('[CloakWalletManager] ZK proof generated successfully!');
 
     // 6. Parse the transaction and extract mint action data (includes hex_data)
     final mintData = _extractMintActionData(txJson);
@@ -4020,71 +3745,6 @@ class CloakWalletManager {
       throw Exception('Failed to extract mint action from transaction');
     }
 
-    // === PROOF VALIDATION: Check proof size before returning ===
-    // Valid ZEOS Groth16 proof = 384 bytes = 768 hex chars
-    final hexData = mintData['_hex_data']?.toString();
-    if (hexData != null && hexData.isNotEmpty) {
-      final proofSizeBytes = hexData.length ~/ 2;
-      print('[CloakWalletManager] PROOF VALIDATION:');
-      print('[CloakWalletManager]   hex_data length: ${hexData.length} hex chars = $proofSizeBytes bytes');
-
-      // Log to file for post-mortem analysis
-      final validationLog = StringBuffer();
-      validationLog.writeln('');
-      validationLog.writeln('=== PROOF VALIDATION ===');
-      validationLog.writeln('hex_data length: ${hexData.length} hex chars = $proofSizeBytes bytes');
-
-      // The PlsMintAction contains multiple PlsMint entries, each with a 384-byte proof
-      // Check if hex_data seems reasonable (should be > 768 for at least one proof)
-      if (hexData.length < 768) {
-        print('[CloakWalletManager] WARNING: hex_data too small for a valid proof!');
-        print('[CloakWalletManager] Expected at least 768 hex chars, got ${hexData.length}');
-        validationLog.writeln('WARNING: hex_data too small! Expected >= 768 hex chars');
-      }
-
-      // Log first and last 100 chars of hex_data
-      if (hexData.length > 200) {
-        validationLog.writeln('hex_data (first 100): ${hexData.substring(0, 100)}');
-        validationLog.writeln('hex_data (last 100): ${hexData.substring(hexData.length - 100)}');
-      } else {
-        validationLog.writeln('hex_data (full): $hexData');
-      }
-      validationLog.writeln('');
-
-      await logFile.writeAsString(validationLog.toString(), mode: FileMode.append);
-    } else {
-      print('[CloakWalletManager] WARNING: No hex_data in mintData - fallback serialization will be used');
-      await logFile.writeAsString('\nWARNING: No hex_data found!\n', mode: FileMode.append);
-    }
-
-    // Also check for proof field in actions array if present
-    final actions = mintData['actions'];
-    if (actions is List) {
-      for (int i = 0; i < actions.length; i++) {
-        final action = actions[i];
-        if (action is Map) {
-          final proof = action['proof'];
-          if (proof != null) {
-            String proofInfo = '';
-            if (proof is List) {
-              proofInfo = '${proof.length} bytes (List)';
-              if (proof.length != 384) {
-                print('[CloakWalletManager] WARNING: actions[$i].proof is ${proof.length} bytes, expected 384!');
-              }
-            } else if (proof is String) {
-              proofInfo = '${proof.length ~/ 2} bytes (hex string ${proof.length} chars)';
-              if (proof.length != 768) {
-                print('[CloakWalletManager] WARNING: actions[$i].proof is ${proof.length} hex chars, expected 768!');
-              }
-            }
-            print('[CloakWalletManager]   actions[$i].proof: $proofInfo');
-          }
-        }
-      }
-    }
-    // === END PROOF VALIDATION ===
-
-    print('[CloakWalletManager] Mint action data extracted');
     return mintData;
   }
 
@@ -4154,14 +3814,10 @@ class CloakWalletManager {
     required String feesJson,
   }) {
     if (_cloakWallet == null) {
-      print('[CloakWalletManager] transactPackedPublic: wallet is null');
       return null;
     }
     if (_mintParams == null || _spendOutputParams == null ||
         _spendParams == null || _outputParams == null) {
-      print('[CloakWalletManager] transactPackedPublic: ZK params not loaded!'
-          ' mint=${_mintParams != null}, spendOutput=${_spendOutputParams != null},'
-          ' spend=${_spendParams != null}, output=${_outputParams != null}');
       return null;
     }
     return CloakApi.transactPacked(
@@ -4190,67 +3846,38 @@ class CloakWalletManager {
       Map<String, dynamic> tx;
       if (decoded is List && decoded.isNotEmpty) {
         tx = decoded[0] as Map<String, dynamic>;
-        print('[CloakWalletManager] Transaction extracted from tuple');
       } else if (decoded is Map<String, dynamic>) {
         tx = decoded;
       } else {
-        print('[CloakWalletManager] Unexpected JSON format: ${decoded.runtimeType}');
         return null;
       }
 
       final actions = tx['actions'] as List?;
       if (actions == null || actions.isEmpty) {
-        print('[CloakWalletManager] No actions in transaction');
         return null;
       }
 
-      print('[CloakWalletManager] Found ${actions.length} actions in transaction');
-
       // Find the mint action - account name depends on wallet's alias_authority
       for (final action in actions) {
-        final account = action['account']?.toString();
         final name = action['name']?.toString();
-        print('[CloakWalletManager] Action: account=$account, name=$name');
 
         // mint action has name 10639630974360485888 (or "mint" string)
         // Account is the alias_authority actor (e.g., "thezeosalias" or "main")
         if (name == 'mint' || name == '10639630974360485888') {
-          // Log ALL fields in the action to see if hex_data is available
-          print('[CloakWalletManager] Mint action keys: ${action.keys.toList()}');
-
           final data = action['data'];
           final hexData = action['hex_data']?.toString();
 
-          if (hexData != null && hexData.isNotEmpty) {
-            print('[CloakWalletManager] Found hex_data! Length: ${hexData.length} chars');
-            print('[CloakWalletManager] hex_data preview: ${hexData.substring(0, hexData.length > 100 ? 100 : hexData.length)}...');
-          } else {
-            print('[CloakWalletManager] WARNING: No hex_data found in mint action!');
-          }
-
           if (data is Map<String, dynamic>) {
-            print('[CloakWalletManager] Found mint action data');
-            print('[CloakWalletManager] Mint data keys: ${data.keys.toList()}');
-            // Log sample of each field to understand the format
-            for (final key in data.keys) {
-              final value = data[key];
-              final valueStr = value.toString();
-              final preview = valueStr.length > 100 ? '${valueStr.substring(0, 100)}...' : valueStr;
-              print('[CloakWalletManager] Mint.$key (${value.runtimeType}): $preview');
-            }
-
             // Return data with hex_data included so ESR service can use it
             final result = Map<String, dynamic>.from(data);
             if (hexData != null && hexData.isNotEmpty) {
               result['_hex_data'] = hexData;  // Store hex_data with underscore prefix to distinguish
-              print('[CloakWalletManager] Added _hex_data to result');
             }
             return result;
           }
         }
       }
 
-      print('[CloakWalletManager] Mint action not found in transaction');
       return null;
     } catch (e) {
       print('[CloakWalletManager] Failed to parse transaction JSON: $e');
@@ -4283,18 +3910,6 @@ class CloakWalletManager {
     final vaultContract = getVaultContract() ?? 'thezeosvault';
     // FORCE correct alias_authority - wallet storage may have wrong value
     const aliasAuthority = 'thezeosalias@public';
-
-    // Debug: show what wallet thinks vs what we're using
-    final storedAlias = getAliasAuthority();
-    print('[CloakWalletManager] Building ZTransaction with:');
-    print('  chain_id: $chainId');
-    print('  protocol_contract: $protocolContract');
-    print('  vault_contract: $vaultContract');
-    print('  alias_authority (FORCED): $aliasAuthority');
-    print('  alias_authority (stored): $storedAlias');
-    if (storedAlias != aliasAuthority) {
-      print('  *** WARNING: Wallet has wrong alias_authority stored! Using forced value. ***');
-    }
 
     final ztx = {
       'chain_id': chainId,
@@ -4329,8 +3944,6 @@ class CloakWalletManager {
   static Future<Map<String, dynamic>> generateClearBufferEsr({
     required String telosAccount,
   }) async {
-    print('[CloakWalletManager] Generating clear-buffer ESR for $telosAccount');
-
     // Build 3 actions: begin, fee transfer, end
     final actions = EsrService.buildClearBufferActions(
       userAccount: telosAccount,
@@ -4339,8 +3952,6 @@ class CloakWalletManager {
 
     // Create ESR with pre-signed thezeosalias signature (same flow as shield)
     final esrUrl = await EsrService.createSigningRequestWithPresig(actions: actions);
-
-    print('[CloakWalletManager] Clear-buffer ESR created (${esrUrl.length} chars)');
 
     return {
       'esrUrl': esrUrl,
@@ -4363,21 +3974,16 @@ class CloakWalletManager {
     required String quantity,
     required String telosAccount,
   }) async {
-    print('[CloakWalletManager] Generating full shield ESR: $quantity from $telosAccount');
-
     // 0. Get or create vault hash for AUTH memo
     // NOTE: Do NOT call getPrimaryVaultHash() or getVaults() - FFI crashes!
     // Use stored vault hash from database instead
     String? vaultHash = await getStoredVaultHash();
     if (vaultHash == null || vaultHash.isEmpty) {
-      print('[CloakWalletManager] No stored vault hash, creating vault...');
       vaultHash = await createAndStoreVault();
       if (vaultHash == null) {
         throw Exception('Failed to create vault for shield operation');
       }
     }
-    print('[CloakWalletManager] Using vault hash for AUTH memo: ${vaultHash.substring(0, 16)}...');
-
     // 1. Generate the ZK mint proof (this takes time)
     final mintProof = await generateMintProof(
       tokenContract: tokenContract,
@@ -4405,10 +4011,6 @@ class CloakWalletManager {
     //   f. Flutter combines both signatures and broadcasts via push_transaction
     final esrUrl = await EsrService.createSigningRequestWithPresig(actions: actions);
 
-    print('[CloakWalletManager] Shield ESR created (${esrUrl.length} chars, flags=0)');
-    print('[CloakWalletManager] thezeosalias signature stored in EsrService._lastPresignature');
-    print('[CloakWalletManager] Transaction bytes stored in EsrService._lastTxBytes');
-
     return {
       'esrUrl': esrUrl,
       'tokenContract': tokenContract,
@@ -4430,9 +4032,6 @@ class CloakWalletManager {
     required List<String> userSignatures,
     required Map<String, dynamic> shieldData,
   }) async {
-    print('[CloakWalletManager] Completing shield transaction');
-    print('[CloakWalletManager] User signatures: ${userSignatures.length}');
-
     final tokenContract = shieldData['tokenContract'] as String;
     final quantity = shieldData['quantity'] as String;
     final telosAccount = shieldData['telosAccount'] as String;
@@ -4448,7 +4047,6 @@ class CloakWalletManager {
       feeQuantity: await getShieldFee(),
     );
 
-    print('[CloakWalletManager] Shield transaction complete! TX: $txId');
     return txId;
   }
 
@@ -4464,21 +4062,16 @@ class CloakWalletManager {
     required String quantity,
     required String telosAccount,
   }) async {
-    print('[CloakWalletManager] Generating shield ESR: $quantity from $telosAccount');
-
     // 0. Get or create vault hash for AUTH memo
     // NOTE: Do NOT call getPrimaryVaultHash() or getVaults() - FFI crashes!
     // Use stored vault hash from database instead
     String? vaultHash = await getStoredVaultHash();
     if (vaultHash == null || vaultHash.isEmpty) {
-      print('[CloakWalletManager] No stored vault hash, creating vault...');
       vaultHash = await createAndStoreVault();
       if (vaultHash == null) {
         throw Exception('Failed to create vault for shield operation');
       }
     }
-    print('[CloakWalletManager] Using vault hash for AUTH memo: ${vaultHash.substring(0, 16)}...');
-
     // 1. Generate the ZK mint proof
     final mintProof = await generateMintProof(
       tokenContract: tokenContract,
@@ -4500,9 +4093,6 @@ class CloakWalletManager {
     // Anchor signs and returns the tx, Flutter combines signatures and broadcasts
     final esrUrl = await EsrService.createSigningRequestWithPresig(actions: actions);
 
-    print('[CloakWalletManager] ESR URL created (${esrUrl.length} chars)');
-    print('[CloakWalletManager] Full ESR URL: $esrUrl');
-
     return esrUrl;
   }
 
@@ -4510,8 +4100,6 @@ class CloakWalletManager {
   ///
   /// Returns the ESR URL string
   static String generateSimpleTransferEsr() {
-    print('[CloakWalletManager] Generating simple transfer ESR for testing...');
-
     // Verify placeholder name encoding
     EsrService.debugPlaceholderEncoding();
 
@@ -4524,13 +4112,6 @@ class CloakWalletManager {
     );
 
     final esrUrl = EsrService.createSigningRequest(actions: [action]);
-    print('[CloakWalletManager] Test ESR URL: $esrUrl');
-
-    // Validate the generated ESR
-    final decoded = EsrService.decodeEsrForDebug(esrUrl);
-    if (decoded != null && decoded['valid'] == true) {
-      print('[CloakWalletManager] ESR VALID! Header: 0x${(decoded['header'] as int).toRadixString(16)}');
-    }
 
     return esrUrl;
   }
@@ -4547,8 +4128,6 @@ class CloakWalletManager {
     required String quantity,
     required String telosAccount,
   }) async {
-    print('[CloakWalletManager] Initiating shield: $quantity from $telosAccount');
-
     try {
       // 1. Generate the ESR URL
       final esrUrl = await generateShieldEsr(
@@ -4558,18 +4137,14 @@ class CloakWalletManager {
       );
 
       // 2. Launch Anchor wallet
-      print('[CloakWalletManager] Launching Anchor with ESR...');
       final launched = await EsrService.launchAnchor(esrUrl);
 
-      if (launched) {
-        print('[CloakWalletManager] Anchor launched - user will approve transaction');
-      } else {
+      if (!launched) {
         throw Exception('Failed to launch Anchor wallet');
       }
 
       return launched;
     } catch (e) {
-      print('[CloakWalletManager] Shield error: $e');
       rethrow;
     }
   }

@@ -1,0 +1,7 @@
+[Desktop Entry]
+Name=CLOAK Wallet
+Comment=Privacy wallet for CLOAK on Telos
+Exec=cloak-wallet
+Type=Application
+Icon=app.cloak.wallet
+Categories=Office;Finance

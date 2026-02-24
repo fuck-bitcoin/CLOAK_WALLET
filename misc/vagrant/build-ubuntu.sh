@@ -3,9 +3,6 @@ sudo apt-get -y install build-essential unzip default-jre cmake
 
 cd $HOME
 
-mkdir .zcash-params
-curl https://download.z.cash/downloads/sapling-output.params --output .zcash-params/sapling-output.params
-curl https://download.z.cash/downloads/sapling-spend.params --output .zcash-params/sapling-spend.params
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 source ".cargo/env"
 rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android
@@ -32,7 +29,6 @@ export PATH=$PATH:$HOME/flutter/bin:$ANDROID_SDK_ROOT/cmdline-tools/latest/bin
 git config --global --add safe.directory $HOME/flutter
 
 pushd $1
-cp docker/zwallet-sample.jks docker/zwallet.jks
 export JKS_PASSWORD=zwallet
 ./configure.sh
 ./build.sh

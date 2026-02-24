@@ -1,505 +1,306 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_form_builder/flutter_form_builder.dart';
-import 'package:gap/gap.dart';
-import 'package:go_router/go_router.dart';
-import '../../cloak/cloak_types.dart';
 
 import '../../accounts.dart';
 import '../../cloak/cloak_db.dart';
 import '../../cloak/cloak_wallet_manager.dart';
-import '../../generated/intl/messages.dart';
-import '../accounts/send.dart';
-import '../utils.dart';
-
-/// Backup data for CLOAK accounts (mirrors Backup structure)
-class CloakBackup {
-  final String? name;
-  final String? seed;
-  final int index;
-  final String? sk;
-  final String? fvk;  // Full Viewing Key (bech32m encoded: fvk1...)
-  final String? ivk;  // Incoming Viewing Key (bech32m encoded: ivk1...)
-  final String? ovk;  // Outgoing Viewing Key (bech32m encoded: ovk1...)
-  final String? address;
-
-  CloakBackup({
-    this.name,
-    this.seed,
-    this.index = 0,
-    this.sk,
-    this.fvk,
-    this.ivk,
-    this.ovk,
-    this.address,
-  });
-}
-
-/// Key type descriptions for CLOAK
-class CloakKeyDescriptions {
-  static const seed = 'Your 24-word recovery phrase. '
-      'This is the master key that can restore your entire wallet. '
-      'Keep it safe and never share it.';
-  static const fvk = 'Full Viewing Key. '
-      'View both incoming AND outgoing transactions. '
-      'Share with auditors or services that need complete visibility.';
-  static const ivk = 'Incoming Viewing Key. '
-      'View incoming transactions only. '
-      'Share to let others monitor deposits without seeing your spending.';
-  static const ovk = 'Outgoing Viewing Key. '
-      'View outgoing transactions only. '
-      'Share to let others verify your payments.';
-  static const address = 'Your shielded payment address. '
-      'Share this to receive CLOAK payments.';
-}
+import '../../router.dart' show router;
 
 class BackupPage extends StatefulWidget {
-  // For Zcash/Ycash
-  Backup? zcashBackup;
-  // For CLOAK
-  CloakBackup? cloakBackup;
-  String primary = '';  // Mutable - set async for CLOAK
-  late final bool isCloak;
-
-  BackupPage() {
-    isCloak = CloakWalletManager.isCloak(aa.coin);
-
-    if (isCloak) {
-      // CLOAK: Get backup from CloakDb (async, will be loaded in state)
-      cloakBackup = null; // Will be loaded async
-      // primary will be set in _loadCloakBackup()
-    } else {
-      // Non-CLOAK: no longer supported
-      throw 'Only CLOAK accounts are supported';
-    }
-  }
+  BackupPage({super.key});
 
   @override
-  State<StatefulWidget> createState() => _BackupState();
+  State<BackupPage> createState() => _BackupPageState();
 }
 
-class _BackupState extends State<BackupPage> {
-  bool showSubKeys = false;
-  bool showVaults = false;
+class _BackupPageState extends State<BackupPage> {
   bool _loading = true;
   String? _error;
+
+  // Account data
+  String? _name;
+  String? _seed;
+  int _index = 0;
+  String? _sk;
+  String? _fvk;
+  String? _ivk;
+  String? _ovk;
+  String? _address;
+
+  // Vaults
   List<Map<String, dynamic>> _vaults = [];
+
+  // Auth tokens
+  List<_AuthToken> _unspentAts = [];
+  List<_AuthToken> _spentAts = [];
+
+  // Expand state
+  bool _keysExpanded = false;
+  bool _vaultsExpanded = false;
+  bool _atsExpanded = false;
 
   @override
   void initState() {
     super.initState();
-    if (widget.isCloak) {
-      _loadCloakBackup();
-    } else {
-      _loading = false;
-    }
+    _load();
   }
 
-  Future<void> _loadCloakBackup() async {
+  Future<void> _load() async {
     try {
       final account = await CloakDb.getAccount(aa.id);
       if (account == null) {
-        setState(() {
-          _error = 'Account not found';
-          _loading = false;
-        });
+        setState(() { _error = 'Account not found'; _loading = false; });
         return;
       }
 
-      // Get all viewing keys from the live wallet if available
-      String? fvk;
-      String? ivk;
-      String? ovk;
+      _name = account['name'] as String?;
+      _seed = account['seed'] as String?;
+      _index = account['aindex'] as int? ?? 0;
+      _sk = account['sk'] as String?;
+      _address = account['address'] as String?;
+
       if (CloakWalletManager.isLoaded) {
-        fvk = CloakWalletManager.getFvkBech32m();
-        ivk = CloakWalletManager.getIvkBech32m();
-        ovk = CloakWalletManager.getOvkBech32m();
+        _fvk = CloakWalletManager.getFvkBech32m();
+        _ivk = CloakWalletManager.getIvkBech32m();
+        _ovk = CloakWalletManager.getOvkBech32m();
       }
 
-      widget.cloakBackup = CloakBackup(
-        name: account['name'] as String?,
-        seed: account['seed'] as String?,
-        index: account['aindex'] as int? ?? 0,
-        sk: account['sk'] as String?,
-        fvk: fvk,
-        ivk: ivk,
-        ovk: ovk,
-        address: account['address'] as String?,
-      );
-
-      // Set primary key
-      if (widget.cloakBackup!.seed != null) {
-        widget.primary = widget.cloakBackup!.seed!;
-      } else if (widget.cloakBackup!.ivk != null) {
-        widget.primary = widget.cloakBackup!.ivk!;
-      } else if (widget.cloakBackup!.address != null) {
-        widget.primary = widget.cloakBackup!.address!;
-      } else {
-        _error = 'Account has no key';
-      }
-
-      // Load imported vaults
       _vaults = await CloakWalletManager.getImportedVaults(accountId: aa.id);
+
+      // Load auth tokens
+      _unspentAts = _parseAts(CloakWalletManager.getAuthenticationTokensJson(spent: false));
+      _spentAts = _parseAts(CloakWalletManager.getAuthenticationTokensJson(spent: true));
 
       setState(() => _loading = false);
     } catch (e) {
-      setState(() {
-        _error = 'Error loading backup: $e';
-        _loading = false;
-      });
+      setState(() { _error = '$e'; _loading = false; });
     }
+  }
+
+  List<_AuthToken> _parseAts(String? json) {
+    if (json == null || json.isEmpty) return [];
+    try {
+      final list = jsonDecode(json) as List;
+      return list.whereType<String>().map((s) {
+        final parts = s.split('@');
+        return _AuthToken(
+          hash: parts[0],
+          contract: parts.length > 1 ? parts[1] : 'unknown',
+        );
+      }).toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  void _copy(String value, String label) {
+    Clipboard.setData(ClipboardData(text: value));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('$label copied'),
+        backgroundColor: const Color(0xFF4CAF50),
+        duration: const Duration(seconds: 1),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    final s = S.of(context);
-    final t = Theme.of(context);
-
-    if (_loading) {
-      return Scaffold(
-        appBar: AppBar(
-          leading: IconButton(
-            icon: const Icon(Icons.arrow_back),
-            onPressed: () => Navigator.maybePop(context),
-          ),
-          title: Text(s.backup),
-        ),
-        body: const Center(child: CircularProgressIndicator()),
-      );
-    }
-
-    if (_error != null) {
-      return Scaffold(
-        appBar: AppBar(
-          leading: IconButton(
-            icon: const Icon(Icons.arrow_back),
-            onPressed: () => Navigator.maybePop(context),
-          ),
-          title: Text(s.backup),
-        ),
-        body: Center(child: Text(_error!, style: TextStyle(color: Colors.red))),
-      );
-    }
-
-    // Build cards based on whether this is CLOAK or Zcash
-    List<Widget> cards = [];
-    TextStyle? style;
-    final small = t.textTheme.bodySmall!;
-    final String name;
-
-    if (widget.isCloak) {
-      final backup = widget.cloakBackup!;
-      name = backup.name ?? 'CLOAK Account';
-
-      if (backup.seed != null) {
-        var seed = backup.seed!;
-        if (backup.index != 0) seed += ' [${backup.index}]';
-        cards.add(BackupPanelWithDescription(
-          name,
-          s.seed,
-          seed,
-          Icon(Icons.save),
-          CloakKeyDescriptions.seed,
-        ));
-        style = small;
-      }
-      if (backup.sk != null) {
-        cards.add(BackupPanel(
-            name, s.secretKey, backup.sk!, Icon(Icons.vpn_key),
-            style: style));
-        style = small;
-      }
-      if (backup.fvk != null && backup.fvk!.isNotEmpty) {
-        cards.add(BackupPanelWithDescription(
-          name,
-          'Full Viewing Key',
-          backup.fvk!,
-          Icon(Icons.visibility),
-          CloakKeyDescriptions.fvk,
-          style: style,
-        ));
-        style = small;
-      }
-      if (backup.ivk != null && backup.ivk!.isNotEmpty) {
-        cards.add(BackupPanelWithDescription(
-          name,
-          'Incoming Viewing Key',
-          backup.ivk!,
-          Icon(Icons.visibility_outlined),
-          CloakKeyDescriptions.ivk,
-          style: style,
-        ));
-        style = small;
-      }
-      if (backup.ovk != null && backup.ovk!.isNotEmpty) {
-        cards.add(BackupPanelWithDescription(
-          name,
-          'Outgoing Viewing Key',
-          backup.ovk!,
-          Icon(Icons.send),
-          CloakKeyDescriptions.ovk,
-          style: style,
-        ));
-        style = small;
-      }
-      if (backup.address != null) {
-        cards.add(BackupPanelWithDescription(
-          name,
-          'Address',
-          backup.address!,
-          Icon(Icons.qr_code),
-          CloakKeyDescriptions.address,
-          style: style,
-        ));
-        style = small;
-      }
-
-      // Add vaults section if any vaults exist
-      if (_vaults.isNotEmpty) {
-        cards.add(_buildVaultsSection(name, small));
-      }
-    } else {
-      name = 'Account';
-    }
-
-    if (cards.isEmpty) {
-      return Scaffold(
-        appBar: AppBar(
-          leading: IconButton(
-            icon: const Icon(Icons.arrow_back),
-            onPressed: () => Navigator.maybePop(context),
-          ),
-          title: Text(s.backup),
-        ),
-        body: Center(child: Text('No keys available')),
-      );
-    }
-
-    final subKeys = cards.length > 1 ? cards.sublist(1) : <Widget>[];
-
     return Scaffold(
+      backgroundColor: const Color(0xFF1E1E1E),
       appBar: AppBar(
+        backgroundColor: const Color(0xFF1E1E1E),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
           onPressed: () => Navigator.maybePop(context),
         ),
-        title: Text(s.backup),
+        title: const Text('Seed, Keys & Auth Tokens'),
+        elevation: 0,
       ),
-      body: SingleChildScrollView(
-        child: Padding(
-          padding: EdgeInsets.fromLTRB(16, 8, 16, 8),
-          child: Column(children: [
-            cards[0],
-            if (subKeys.isNotEmpty)
-              FormBuilderSwitch(
-                name: 'subkeys',
-                title: Text(s.showSubKeys),
-                initialValue: showSubKeys,
-                onChanged: (v) => setState(() => showSubKeys = v!),
-              ),
-            if (showSubKeys) ...subKeys,
-            Gap(8),
-            // Only show backup reminder for Zcash (CLOAK doesn't use WarpApi)
-            if (!widget.isCloak)
-              FormBuilderSwitch(
-                  name: 'remind',
-                  title: Text(s.noRemindBackup),
-                  initialValue: aa.saved,
-                  onChanged: _remind)
-          ]),
-        ),
-      ),
+      body: _loading
+          ? const Center(child: CircularProgressIndicator(color: Color(0xFF4CAF50)))
+          : _error != null
+              ? Center(child: Text(_error!, style: const TextStyle(color: Color(0xFFEF5350))))
+              : _buildBody(),
     );
   }
 
-  _remind(bool? v) {
-    // CLOAK doesn't use backup reminders
-  }
-
-  /// Build the vaults section widget
-  Widget _buildVaultsSection(String accountName, TextStyle smallStyle) {
-    return Card(
-      elevation: 2,
-      margin: EdgeInsets.only(top: 16),
-      child: Padding(
-        padding: EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(Icons.account_balance_wallet, color: Colors.green),
-                SizedBox(width: 8),
-                Text(
-                  'CLOAK Vaults (${_vaults.length})',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                Spacer(),
-                IconButton(
-                  icon: Icon(showVaults ? Icons.expand_less : Icons.expand_more),
-                  onPressed: () => setState(() => showVaults = !showVaults),
-                ),
-              ],
+  Widget _buildBody() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // ── Seed Phrase ──
+          if (_seed != null) ...[
+            _sectionLabel('RECOVERY PHRASE'),
+            const SizedBox(height: 10),
+            _seedCard(),
+            const SizedBox(height: 8),
+            Text(
+              'Your 24-word recovery phrase is the master key that can restore your entire wallet. Keep it safe and never share it.',
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.white.withOpacity(0.4),
+                height: 1.4,
+              ),
             ),
-            if (showVaults) ...[
-              Divider(),
-              ..._vaults.map((vault) => _buildVaultCard(vault, accountName, smallStyle)),
-            ],
           ],
-        ),
+
+          // ── Address ──
+          if (_address != null) ...[
+            const SizedBox(height: 28),
+            _sectionLabel('SHIELDED ADDRESS'),
+            const SizedBox(height: 10),
+            _dataField(
+              value: _address!,
+              mono: true,
+              onCopy: () => _copy(_address!, 'Address'),
+              onTap: () => router.push('/showqr?title=Address', extra: _address!),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Share this to receive CLOAK payments.',
+              style: TextStyle(fontSize: 12, color: Colors.white.withOpacity(0.4), height: 1.4),
+            ),
+          ],
+
+          // ── Viewing Keys (collapsible) ──
+          if (_fvk != null || _ivk != null || _ovk != null || _sk != null) ...[
+            const SizedBox(height: 28),
+            _expandableHeader(
+              label: 'VIEWING KEYS',
+              expanded: _keysExpanded,
+              onTap: () => setState(() => _keysExpanded = !_keysExpanded),
+            ),
+            AnimatedCrossFade(
+              duration: const Duration(milliseconds: 250),
+              crossFadeState: _keysExpanded ? CrossFadeState.showSecond : CrossFadeState.showFirst,
+              firstChild: const SizedBox.shrink(),
+              secondChild: Padding(
+                padding: const EdgeInsets.only(top: 10),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (_sk != null)
+                      _keyEntry('Secret Key', _sk!, 'Full spending authority. Never share.'),
+                    if (_fvk != null && _fvk!.isNotEmpty)
+                      _keyEntry('Full Viewing Key', _fvk!, 'View both incoming AND outgoing transactions.'),
+                    if (_ivk != null && _ivk!.isNotEmpty)
+                      _keyEntry('Incoming Viewing Key', _ivk!, 'View incoming transactions only.'),
+                    if (_ovk != null && _ovk!.isNotEmpty)
+                      _keyEntry('Outgoing Viewing Key', _ovk!, 'View outgoing transactions only.'),
+                  ],
+                ),
+              ),
+            ),
+          ],
+
+          // ── Vaults (collapsible) ──
+          if (_vaults.isNotEmpty) ...[
+            const SizedBox(height: 28),
+            _expandableHeader(
+              label: 'CLOAK VAULTS (${_vaults.length})',
+              expanded: _vaultsExpanded,
+              onTap: () => setState(() => _vaultsExpanded = !_vaultsExpanded),
+            ),
+            AnimatedCrossFade(
+              duration: const Duration(milliseconds: 250),
+              crossFadeState: _vaultsExpanded ? CrossFadeState.showSecond : CrossFadeState.showFirst,
+              firstChild: const SizedBox.shrink(),
+              secondChild: Padding(
+                padding: const EdgeInsets.only(top: 10),
+                child: Column(
+                  children: _vaults.map((v) => _vaultCard(v)).toList(),
+                ),
+              ),
+            ),
+          ],
+
+          // ── Auth Tokens (collapsible) ──
+          if (_unspentAts.isNotEmpty || _spentAts.isNotEmpty) ...[
+            const SizedBox(height: 28),
+            _expandableHeader(
+              label: 'AUTH TOKENS (${_unspentAts.length + _spentAts.length})',
+              expanded: _atsExpanded,
+              onTap: () => setState(() => _atsExpanded = !_atsExpanded),
+            ),
+            AnimatedCrossFade(
+              duration: const Duration(milliseconds: 250),
+              crossFadeState: _atsExpanded ? CrossFadeState.showSecond : CrossFadeState.showFirst,
+              firstChild: const SizedBox.shrink(),
+              secondChild: Padding(
+                padding: const EdgeInsets.only(top: 10),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (_unspentAts.isNotEmpty) ...[
+                      _atSubLabel('Unspent (${_unspentAts.length})'),
+                      const SizedBox(height: 6),
+                      ..._unspentAts.map((at) => _atCard(at, spent: false)),
+                    ],
+                    if (_spentAts.isNotEmpty) ...[
+                      const SizedBox(height: 16),
+                      _atSubLabel('Spent (${_spentAts.length})'),
+                      const SizedBox(height: 6),
+                      ..._spentAts.map((at) => _atCard(at, spent: true)),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ],
+
+          const SizedBox(height: 40),
+        ],
       ),
     );
   }
 
-  /// Build a single vault card
-  Widget _buildVaultCard(Map<String, dynamic> vault, String accountName, TextStyle smallStyle) {
-    final commitmentHash = vault['commitment_hash'] as String? ?? '';
-    final seed = vault['seed'] as String? ?? '';
-    final contract = vault['contract'] as String? ?? 'thezeostoken';
-    final label = vault['label'] as String? ?? 'Vault';
+  // ── Section label ──
+  Widget _sectionLabel(String text) {
+    return Text(
+      text,
+      style: TextStyle(
+        fontSize: 11,
+        fontWeight: FontWeight.w600,
+        color: Colors.white.withOpacity(0.35),
+        letterSpacing: 2,
+      ),
+    );
+  }
 
+  // ── Expandable header with animated chevron ──
+  Widget _expandableHeader({
+    required String label,
+    required bool expanded,
+    required VoidCallback onTap,
+  }) {
     return GestureDetector(
-      onTap: () => _showVaultDetails(context, vault, accountName),
-      child: Card(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest,
-        margin: EdgeInsets.symmetric(vertical: 4),
-        child: Padding(
-          padding: EdgeInsets.all(12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Label
-              Text(
-                label,
-                style: TextStyle(fontWeight: FontWeight.bold),
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: Colors.white.withOpacity(0.35),
+                letterSpacing: 2,
               ),
-              SizedBox(height: 8),
-              // Commitment hash (truncated)
-              Row(
-                children: [
-                  Icon(Icons.tag, size: 16, color: Colors.grey),
-                  SizedBox(width: 4),
-                  Expanded(
-                    child: Text(
-                      '${commitmentHash.substring(0, 16)}...${commitmentHash.substring(commitmentHash.length - 8)}',
-                      style: smallStyle.copyWith(fontFamily: 'monospace'),
-                    ),
-                  ),
-                ],
-              ),
-              SizedBox(height: 4),
-              // Contract
-              Row(
-                children: [
-                  Icon(Icons.token, size: 16, color: Colors.grey),
-                  SizedBox(width: 4),
-                  Text(contract, style: smallStyle),
-                ],
-              ),
-              SizedBox(height: 8),
-              Text(
-                'Tap to view full details',
-                style: TextStyle(fontSize: 12, color: Colors.grey),
-              ),
-            ],
+            ),
           ),
-        ),
-      ),
-    );
-  }
-
-  /// Show vault details dialog (similar to CLOAK GUI Auth Token Details)
-  void _showVaultDetails(BuildContext context, Map<String, dynamic> vault, String accountName) {
-    final commitmentHash = vault['commitment_hash'] as String? ?? '';
-    final seed = vault['seed'] as String? ?? '';
-    final contract = vault['contract'] as String? ?? 'thezeostoken';
-    final label = vault['label'] as String? ?? 'Vault';
-
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Row(
-          children: [
-            Icon(Icons.account_balance_wallet),
-            SizedBox(width: 8),
-            Text('Auth Token Details'),
-          ],
-        ),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Deposit To
-              _buildDetailField(
-                context,
-                'Deposit To',
-                'thezeosvault',
-                canCopy: true,
-                isMonospace: true,
-              ),
-              SizedBox(height: 16),
-              // Deposit Memo
-              _buildDetailField(
-                context,
-                'Deposit Memo',
-                'AUTH:$commitmentHash|',
-                canCopy: true,
-                isMonospace: true,
-              ),
-              SizedBox(height: 16),
-              // Commitment Hash
-              _buildDetailField(
-                context,
-                'Commitment Hash',
-                commitmentHash,
-                canCopy: true,
-                isMonospace: true,
-              ),
-              SizedBox(height: 16),
-              // Seed
-              _buildDetailField(
-                context,
-                'Seed',
-                seed,
-                canCopy: true,
-                isMonospace: false,
-              ),
-              SizedBox(height: 16),
-              // Contract
-              _buildDetailField(
-                context,
-                'Contract',
-                contract,
-                canCopy: true,
-                isMonospace: false,
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text('Close'),
-          ),
-          ElevatedButton.icon(
-            onPressed: () {
-              Navigator.pop(context);
-              GoRouter.of(context).push('/account/quick_send', extra: SendContext(
-                'thezeosvault',
-                7,
-                Amount(0, false),
-                MemoData(false, '', 'AUTH:$commitmentHash|'),
-              ));
-            },
-            icon: const Icon(Icons.savings, size: 18),
-            label: const Text('Deposit'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.green,
-              foregroundColor: Colors.white,
+          AnimatedRotation(
+            turns: expanded ? 0.5 : 0.0,
+            duration: const Duration(milliseconds: 250),
+            child: Icon(
+              Icons.expand_more,
+              size: 20,
+              color: Colors.white.withOpacity(0.35),
             ),
           ),
         ],
@@ -507,146 +308,287 @@ class _BackupState extends State<BackupPage> {
     );
   }
 
-  /// Build a detail field with copy functionality
-  Widget _buildDetailField(
-    BuildContext context,
-    String label,
-    String value, {
-    bool canCopy = false,
-    bool isMonospace = false,
+  // ── Seed card (prominent, styled like splash page) ──
+  Widget _seedCard() {
+    var seedText = _seed!;
+    if (_index != 0) seedText += ' [$_index]';
+    final words = seedText.split(' ');
+
+    return GestureDetector(
+      onTap: () => router.push('/showqr?title=Seed', extra: seedText),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: const Color(0xFF2E2C2C),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: const Color(0xFF4CAF50).withOpacity(0.3), width: 1),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Wrap(
+              spacing: 6,
+              runSpacing: 8,
+              children: List.generate(words.length, (i) {
+                return Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.06),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: RichText(
+                    text: TextSpan(
+                      children: [
+                        TextSpan(
+                          text: '${i + 1}  ',
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: Colors.white.withOpacity(0.25),
+                            fontFamily: 'monospace',
+                          ),
+                        ),
+                        TextSpan(
+                          text: words[i],
+                          style: const TextStyle(
+                            fontSize: 13,
+                            color: Colors.white,
+                            fontFamily: 'monospace',
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }),
+            ),
+            const SizedBox(height: 14),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                _actionPill(Icons.copy, 'Copy', () => _copy(seedText, 'Seed phrase')),
+                const SizedBox(width: 8),
+                _actionPill(Icons.qr_code, 'QR', () => router.push('/showqr?title=Seed', extra: seedText)),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ── Data field (for address, keys, etc.) ──
+  Widget _dataField({
+    required String value,
+    bool mono = false,
+    VoidCallback? onCopy,
+    VoidCallback? onTap,
   }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 12,
-            color: Colors.grey,
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: const Color(0xFF2E2C2C),
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: SelectableText(
+                value,
+                style: TextStyle(
+                  fontFamily: mono ? 'monospace' : null,
+                  fontSize: mono ? 12 : 14,
+                  color: Colors.white.withOpacity(0.8),
+                  height: 1.5,
+                ),
+              ),
+            ),
+            if (onCopy != null) ...[
+              const SizedBox(width: 8),
+              GestureDetector(
+                onTap: onCopy,
+                child: Icon(Icons.copy, size: 18, color: Colors.white.withOpacity(0.4)),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ── Key entry (inside viewing keys section) ──
+  Widget _keyEntry(String label, String value, String description) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+              color: Colors.white.withOpacity(0.6),
+            ),
+          ),
+          const SizedBox(height: 6),
+          _dataField(
+            value: value,
+            mono: true,
+            onCopy: () => _copy(value, label),
+            onTap: () => router.push('/showqr?title=$label', extra: value),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            description,
+            style: TextStyle(fontSize: 11, color: Colors.white.withOpacity(0.35), height: 1.4),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── Vault card ──
+  Widget _vaultCard(Map<String, dynamic> vault) {
+    final hash = vault['commitment_hash'] as String? ?? '';
+    final seed = vault['seed'] as String? ?? '';
+    final contract = vault['contract'] as String? ?? 'thezeostoken';
+    final label = vault['label'] as String? ?? 'Vault';
+    final truncHash = hash.length >= 24
+        ? '${hash.substring(0, 12)}...${hash.substring(hash.length - 8)}'
+        : hash;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Material(
+        color: const Color(0xFF2E2C2C),
+        borderRadius: BorderRadius.circular(14),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(14),
+          onTap: () => _showVaultDetails(vault),
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Row(
+              children: [
+                Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF4CAF50).withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.lock_outline, size: 20, color: Color(0xFF4CAF50)),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        label,
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w500,
+                          color: Colors.white,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        truncHash,
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontFamily: 'monospace',
+                          color: Colors.white.withOpacity(0.4),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(Icons.chevron_right, size: 20, color: Colors.white.withOpacity(0.3)),
+              ],
+            ),
           ),
         ),
-        SizedBox(height: 4),
-        Container(
-          width: double.infinity,
-          padding: EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.surfaceContainerHighest,
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Row(
+      ),
+    );
+  }
+
+  // ── Vault detail sheet ──
+  void _showVaultDetails(Map<String, dynamic> vault) {
+    final hash = vault['commitment_hash'] as String? ?? '';
+    final seed = vault['seed'] as String? ?? '';
+    final contract = vault['contract'] as String? ?? 'thezeostoken';
+    final label = vault['label'] as String? ?? 'Vault';
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF1E1E1E),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      isScrollControlled: true,
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Expanded(
-                child: SelectableText(
-                  value,
-                  style: TextStyle(
-                    fontFamily: isMonospace ? 'monospace' : null,
-                    fontSize: isMonospace ? 12 : 14,
+              // Drag handle
+              Center(
+                child: Container(
+                  width: 36, height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(2),
                   ),
                 ),
               ),
-              if (canCopy)
-                IconButton(
-                  icon: Icon(Icons.copy, size: 20),
-                  onPressed: () {
-                    Clipboard.setData(ClipboardData(text: value));
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Copied $label to clipboard')),
-                    );
-                  },
-                  tooltip: 'Copy',
-                ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class BackupPanel extends StatelessWidget {
-  final String name;
-  final String label;
-  final String value;
-  final Icon icon;
-  final TextStyle? style;
-
-  BackupPanel(this.name, this.label, this.value, this.icon, {this.style});
-  @override
-  Widget build(BuildContext context) {
-    final qrLabel = '$label of $name';
-    return GestureDetector(
-        onTap: () => showQR(context, value, qrLabel),
-        child: Card(
-          elevation: 2,
-          child: Padding(
-            padding: EdgeInsets.all(8),
-            child: InputDecorator(
-              decoration: InputDecoration(
-                  label: Text(label), icon: icon, border: OutlineInputBorder()),
-              child: Text(
-                value,
-                style: style,
-                maxLines: 6,
+              const SizedBox(height: 20),
+              Text(
+                label,
+                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: Colors.white),
               ),
-            ),
-          ),
-        ));
-  }
-
-  showQR(BuildContext context, String value, String title) {
-    GoRouter.of(context).push('/showqr?title=$title', extra: value);
-  }
-}
-
-/// BackupPanel with description text below the value
-class BackupPanelWithDescription extends StatelessWidget {
-  final String name;
-  final String label;
-  final String value;
-  final Icon icon;
-  final String description;
-  final TextStyle? style;
-
-  BackupPanelWithDescription(
-    this.name,
-    this.label,
-    this.value,
-    this.icon,
-    this.description, {
-    this.style,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final t = Theme.of(context);
-    final qrLabel = '$label of $name';
-    return GestureDetector(
-      onTap: () => showQR(context, value, qrLabel),
-      child: Card(
-        elevation: 2,
-        child: Padding(
-          padding: EdgeInsets.all(8),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              InputDecorator(
-                decoration: InputDecoration(
-                  label: Text(label),
-                  icon: icon,
-                  border: OutlineInputBorder(),
-                ),
-                child: Text(
-                  value,
-                  style: style,
-                  maxLines: 6,
-                ),
-              ),
-              Padding(
-                padding: EdgeInsets.only(left: 40, top: 8, right: 8),
-                child: Text(
-                  description,
-                  style: t.textTheme.bodySmall?.copyWith(
-                    color: t.colorScheme.onSurfaceVariant,
+              const SizedBox(height: 20),
+              _sheetField(ctx, 'Commitment Hash', hash, mono: true),
+              const SizedBox(height: 14),
+              _sheetField(ctx, 'Seed', seed, mono: false),
+              const SizedBox(height: 14),
+              _sheetField(ctx, 'Contract', contract, mono: false),
+              const SizedBox(height: 14),
+              _sheetField(ctx, 'Deposit To', 'thezeosvault', mono: true),
+              const SizedBox(height: 14),
+              _sheetField(ctx, 'Deposit Memo', 'AUTH:$hash|', mono: true),
+              const SizedBox(height: 24),
+              // Deposit button
+              SizedBox(
+                width: double.infinity,
+                height: 48,
+                child: Material(
+                  color: const Color(0xFF4CAF50),
+                  borderRadius: BorderRadius.circular(14),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(14),
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _copy('AUTH:$hash|', 'Deposit memo');
+                    },
+                    child: const Center(
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.copy, size: 18, color: Colors.white),
+                          SizedBox(width: 8),
+                          Text(
+                            'Copy Deposit Memo',
+                            style: TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w600),
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
                 ),
               ),
@@ -657,7 +599,246 @@ class BackupPanelWithDescription extends StatelessWidget {
     );
   }
 
-  showQR(BuildContext context, String value, String title) {
-    GoRouter.of(context).push('/showqr?title=$title', extra: value);
+  // ── Auth token sub-label ──
+  Widget _atSubLabel(String text) {
+    return Text(
+      text,
+      style: TextStyle(
+        fontSize: 12,
+        fontWeight: FontWeight.w500,
+        color: Colors.white.withOpacity(0.5),
+      ),
+    );
   }
+
+  // ── Auth token card ──
+  Widget _atCard(_AuthToken at, {required bool spent}) {
+    final truncHash = at.hash.length >= 24
+        ? '${at.hash.substring(0, 12)}...${at.hash.substring(at.hash.length - 8)}'
+        : at.hash;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Material(
+        color: const Color(0xFF2E2C2C),
+        borderRadius: BorderRadius.circular(14),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(14),
+          onTap: () => _showAtDetails(at, spent: spent),
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Row(
+              children: [
+                Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: (spent
+                        ? Colors.white.withOpacity(0.06)
+                        : const Color(0xFF4CAF50).withOpacity(0.15)),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Icon(
+                    spent ? Icons.token_outlined : Icons.token,
+                    size: 20,
+                    color: spent ? Colors.white.withOpacity(0.3) : const Color(0xFF4CAF50),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        truncHash,
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontFamily: 'monospace',
+                          color: Colors.white.withOpacity(spent ? 0.4 : 0.8),
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        at.contract,
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Colors.white.withOpacity(0.35),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                if (spent)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.06),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      'SPENT',
+                      style: TextStyle(
+                        fontSize: 9,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.white.withOpacity(0.3),
+                        letterSpacing: 1,
+                      ),
+                    ),
+                  ),
+                if (!spent)
+                  Icon(Icons.chevron_right, size: 20, color: Colors.white.withOpacity(0.3)),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ── Auth token detail sheet ──
+  void _showAtDetails(_AuthToken at, {required bool spent}) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF1E1E1E),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      isScrollControlled: true,
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Drag handle
+              Center(
+                child: Container(
+                  width: 36, height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+              Row(
+                children: [
+                  const Text(
+                    'Auth Token',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: Colors.white),
+                  ),
+                  const SizedBox(width: 10),
+                  if (spent)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.06),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        'SPENT',
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.white.withOpacity(0.3),
+                          letterSpacing: 1,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 20),
+              _sheetField(ctx, 'Hash', at.hash, mono: true),
+              const SizedBox(height: 14),
+              _sheetField(ctx, 'Token Contract', at.contract, mono: false),
+              const SizedBox(height: 24),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ── Sheet field (used in both vault + auth token detail sheets) ──
+  Widget _sheetField(BuildContext ctx, String label, String value, {bool mono = false}) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w500,
+            color: Colors.white.withOpacity(0.35),
+          ),
+        ),
+        const SizedBox(height: 6),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: const Color(0xFF2E2C2C),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: SelectableText(
+                  value,
+                  style: TextStyle(
+                    fontFamily: mono ? 'monospace' : null,
+                    fontSize: mono ? 12 : 14,
+                    color: Colors.white.withOpacity(0.8),
+                    height: 1.4,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              GestureDetector(
+                onTap: () => _copy(value, label),
+                child: Icon(Icons.copy, size: 16, color: Colors.white.withOpacity(0.35)),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ── Small action pill (Copy / QR buttons) ──
+  Widget _actionPill(IconData icon, String label, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.06),
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: Colors.white.withOpacity(0.1)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 14, color: Colors.white.withOpacity(0.5)),
+            const SizedBox(width: 5),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+                color: Colors.white.withOpacity(0.5),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _AuthToken {
+  final String hash;
+  final String contract;
+  _AuthToken({required this.hash, required this.contract});
 }

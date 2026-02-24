@@ -187,7 +187,10 @@ class _HomeState extends State<HomePageInner> {
                 aa.txs.items.length;
                 aa.txs.version;
 
-                final bool isWatchOnly = !aa.canPay;
+                // For CLOAK wallets, check if view-only (IVK). For other coins, use canPay flag.
+                final bool isWatchOnly = aa.coin == CLOAK_COIN
+                  ? CloakWalletManager.isViewOnly
+                  : !aa.canPay;
                 return AnimatedSwitcher(
                   // Lengthen further for a clearer crossfade
                   duration: const Duration(milliseconds: 480),
@@ -209,14 +212,13 @@ class _HomeState extends State<HomePageInner> {
                               child: Row(
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                    decoration: BoxDecoration(
-                                      color: Theme.of(context).colorScheme.secondary.withOpacity(0.12),
-                                      borderRadius: BorderRadius.circular(999),
-                                      border: Border.all(color: Theme.of(context).colorScheme.secondary.withOpacity(0.6)),
+                                  Text(
+                                    'VIEW ONLY',
+                                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                                      color: Colors.white.withOpacity(0.35),
+                                      letterSpacing: 1.2,
+                                      fontWeight: FontWeight.w600,
                                     ),
-                                    child: Text('Watch-Only', style: Theme.of(context).textTheme.labelMedium?.copyWith(color: Theme.of(context).colorScheme.onSurface)),
                                   ),
                                 ],
                               ),
@@ -234,8 +236,8 @@ class _HomeState extends State<HomePageInner> {
                             const gap = 6.0; // 50% tighter than before
                             final available = screenWidth - horizontalPadding;
                             if (isVaultMode) {
-                              // Vault quick actions: Deposit, Withdraw, Scan (3 buttons)
-                              final tileSize = ((available - 2 * gap) / 3).clamp(72.0, 96.0).toDouble();
+                              // Vault quick actions: Deposit, Withdraw (2 buttons)
+                              final tileSize = ((available - 1 * gap) / 2).clamp(72.0, 96.0).toDouble();
                               return Row(
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
@@ -250,13 +252,6 @@ class _HomeState extends State<HomePageInner> {
                                     label: 'Withdraw',
                                     asset: 'assets/icons/send_quick.svg',
                                     onTap: () => _showVaultWithdraw(context),
-                                    tileSize: tileSize,
-                                  ),
-                                  const Gap(gap),
-                                  _QuickActionTile(
-                                    label: 'Scan',
-                                    asset: 'assets/icons/scan_quick.svg',
-                                    onTap: () { scanQRCode(context); },
                                     tileSize: tileSize,
                                   ),
                                 ],
@@ -275,7 +270,7 @@ class _HomeState extends State<HomePageInner> {
                                 ],
                               );
                             } else {
-                              final tileSize = ((available - 3 * gap) / 4).clamp(72.0, 96.0).toDouble();
+                              final tileSize = ((available - 2 * gap) / 3).clamp(72.0, 96.0).toDouble();
                               return Row(
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
@@ -290,13 +285,6 @@ class _HomeState extends State<HomePageInner> {
                                     label: s.send,
                                     asset: 'assets/icons/send_quick.svg',
                                     onTap: () => GoRouter.of(context).push('/account/quick_send'),
-                                    tileSize: tileSize,
-                                  ),
-                                  const Gap(gap),
-                                  _QuickActionTile(
-                                    label: 'Scan',
-                                    asset: 'assets/icons/scan_quick.svg',
-                                    onTap: () { scanQRCode(context); },
                                     tileSize: tileSize,
                                   ),
                                   const Gap(gap),
@@ -1235,6 +1223,14 @@ class _HomeTokenIconState extends State<_HomeTokenIcon> {
   bool get _hasImage => widget.logoUrl != null && widget.logoUrl!.isNotEmpty && !_imageLoadFailed;
 
   @override
+  void didUpdateWidget(_HomeTokenIcon oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.logoUrl != widget.logoUrl) {
+      _imageLoadFailed = false;
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     return DecoratedBox(
       decoration: BoxDecoration(
@@ -1319,6 +1315,7 @@ class _ShieldedTokenRow extends StatelessWidget {
   final String amount;
   final String? logoUrl;
   final Color fallbackColor;
+  final VoidCallback? onTap;
 
   const _ShieldedTokenRow({
     required this.symbol,
@@ -1326,6 +1323,7 @@ class _ShieldedTokenRow extends StatelessWidget {
     required this.amount,
     this.logoUrl,
     required this.fallbackColor,
+    this.onTap,
   });
 
   @override
@@ -1335,7 +1333,7 @@ class _ShieldedTokenRow extends StatelessWidget {
       color: Colors.transparent,
       child: InkWell(
         borderRadius: BorderRadius.circular(12),
-        onTap: () {},
+        onTap: onTap ?? () {},
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
           child: Row(
@@ -1455,6 +1453,25 @@ class _TokensTabContent extends StatelessWidget {
               amount: fts[i].amount,
               logoUrl: _getTokenLogoUrl(fts[i].symbol, fts[i].contract),
               fallbackColor: _getHomeTokenColor(fts[i].symbol),
+              onTap: CloakWalletManager.isViewOnly ? null : () {
+                final ft = fts[i];
+                final dotIdx = ft.amount.indexOf('.');
+                final precision = dotIdx >= 0 ? ft.amount.length - dotIdx - 1 : 0;
+                GoRouter.of(context).push('/account/quick_send', extra: SendContext(
+                  '',        // address
+                  7,         // pools
+                  Amount(0, false),
+                  null,      // memo
+                  null,      // fx
+                  null,      // display
+                  false,     // fromThread
+                  null,      // threadIndex
+                  null,      // threadCid
+                  ft.symbol,
+                  ft.contract,
+                  precision,
+                ));
+              },
             ),
           ],
         const SizedBox(height: 80),
@@ -1776,6 +1793,27 @@ class _VaultTokensTabContent extends StatelessWidget {
             amount: fts[i]['amount'] as String? ?? '0',
             logoUrl: _getTokenLogoUrl(fts[i]['symbol'] as String? ?? 'CLOAK', fts[i]['contract'] as String? ?? ''),
             fallbackColor: _getHomeTokenColor(fts[i]['symbol'] as String? ?? 'CLOAK'),
+            onTap: CloakWalletManager.isViewOnly ? null : () {
+              final sym = fts[i]['symbol'] as String? ?? 'CLOAK';
+              final con = fts[i]['contract'] as String? ?? '';
+              final amt = fts[i]['amount'] as String? ?? '0';
+              final dotIdx = amt.indexOf('.');
+              final precision = dotIdx >= 0 ? amt.length - dotIdx - 1 : 0;
+              GoRouter.of(context).push('/account/quick_send', extra: SendContext(
+                '',        // address
+                7,         // pools
+                Amount(0, false),
+                null,      // memo
+                null,      // fx
+                null,      // display
+                false,     // fromThread
+                null,      // threadIndex
+                null,      // threadCid
+                sym,
+                con,
+                precision,
+              ));
+            },
           ),
         ],
         const SizedBox(height: 80),

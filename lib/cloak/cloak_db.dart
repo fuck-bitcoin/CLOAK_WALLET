@@ -163,9 +163,6 @@ class CloakDb {
         },
       ),
     );
-
-    final encStatus = _password.isNotEmpty && _sqlCipherAvailable ? 'encrypted' : 'unencrypted';
-    print('CloakDb: Initialized at $_dbPath ($encStatus)');
   }
 
   /// Get database instance
@@ -199,23 +196,33 @@ class CloakDb {
       where: 'name = ?',
       whereArgs: [name],
     );
-    if (existing.isNotEmpty) {
-      print('CloakDb: Account "$name" already exists');
-      return -1;
-    }
+    if (existing.isNotEmpty) return -1;
+
+    // Check if account with same IVK exists (for view-only wallets)
+    final existingIvk = await _db!.query(
+      'accounts',
+      where: 'ivk = ?',
+      whereArgs: [ivk],
+    );
+    if (existingIvk.isNotEmpty) return -1;
 
     // Insert new account
-    final id = await _db!.insert('accounts', {
-      'name': name,
-      'seed': seed,
-      'aindex': aindex,
-      'sk': sk,
-      'ivk': ivk,
-      'address': address,
-    });
+    try {
+      final id = await _db!.insert('accounts', {
+        'name': name,
+        'seed': seed,
+        'aindex': aindex,
+        'sk': sk,
+        'ivk': ivk,
+        'address': address,
+      });
 
-    print('CloakDb: Created account "$name" with id=$id');
-    return id;
+      return id;
+    } catch (e) {
+      // Catch any database errors (e.g., UNIQUE constraint violations)
+      print('CloakDb: Failed to create account: $e');
+      return -1;
+    }
   }
 
   /// Get account by ID
@@ -263,6 +270,12 @@ class CloakDb {
     );
   }
 
+  /// Clear all accounts (used before view-key restore to avoid name conflicts)
+  static Future<void> clearAllAccounts() async {
+    await init();
+    await _db!.delete('accounts');
+  }
+
   /// Count accounts
   static Future<int> countAccounts() async {
     await init();
@@ -297,6 +310,34 @@ class CloakDb {
     _db = null;
   }
 
+  /// Delete the entire database file. Closes the connection first.
+  /// After calling this, call `init()` again to recreate a fresh DB.
+  static Future<void> deleteDatabase() async {
+    await close();
+    if (_dbPath == null) {
+      final dbDir = await getDbPath();
+      _dbPath = p.join(dbDir, 'cloak.db');
+    }
+    final file = File(_dbPath!);
+    if (await file.exists()) {
+      await file.delete();
+      print('CloakDb: Deleted database at $_dbPath');
+    }
+    _dbPath = null;
+  }
+
+  /// Test if the database connection is valid (correct encryption key).
+  /// Returns false if the DB can't be queried (wrong PIN / corrupt).
+  static Future<bool> testConnection() async {
+    if (_db == null) return false;
+    try {
+      await _db!.rawQuery('SELECT count(*) FROM sqlite_master');
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   // ============== Schema Helpers ==============
 
   static Future<void> _createContactsTable(Database db) async {
@@ -310,7 +351,6 @@ class CloakDb {
       )
     ''');
     await db.execute('CREATE INDEX IF NOT EXISTS i_contact ON contacts(address)');
-    print('CloakDb: Created contacts table');
   }
 
   static Future<void> _createMessagesTable(Database db) async {
@@ -333,7 +373,6 @@ class CloakDb {
     ''');
     await db.execute('CREATE INDEX IF NOT EXISTS i_message_account ON messages(account)');
     await db.execute('CREATE INDEX IF NOT EXISTS i_message_timestamp ON messages(timestamp)');
-    print('CloakDb: Created messages table');
   }
 
   static Future<void> _createVaultsTable(Database db) async {
@@ -356,7 +395,6 @@ class CloakDb {
     ''');
     await db.execute('CREATE INDEX IF NOT EXISTS i_vault_account ON vaults(account_id)');
     await db.execute('CREATE INDEX IF NOT EXISTS i_vault_hash ON vaults(commitment_hash)');
-    print('CloakDb: Created vaults table');
   }
 
   static Future<void> _createBurnEventsTable(Database db) async {
@@ -367,7 +405,6 @@ class CloakDb {
         timestamp_ms INTEGER NOT NULL
       )
     ''');
-    print('CloakDb: Created burn_events table');
   }
 
   // ============== Burn Events ==============
@@ -392,7 +429,6 @@ class CloakDb {
       'timestamp_ms': timestampMs,
     });
     _burnTimestampsCache.add(timestampMs);
-    print('CloakDb: Recorded burn event for ${vaultHash.substring(0, 16)}... at $timestampMs');
   }
 
   /// Get all burn event timestamps (for relabeling TX history)
@@ -416,7 +452,6 @@ class CloakDb {
         'name': name,
         'address': address,
       });
-      print('CloakDb: Added contact "$name" with id=$id');
       return id;
     } catch (e) {
       // Likely unique constraint violation
@@ -573,7 +608,6 @@ class CloakDb {
         'vault_index': vaultIndex,
         'created_at': DateTime.now().millisecondsSinceEpoch ~/ 1000,
       });
-      print('CloakDb: Added vault "${label ?? commitmentHash.substring(0, 16)}..." with id=$id');
       return id;
     } catch (e) {
       // Likely unique constraint violation (duplicate commitment hash)
@@ -642,28 +676,23 @@ class CloakDb {
   static Future<void> updateVaultStatus(int id, String status) async {
     await init();
     await _db!.update('vaults', {'status': status}, where: 'id = ?', whereArgs: [id]);
-    print('CloakDb: Updated vault $id status to $status');
   }
 
   /// Update vault status by commitment hash
   static Future<void> updateVaultStatusByHash(String commitmentHash, String status) async {
     await init();
-    final count = await _db!.update(
+    await _db!.update(
       'vaults',
       {'status': status},
       where: 'commitment_hash = ?',
       whereArgs: [commitmentHash],
     );
-    if (count > 0) {
-      print('CloakDb: Updated vault ${commitmentHash.substring(0, 16)}... status to $status');
-    }
   }
 
   /// Update vault commitment hash (for fixing hashes computed with wrong address)
   static Future<void> updateVaultCommitmentHash(int id, String newHash) async {
     await init();
     await _db!.update('vaults', {'commitment_hash': newHash}, where: 'id = ?', whereArgs: [id]);
-    print('CloakDb: Updated vault $id commitment_hash to ${newHash.substring(0, 16)}...');
   }
 
   /// Get all vaults with a specific status

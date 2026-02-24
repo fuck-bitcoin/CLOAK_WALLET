@@ -4,13 +4,14 @@ import 'package:bip39/src/wordlists/english.dart' as bip39_words;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../accounts.dart';
+import '../cloak/cloak_db.dart';
 import '../cloak/cloak_wallet_manager.dart';
 import '../cloak/signature_provider.dart';
 import '../store2.dart';
 import 'utils.dart';
 
-/// Restore Wallet page: accepts a 24-word BIP39 seed phrase,
-/// validates it, restores the CLOAK wallet, and starts sync.
+/// Restore Wallet page: accepts a 24-word BIP39 seed phrase or
+/// an Incoming Viewing Key (ivk1...) for view-only wallets.
 class RestoreWalletPage extends StatefulWidget {
   const RestoreWalletPage({super.key});
 
@@ -25,6 +26,7 @@ class _RestoreWalletPageState extends State<RestoreWalletPage>
   final _seedFocus = FocusNode();
   String? _seedError;
   List<String> _suggestions = [];
+  bool _isIvkMode = false;
 
   @override
   void dispose() {
@@ -37,15 +39,16 @@ class _RestoreWalletPageState extends State<RestoreWalletPage>
   @override
   Widget build(BuildContext context) {
     return wrapWithLoading(Scaffold(
-      backgroundColor: const Color(0xFF1A1A1A),
+      backgroundColor: const Color(0xFF1E1E1E),
       appBar: AppBar(
-        backgroundColor: const Color(0xFF1A1A1A),
+        backgroundColor: const Color(0xFF1E1E1E),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
           onPressed: () => GoRouter.of(context).pop(),
         ),
         title: const Text('Restore Wallet'),
         centerTitle: true,
+        elevation: 0,
       ),
       body: SafeArea(
         child: SingleChildScrollView(
@@ -55,74 +58,129 @@ class _RestoreWalletPageState extends State<RestoreWalletPage>
             children: [
               // Instructions
               Text(
-                'Enter your 24-word seed phrase to restore your wallet.',
+                _isIvkMode
+                    ? 'Paste your Viewing Key to restore a view-only wallet.'
+                    : 'Enter your 24-word seed phrase to restore your wallet.',
                 style: TextStyle(
-                  color: Colors.white.withOpacity(0.6),
-                  fontSize: 14,
-                  height: 1.4,
+                  color: Colors.white.withOpacity(0.5),
+                  fontSize: 13,
+                  height: 1.5,
                 ),
               ),
               const SizedBox(height: 20),
 
-              // Seed phrase input
-              TextField(
-                controller: _seedController,
-                focusNode: _seedFocus,
-                maxLines: 5,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 14,
-                  fontFamily: 'monospace',
+              // ── Mode selector ──
+              _sectionLabel('RESTORE MODE'),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  _modePill(
+                    icon: Icons.spa_outlined,
+                    label: 'Seed Phrase',
+                    active: !_isIvkMode,
+                    onTap: () => setState(() {
+                      _isIvkMode = false;
+                      _seedError = null;
+                      _suggestions = [];
+                    }),
+                  ),
+                  const SizedBox(width: 10),
+                  _modePill(
+                    icon: Icons.visibility_outlined,
+                    label: 'Viewing Key',
+                    active: _isIvkMode,
+                    onTap: () => setState(() {
+                      _isIvkMode = true;
+                      _seedError = null;
+                      _suggestions = [];
+                    }),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 24),
+
+              // ── Seed phrase / IVK input ──
+              _sectionLabel(_isIvkMode ? 'VIEWING KEY' : 'RECOVERY PHRASE'),
+              const SizedBox(height: 10),
+              Container(
+                decoration: BoxDecoration(
+                  color: const Color(0xFF2E2C2C),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: _seedError != null
+                        ? const Color(0xFFEF5350).withOpacity(0.5)
+                        : (_seedFocus.hasFocus
+                            ? const Color(0xFF4CAF50).withOpacity(0.4)
+                            : Colors.white.withOpacity(0.08)),
+                  ),
                 ),
-                onChanged: _onSeedChanged,
-                decoration: InputDecoration(
-                  labelText: 'Seed Phrase',
-                  labelStyle: TextStyle(color: Colors.white.withOpacity(0.5)),
-                  hintText: 'word1 word2 word3 ...',
-                  hintStyle: TextStyle(color: Colors.white.withOpacity(0.2)),
-                  errorText: _seedError,
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(14),
-                    borderSide: BorderSide(color: Colors.white.withOpacity(0.2)),
+                child: TextField(
+                  controller: _seedController,
+                  focusNode: _seedFocus,
+                  maxLines: _isIvkMode ? 3 : 5,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 13,
+                    fontFamily: 'monospace',
+                    height: 1.5,
                   ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(14),
-                    borderSide: const BorderSide(color: Color(0xFF4CAF50)),
-                  ),
-                  errorBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(14),
-                    borderSide: const BorderSide(color: Colors.redAccent),
-                  ),
-                  focusedErrorBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(14),
-                    borderSide: const BorderSide(color: Colors.redAccent),
+                  onChanged: _isIvkMode
+                      ? (_) {
+                          if (_seedError != null) {
+                            setState(() => _seedError = null);
+                          }
+                        }
+                      : _onSeedChanged,
+                  decoration: InputDecoration(
+                    hintText: _isIvkMode ? 'ivk1... or fvk1...' : 'word1 word2 word3 ...',
+                    hintStyle: TextStyle(
+                      color: Colors.white.withOpacity(0.15),
+                      fontFamily: 'monospace',
+                      fontSize: 13,
+                    ),
+                    contentPadding: const EdgeInsets.all(16),
+                    border: InputBorder.none,
                   ),
                 ),
               ),
 
-              // BIP39 autocomplete suggestions
-              if (_suggestions.isNotEmpty)
+              // Error text
+              if (_seedError != null)
                 Padding(
-                  padding: const EdgeInsets.only(top: 8),
+                  padding: const EdgeInsets.only(top: 8, left: 4),
+                  child: Text(
+                    _seedError!,
+                    style: const TextStyle(
+                      color: Color(0xFFEF5350),
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+
+              // BIP39 autocomplete suggestions (seed mode only)
+              if (_suggestions.isNotEmpty && !_isIvkMode)
+                Padding(
+                  padding: const EdgeInsets.only(top: 10),
                   child: Wrap(
                     spacing: 6,
                     runSpacing: 6,
                     children: _suggestions.map((word) {
-                      return InkWell(
+                      return Material(
+                        color: const Color(0xFF4CAF50).withOpacity(0.15),
                         borderRadius: BorderRadius.circular(8),
-                        onTap: () => _applySuggestion(word),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 10, vertical: 6),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF4CAF50).withOpacity(0.2),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Text(
-                            word,
-                            style: const TextStyle(
-                              color: Color(0xFF4CAF50),
-                              fontSize: 13,
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(8),
+                          onTap: () => _applySuggestion(word),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 12, vertical: 7),
+                            child: Text(
+                              word,
+                              style: const TextStyle(
+                                color: Color(0xFF4CAF50),
+                                fontSize: 13,
+                                fontFamily: 'monospace',
+                              ),
                             ),
                           ),
                         ),
@@ -130,45 +188,119 @@ class _RestoreWalletPageState extends State<RestoreWalletPage>
                     }).toList(),
                   ),
                 ),
+
+              // IVK warning box
+              if (_isIvkMode) ...[
+                const SizedBox(height: 14),
+                Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.withOpacity(0.08),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: Colors.orange.withOpacity(0.2)),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        width: 32,
+                        height: 32,
+                        decoration: BoxDecoration(
+                          color: Colors.orange.withOpacity(0.12),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Center(
+                          child: Icon(Icons.visibility,
+                              color: Colors.orange.withOpacity(0.7), size: 16),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'View-Only Wallet',
+                              style: TextStyle(
+                                color: Colors.orange.withOpacity(0.85),
+                                fontSize: 13,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'Accepts IVK or FVK. Can view balances and history. Cannot send, create vaults, or sign.',
+                              style: TextStyle(
+                                color: Colors.orange.withOpacity(0.6),
+                                fontSize: 12,
+                                height: 1.4,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
               const SizedBox(height: 24),
 
-              // Account name
-              TextField(
-                controller: _nameController,
-                style: const TextStyle(color: Colors.white),
-                decoration: InputDecoration(
-                  labelText: 'Account Name',
-                  labelStyle: TextStyle(color: Colors.white.withOpacity(0.5)),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(14),
-                    borderSide: BorderSide(color: Colors.white.withOpacity(0.2)),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(14),
-                    borderSide: const BorderSide(color: Color(0xFF4CAF50)),
+              // ── Account name ──
+              _sectionLabel('ACCOUNT NAME'),
+              const SizedBox(height: 10),
+              Container(
+                decoration: BoxDecoration(
+                  color: const Color(0xFF2E2C2C),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: Colors.white.withOpacity(0.08)),
+                ),
+                child: TextField(
+                  controller: _nameController,
+                  style: const TextStyle(color: Colors.white, fontSize: 14),
+                  decoration: InputDecoration(
+                    hintText: 'Main',
+                    hintStyle: TextStyle(color: Colors.white.withOpacity(0.15)),
+                    contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 14),
+                    border: InputBorder.none,
                   ),
                 ),
               ),
-              const SizedBox(height: 28),
+              const SizedBox(height: 32),
 
-              // Restore button
+              // ── Restore button ──
               SizedBox(
                 width: double.infinity,
                 height: 52,
                 child: Material(
-                  color: const Color(0xFF4CAF50),
+                  color: _isIvkMode
+                      ? Colors.orange.withOpacity(0.8)
+                      : const Color(0xFF4CAF50),
                   borderRadius: BorderRadius.circular(14),
                   child: InkWell(
                     borderRadius: BorderRadius.circular(14),
                     onTap: _onRestore,
-                    child: const Center(
-                      child: Text(
-                        'Restore Wallet',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                        ),
+                    child: Center(
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            _isIvkMode
+                                ? Icons.visibility_outlined
+                                : Icons.restore,
+                            color: Colors.white,
+                            size: 20,
+                          ),
+                          const SizedBox(width: 10),
+                          Text(
+                            _isIvkMode ? 'Restore (View-Only)' : 'Restore Wallet',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ),
@@ -180,6 +312,77 @@ class _RestoreWalletPageState extends State<RestoreWalletPage>
         ),
       ),
     ));
+  }
+
+  // ── Section label (matches backup.dart style) ──
+  Widget _sectionLabel(String text) {
+    return Padding(
+      padding: const EdgeInsets.only(left: 2),
+      child: Text(
+        text,
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w600,
+          color: Colors.white.withOpacity(0.35),
+          letterSpacing: 2,
+        ),
+      ),
+    );
+  }
+
+  // ── Mode pill (Seed Phrase / Viewing Key) ──
+  Widget _modePill({
+    required IconData icon,
+    required String label,
+    required bool active,
+    required VoidCallback onTap,
+  }) {
+    return Expanded(
+      child: Material(
+        color: active
+            ? const Color(0xFF4CAF50).withOpacity(0.15)
+            : const Color(0xFF2E2C2C),
+        borderRadius: BorderRadius.circular(12),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: onTap,
+          child: Container(
+            padding: const EdgeInsets.symmetric(vertical: 12),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: active
+                    ? const Color(0xFF4CAF50).withOpacity(0.4)
+                    : Colors.white.withOpacity(0.06),
+              ),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  icon,
+                  size: 16,
+                  color: active
+                      ? const Color(0xFF4CAF50)
+                      : Colors.white.withOpacity(0.35),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  label,
+                  style: TextStyle(
+                    color: active
+                        ? const Color(0xFF4CAF50)
+                        : Colors.white.withOpacity(0.4),
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   void _onSeedChanged(String text) {
@@ -218,6 +421,17 @@ class _RestoreWalletPageState extends State<RestoreWalletPage>
   }
 
   String? _validateSeed(String seed) {
+    if (_isIvkMode) {
+      final trimmed = seed.trim();
+      if (!trimmed.startsWith('ivk1') &&
+          !trimmed.startsWith('fvk1')) {
+        return 'Viewing key must start with ivk1 or fvk1';
+      }
+      if (trimmed.length < 20) {
+        return 'Viewing key is too short';
+      }
+      return null;
+    }
     final words = seed.trim().split(RegExp(r'\s+'));
     if (words.length != 24) {
       return 'Seed phrase must be exactly 24 words (got ${words.length})';
@@ -246,14 +460,20 @@ class _RestoreWalletPageState extends State<RestoreWalletPage>
     }
 
     await load(() async {
+      // Always clear existing accounts before restore to prevent duplicates
+      await CloakDb.clearAllAccounts();
+
       final account = await CloakWalletManager.restoreWallet(
         name,
         seed,
         aliasAuthority: 'thezeosalias@public',
+        isIvk: _isIvkMode,
       );
 
       if (account < 0) {
-        showSnackBar('Wallet already exists');
+        showSnackBar(_isIvkMode
+            ? 'Failed to restore view-only wallet. Check the viewing key format.'
+            : 'Wallet already exists');
         return;
       }
 

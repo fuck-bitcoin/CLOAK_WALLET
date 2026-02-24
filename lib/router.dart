@@ -16,6 +16,7 @@ import 'accounts.dart';
 import 'cloak/cloak_types.dart';
 import 'cloak/cloak_wallet_manager.dart';
 import 'cloak/cloak_db.dart';
+import 'cloak/cloak_sync.dart';
 import 'coin/coins.dart';
 import 'generated/intl/messages.dart';
 import 'pages/accounts/manager.dart';
@@ -32,7 +33,6 @@ import 'pages/more/about.dart';
 import 'pages/more/backup.dart';
 import 'pages/more/coin.dart';
 import 'pages/more/contacts.dart';
-import 'pages/more/import_gui_wallet.dart';
 import 'pages/more/more.dart';
 import 'pages/tx.dart';
 import 'pages/scan.dart';
@@ -40,6 +40,8 @@ import 'pages/blank.dart';
 import 'pages/showqr.dart';
 import 'pages/splash.dart';
 import 'pages/splash_page.dart';
+import 'pages/intro_page.dart';
+import 'pages/pin_page.dart';
 import 'pages/create_wallet_page.dart';
 import 'pages/restore_wallet_page.dart';
 import 'pages/welcome.dart';
@@ -63,6 +65,10 @@ final _accountNavigatorKey = GlobalKey<NavigatorState>();
 // Allow overriding the initial route (e.g., for design reviews) via env var.
 // Set by main.dart before runApp() based on wallet existence.
 String initialLocation = Platform.environment['YW_INITIAL_ROUTE'] ?? '/account';
+
+/// Where the intro animation navigates after completing.
+/// Set by main.dart: '/account' if wallet exists, '/splash' if first launch.
+String postIntroDestination = '/account';
 
 final helpRouteMap = {
   "/account": "/accounts",
@@ -330,7 +336,15 @@ final router = GoRouter(
       ),
     ),
     StatefulShellRoute.indexedStack(
-      builder: (context, state, shell) => ScaffoldBar(shell: shell),
+      pageBuilder: (context, state, shell) => CustomTransitionPage(
+        key: state.pageKey,
+        child: ScaffoldBar(shell: shell),
+        transitionDuration: const Duration(milliseconds: 600),
+        reverseTransitionDuration: const Duration(milliseconds: 300),
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          return FadeTransition(opacity: animation, child: child);
+        },
+      ),
       branches: [
         StatefulShellBranch(
           navigatorKey: _accountNavigatorKey,
@@ -339,7 +353,7 @@ final router = GoRouter(
               path: '/account',
               builder: (context, state) => HomePage(),
               redirect: (context, state) {
-                if (aa.id == 0) return '/welcome';
+                if (aa.id == 0) return '/splash';
                 return null;
               },
               routes: [
@@ -610,7 +624,18 @@ final router = GoRouter(
         ),
         GoRoute(
           path: 'backup',
-          builder: (context, state) => BackupPage(),
+          parentNavigatorKey: rootNavigatorKey,
+          pageBuilder: (context, state) => CustomTransitionPage(
+            key: state.pageKey,
+            child: BackupPage(),
+            transitionDuration: const Duration(milliseconds: 300),
+            reverseTransitionDuration: const Duration(milliseconds: 300),
+            transitionsBuilder: (context, animation, secondaryAnimation, child) {
+              final curved = CurvedAnimation(parent: animation, curve: Curves.easeOutCubic, reverseCurve: Curves.easeInCubic);
+              final offset = Tween<Offset>(begin: const Offset(1.0, 0.0), end: Offset.zero).animate(curved);
+              return RepaintBoundary(child: SlideTransition(position: offset, child: child));
+            },
+          ),
         ),
         GoRoute(
           path: 'resync',
@@ -632,11 +657,6 @@ final router = GoRouter(
             builder: (context, state) =>
                 AboutPage(state.extra as String)),
         GoRoute(
-          path: 'import_gui_wallet',
-          builder: (context, state) =>
-              const ImportGuiWalletPage(),
-        ),
-        GoRoute(
           path: 'submit_tx',
           builder: (context, state) =>
               SubmitTxPage(txPlan: state.extra as String),
@@ -656,11 +676,37 @@ final router = GoRouter(
     GoRoute(path: '/decrypt_db', builder: (context, state) => DbLoginPage()),
     GoRoute(path: '/disclaimer', builder: (context, state) => DisclaimerPage()),
     GoRoute(
+      path: '/intro',
+      parentNavigatorKey: rootNavigatorKey,
+      pageBuilder: (context, state) => CustomTransitionPage(
+        key: state.pageKey,
+        child: const RepaintBoundary(child: IntroPage()),
+        transitionDuration: const Duration(milliseconds: 300),
+        reverseTransitionDuration: const Duration(milliseconds: 300),
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          return FadeTransition(opacity: animation, child: child);
+        },
+      ),
+    ),
+    GoRoute(
+      path: '/pin_login',
+      parentNavigatorKey: rootNavigatorKey,
+      pageBuilder: (context, state) => CustomTransitionPage(
+        key: state.pageKey,
+        child: const RepaintBoundary(child: PinLoginPage()),
+        transitionDuration: const Duration(milliseconds: 300),
+        reverseTransitionDuration: const Duration(milliseconds: 300),
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          return FadeTransition(opacity: animation, child: child);
+        },
+      ),
+    ),
+    GoRoute(
       path: '/splash',
       parentNavigatorKey: rootNavigatorKey,
       pageBuilder: (context, state) => CustomTransitionPage(
         key: state.pageKey,
-        child: const CloakSplashPage(),
+        child: const RepaintBoundary(child: CloakSplashPage()),
         transitionDuration: const Duration(milliseconds: 300),
         reverseTransitionDuration: const Duration(milliseconds: 300),
         transitionsBuilder: (context, animation, secondaryAnimation, child) {
@@ -668,6 +714,24 @@ final router = GoRouter(
         },
       ),
       routes: [
+        GoRoute(
+          path: 'pin_setup',
+          parentNavigatorKey: rootNavigatorKey,
+          pageBuilder: (context, state) {
+            final next = state.uri.queryParameters['next'] ?? 'create';
+            return CustomTransitionPage(
+              key: state.pageKey,
+              child: RepaintBoundary(child: PinSetupPage(next: next)),
+              transitionDuration: const Duration(milliseconds: 300),
+              reverseTransitionDuration: const Duration(milliseconds: 300),
+              transitionsBuilder: (context, animation, secondaryAnimation, child) {
+                final curved = CurvedAnimation(parent: animation, curve: Curves.easeOutCubic, reverseCurve: Curves.easeInCubic);
+                final offset = Tween<Offset>(begin: const Offset(1.0, 0.0), end: Offset.zero).animate(curved);
+                return SlideTransition(position: offset, child: child);
+              },
+            );
+          },
+        ),
         GoRoute(
           path: 'create',
           parentNavigatorKey: rootNavigatorKey,
@@ -1015,8 +1079,6 @@ class _ScaffoldBar extends State<ScaffoldBar> with TickerProviderStateMixin {
                   rethrow;
                 }
               }),
-              IconButton(onPressed: help, icon: Icon(Icons.help)),
-              IconButton(onPressed: settings, icon: Icon(Icons.settings)),
             ],
           ),
           body: ShowCaseWidget(builder: (context) => widget.shell),
@@ -1103,6 +1165,11 @@ class _TopAccountSheetState extends State<_TopAccountSheet> with SingleTickerPro
   bool _burnFeeInsufficient = false; // true if balance < burn fee
   double _burnFeeAmount = 0.0;     // cached burn fee from chain query
 
+  // Vault inline rename
+  int? _editingVaultIndex;
+  final TextEditingController _vaultEditNameController = TextEditingController();
+  final FocusNode _vaultEditFocusNode = FocusNode();
+
   // Burn loading flow (mirrors _NewVaultInline pattern)
   bool _burnInProgress = false;
   bool _burnShowSpinner = false;
@@ -1121,6 +1188,8 @@ class _TopAccountSheetState extends State<_TopAccountSheet> with SingleTickerPro
         _loadVaults();
       }
     });
+    // Auto-refresh vault list when discovery finds new vaults during sync
+    CloakWalletManager.vaultListVersion.addListener(_loadVaults);
   }
 
   Future<void> _loadVaults() async {
@@ -1196,6 +1265,7 @@ class _TopAccountSheetState extends State<_TopAccountSheet> with SingleTickerPro
         ? '${commitmentHash.substring(0, 8)}...${commitmentHash.substring(commitmentHash.length - 8)}'
         : commitmentHash;
     final bool showActions = _vaultActionIndices.contains(vaultIndex);
+    final bool isVaultEditing = _editingVaultIndex == vaultIndex;
     // Highlight when this vault is the active vault
     final bool isSelected = isVaultMode && activeVaultHash == commitmentHash;
 
@@ -1285,14 +1355,30 @@ class _TopAccountSheetState extends State<_TopAccountSheet> with SingleTickerPro
                   child: Icon(Icons.lock, color: Colors.white, size: 18),
                 ),
               ),
-              title: Text(
-                label,
-                style: (t.textTheme.bodyLarge ?? const TextStyle()).copyWith(
-                  color: balanceTextColor,
-                  fontFamily: balanceFontFamily,
-                  fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
-                ),
-              ),
+              title: isVaultEditing
+                  ? TextField(
+                      controller: _vaultEditNameController,
+                      focusNode: _vaultEditFocusNode,
+                      style: (t.textTheme.bodyLarge ?? const TextStyle()).copyWith(
+                        color: balanceTextColor,
+                        fontFamily: balanceFontFamily,
+                        fontWeight: FontWeight.w600,
+                      ),
+                      decoration: const InputDecoration(
+                        isDense: true,
+                        contentPadding: EdgeInsets.symmetric(vertical: 4),
+                        border: InputBorder.none,
+                      ),
+                      onSubmitted: (_) => _commitVaultRename(vault),
+                    )
+                  : Text(
+                      label,
+                      style: (t.textTheme.bodyLarge ?? const TextStyle()).copyWith(
+                        color: balanceTextColor,
+                        fontFamily: balanceFontFamily,
+                        fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+                      ),
+                    ),
               subtitle: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -1326,6 +1412,17 @@ class _TopAccountSheetState extends State<_TopAccountSheet> with SingleTickerPro
                     key: ValueKey('vault-actions-$vaultIndex'),
                     mainAxisSize: MainAxisSize.min,
                     children: [
+                      _ActionChip(
+                        icon: Icon(
+                          isVaultEditing ? Icons.check : Icons.edit,
+                          color: t.colorScheme.onSurface,
+                          size: 20,
+                        ),
+                        onTap: () => isVaultEditing
+                            ? _commitVaultRename(vault)
+                            : _startVaultRename(vaultIndex, vault),
+                      ),
+                      const SizedBox(width: 8),
                       Builder(builder: (ctx) {
                         final isBurnConfirm = _burnConfirmVaultIndex == vaultIndex;
                         final bool burnBlocked = isBurnConfirm && (_burnInProgress || _fadingVaultHash != null || _burnFeeChecking || insufficientBalance);
@@ -1495,7 +1592,6 @@ class _TopAccountSheetState extends State<_TopAccountSheet> with SingleTickerPro
 
                             try {
                               final quantity = hasAssets ? balStr : '0.0000 CLOAK';
-                              print('[BURN] Starting vault burn: hash=${commitmentHash.substring(0, 16)}..., quantity=$quantity, hasAssets=$hasAssets');
 
                               // All validation done — fade in spinner and update message.
                               // ZK proof runs in isolate so main thread stays free.
@@ -1514,8 +1610,6 @@ class _TopAccountSheetState extends State<_TopAccountSheet> with SingleTickerPro
                                   if (mounted) setState(() => _burnStatusMessage = msg);
                                 },
                               );
-                              print('[BURN] Vault burn succeeded');
-
                               if (mounted) setState(() => _burnStatusMessage = 'Cleaning up...');
 
                               // Record burn event for TX history labeling
@@ -1603,6 +1697,7 @@ class _TopAccountSheetState extends State<_TopAccountSheet> with SingleTickerPro
             setState(() {
               if (_vaultActionIndices.contains(vaultIndex)) {
                 _vaultActionIndices.remove(vaultIndex);
+                if (_editingVaultIndex == vaultIndex) _editingVaultIndex = null;
                 if (_burnConfirmVaultIndex == vaultIndex) {
                   _burnConfirmVaultIndex = null;
                   _burnFeeChecking = false;
@@ -1757,8 +1852,11 @@ class _TopAccountSheetState extends State<_TopAccountSheet> with SingleTickerPro
 
   @override
   void dispose() {
+    CloakWalletManager.vaultListVersion.removeListener(_loadVaults);
     _editNameController.dispose();
     _editFocusNode.dispose();
+    _vaultEditNameController.dispose();
+    _vaultEditFocusNode.dispose();
     _controller.dispose();
     super.dispose();
   }
@@ -1820,33 +1918,35 @@ class _TopAccountSheetState extends State<_TopAccountSheet> with SingleTickerPro
                                 overflow: TextOverflow.ellipsis,
                               ),
                             ),
-                            IconButton(
-                              tooltip: s.newAccount,
-                              onPressed: () => setState(() {
-                                if (_actionIndices.isNotEmpty || _editingIndex != null || _vaultActionIndices.isNotEmpty) {
-                                  _actionIndices.clear();
-                                  _editingIndex = null;
-                                  _vaultActionIndices.clear();
-                                  _burnConfirmVaultIndex = null;
-                                } else if (_showNewVault) {
-                                  // From Vault → return to chooser
-                                  _showNewVault = false;
-                                  _showNewAccountMenu = true;
-                                } else if (_showNewAccountMenu) {
-                                  // From chooser → close overlay
-                                  _showNewAccountMenu = false;
-                                } else {
-                                  // Closed → open chooser first
-                                  _showNewAccountMenu = true;
-                                }
-                              }),
-                              icon: AnimatedRotation(
-                                turns: (_showNewVault || _showNewAccountMenu || _actionIndices.isNotEmpty || _editingIndex != null || _vaultActionIndices.isNotEmpty) ? 0.125 : 0.0, // 45° rotation when panel/actions visible
-                                duration: const Duration(milliseconds: 200),
-                                curve: Curves.easeInOut,
-                                child: Icon(Icons.add, color: balanceTextColor, size: iconSize),
+                            if (!CloakWalletManager.isViewOnly)
+                              IconButton(
+                                tooltip: s.newAccount,
+                                onPressed: () => setState(() {
+                                  if (_actionIndices.isNotEmpty || _editingIndex != null || _vaultActionIndices.isNotEmpty || _editingVaultIndex != null) {
+                                    _actionIndices.clear();
+                                    _editingIndex = null;
+                                    _vaultActionIndices.clear();
+                                    _editingVaultIndex = null;
+                                    _burnConfirmVaultIndex = null;
+                                  } else if (_showNewVault) {
+                                    // From Vault → return to chooser
+                                    _showNewVault = false;
+                                    _showNewAccountMenu = true;
+                                  } else if (_showNewAccountMenu) {
+                                    // From chooser → close overlay
+                                    _showNewAccountMenu = false;
+                                  } else {
+                                    // Closed → open chooser first
+                                    _showNewAccountMenu = true;
+                                  }
+                                }),
+                                icon: AnimatedRotation(
+                                  turns: (_showNewVault || _showNewAccountMenu || _actionIndices.isNotEmpty || _editingIndex != null || _vaultActionIndices.isNotEmpty || _editingVaultIndex != null) ? 0.125 : 0.0, // 45° rotation when panel/actions visible
+                                  duration: const Duration(milliseconds: 200),
+                                  curve: Curves.easeInOut,
+                                  child: Icon(Icons.add, color: balanceTextColor, size: iconSize),
+                                ),
                               ),
-                            ),
                           ],
                         );
                       }),
@@ -2061,12 +2161,7 @@ class _TopAccountSheetState extends State<_TopAccountSheet> with SingleTickerPro
                                                             });
                                                           },
                                                         )
-                                                      : (isWatchOnly
-                                                          ? const SizedBox.shrink()
-                                                          : _ActionChip(
-                                                              icon: Icon(MdiIcons.snowflake, color: t.colorScheme.onSurface, size: 20),
-                                                              onTap: () => _convertToWatchOnly(context, a),
-                                                            )),
+                                                      : const SizedBox.shrink(),
                                                 ],
                                               )
                                             : (isWatchOnly
@@ -2258,13 +2353,20 @@ class _TopAccountSheetState extends State<_TopAccountSheet> with SingleTickerPro
     }
     final confirmed = await showConfirmDialog(context, s.deleteAccount(a.name!), s.confirmDeleteAccount);
     if (!confirmed) return;
-    await CloakDb.deleteAccount(a.id);
-    await CloakWalletManager.deleteWallet();
-    await refreshCloakAccountsCache();
-    await _refreshAccounts();
     if (count == 1) {
+      // Last account: wipe everything and go back to create/restore
+      await CloakWalletManager.deleteWallet();
+      await CloakDb.deleteDatabase();
+      await CloakDb.init();
+      CloakSync.resetAll();
+      await refreshCloakAccountsCache();
       setActiveAccount(0, 0);
-      GoRouter.of(context).go('/account');
+      router.go('/splash');
+    } else {
+      await CloakDb.deleteAccount(a.id);
+      await CloakWalletManager.deleteWallet();
+      await refreshCloakAccountsCache();
+      await _refreshAccounts();
     }
   }
 
@@ -2312,6 +2414,31 @@ class _TopAccountSheetState extends State<_TopAccountSheet> with SingleTickerPro
       await refreshCloakAccountsCache();
     }
     await _refreshAccounts();
+  }
+
+  void _startVaultRename(int vaultIndex, Map<String, dynamic> vault) {
+    setState(() {
+      _editingVaultIndex = vaultIndex;
+      _vaultEditNameController.text = vault['label'] as String? ?? 'Vault';
+      _vaultEditNameController.selection = TextSelection.fromPosition(
+        TextPosition(offset: _vaultEditNameController.text.length),
+      );
+      _vaultActionIndices.add(vaultIndex);
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _vaultEditFocusNode.requestFocus();
+    });
+  }
+
+  Future<void> _commitVaultRename(Map<String, dynamic> vault) async {
+    final newName = _vaultEditNameController.text.trim();
+    final vaultId = vault['id'] as int?;
+    final oldName = vault['label'] as String? ?? 'Vault';
+    if (vaultId != null && newName.isNotEmpty && newName != oldName) {
+      await CloakDb.updateVaultLabel(vaultId, newName);
+    }
+    setState(() => _editingVaultIndex = null);
+    await _loadVaults();
   }
 }
 
@@ -2842,15 +2969,26 @@ class _NewVaultInlineState extends State<_NewVaultInline> {
       await WidgetsBinding.instance.endOfFrame;
 
       // Publish vault on-chain (ZK proof in isolate + broadcast)
+      String? publishError;
       try {
         await CloakWalletManager.publishVaultDirect();
       } catch (e) {
         print('[_NewVaultInline] Publish error: $e');
-        // Still proceed — vault is created locally, publish can be retried
+        publishError = e.toString();
+        // Show error but still proceed — vault is created locally, publish can be retried
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Publish failed: $publishError'),
+              backgroundColor: Colors.orange,
+              duration: const Duration(seconds: 5),
+            ),
+          );
+        }
       }
 
       // Enter vault mode
-      if (mounted) setState(() => _statusMessage = 'Vault ready!');
+      if (mounted) setState(() => _statusMessage = publishError != null ? 'Vault created (publish pending)' : 'Vault ready!');
       await Future.delayed(const Duration(milliseconds: 500));
 
       final vaultData = await CloakWalletManager.getVaultByHash(hash);

@@ -48,7 +48,7 @@ class AboutPage extends StatelessWidget {
   }
 
   openGithub(String commitId) {
-    launchUrl(Uri.parse("https://github.com/hhanh00/zwallet/commit/$commitId"));
+    launchUrl(Uri.parse("https://github.com/fuck-bitcoin/CLOAK_WALLET/commit/$commitId"));
   }
 }
 

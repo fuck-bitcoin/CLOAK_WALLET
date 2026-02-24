@@ -38,5 +38,5 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         with:
           files: |
-            ./ywallet.zip
-            ./YWallet.msix
+            ./cloak-wallet.zip
+            ./CLOAK-Wallet.msix

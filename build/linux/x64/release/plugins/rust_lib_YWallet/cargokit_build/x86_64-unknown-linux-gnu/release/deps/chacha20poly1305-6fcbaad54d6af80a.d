@@ -1,9 +1,0 @@
-/home/kameron/Projects/CLOAK Wallet/zwallet/build/linux/x64/release/plugins/rust_lib_YWallet/cargokit_build/x86_64-unknown-linux-gnu/release/deps/chacha20poly1305-6fcbaad54d6af80a.d: /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/chacha20poly1305-0.10.1/src/lib.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/chacha20poly1305-0.10.1/src/cipher.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/chacha20poly1305-0.10.1/src/../README.md
-
-/home/kameron/Projects/CLOAK Wallet/zwallet/build/linux/x64/release/plugins/rust_lib_YWallet/cargokit_build/x86_64-unknown-linux-gnu/release/deps/libchacha20poly1305-6fcbaad54d6af80a.rlib: /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/chacha20poly1305-0.10.1/src/lib.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/chacha20poly1305-0.10.1/src/cipher.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/chacha20poly1305-0.10.1/src/../README.md
-
-/home/kameron/Projects/CLOAK Wallet/zwallet/build/linux/x64/release/plugins/rust_lib_YWallet/cargokit_build/x86_64-unknown-linux-gnu/release/deps/libchacha20poly1305-6fcbaad54d6af80a.rmeta: /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/chacha20poly1305-0.10.1/src/lib.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/chacha20poly1305-0.10.1/src/cipher.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/chacha20poly1305-0.10.1/src/../README.md
-
-/home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/chacha20poly1305-0.10.1/src/lib.rs:
-/home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/chacha20poly1305-0.10.1/src/cipher.rs:
-/home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/chacha20poly1305-0.10.1/src/../README.md:

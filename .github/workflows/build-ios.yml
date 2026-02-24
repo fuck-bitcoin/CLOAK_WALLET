@@ -22,17 +22,12 @@ jobs:
           cat build.env >> $GITHUB_ENV
       - name: Build Rust
         run: |
-          mkdir -p $HOME/.zcash-params
-          curl https://download.z.cash/downloads/sapling-output.params --output $HOME/.zcash-params/sapling-output.params
-          curl https://download.z.cash/downloads/sapling-spend.params --output $HOME/.zcash-params/sapling-spend.params
-          ln -s $HOME/.zcash-params/* assets/
           rustup target add aarch64-apple-ios
           cargo install cargo-lipo
           sed -e 's/cdylib/staticlib/' < native/zcash-sync/Cargo.toml >/tmp/out.toml
           mv /tmp/out.toml native/zcash-sync/Cargo.toml
           CFLAGS="-fno-stack-check" cargo lipo --release --features=dart_ffi --targets=aarch64-apple-ios
-          mv target/aarch64-apple-ios/release/libwarp_api_ffi.a packages/warp_api_ffi/ios
-          cp native/zcash-sync/binding.h packages/warp_api_ffi/ios/Classes
+          mv target/aarch64-apple-ios/release/libzeos_caterpillar.a packages/cloak_api_ffi/ios
       - name: Install the Apple certificate and provisioning profile
         env:
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
@@ -44,7 +39,6 @@ jobs:
           security import ./ios/certs/Certificates.p12 -P $KEY_PASSWORD -A -t cert -f pkcs12 -k $HOME/build.keychain
           security list-keychain -d user -s $HOME/build.keychain
           mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
-          cp ./ios/certs/YWallet_AppStore.mobileprovision "$HOME/Library/MobileDevice/Provisioning Profiles"
       - name: Build flutter
         run: |
           export PATH=$PATH:$HOME/flutter/bin
@@ -52,12 +46,12 @@ jobs:
           flutter precache --ios
           flutter pub get
           dart run build_runner build -d
-          (cd packages/warp_api_ffi; flutter pub get)
+          (cd packages/cloak_api_ffi; flutter pub get)
           flutter build ipa
       - name: Upload xcarchive
         uses: actions/upload-artifact@v4
         with:
-          name: YWallet.xcarchive
+          name: CLOAK-Wallet.xcarchive
           path: ./build/ios/archive/Runner.xcarchive
           retention-days: 3
       - name: Archive Release
@@ -65,10 +59,10 @@ jobs:
         with:
           type: 'zip'
           directory: ./build/ios/archive
-          filename: 'ywallet.xcarchive.zip'
+          filename: 'cloak-wallet.xcarchive.zip'
           path: Runner.xcarchive
       - name: Release
         uses: softprops/action-gh-release@v1
         if: startsWith(github.ref, 'refs/tags/v')
         with:
-          files: ./build/ios/archive/ywallet.xcarchive.zip
+          files: ./build/ios/archive/cloak-wallet.xcarchive.zip

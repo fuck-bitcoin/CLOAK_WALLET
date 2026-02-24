@@ -25,8 +25,7 @@
 			<string>sample_name</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>ycash</string>
-				<string>zcash</string>
+				<string>cloak</string>
 			</array>
 		</dict>
 	</array>

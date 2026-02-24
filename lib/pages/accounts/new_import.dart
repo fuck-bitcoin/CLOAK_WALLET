@@ -284,50 +284,37 @@ class _NewImportAccountState extends State<NewImportAccountPage>
 
           if (isRestoring) {
             // Restoring existing wallet - use restoreWallet for full sync
-            print('[new_import] Calling restoreWallet...');
             // IMPORTANT: Must use thezeosalias@public for Telos mainnet
             account = await CloakWalletManager.restoreWallet(
               nameController.text,
               seed,
               aliasAuthority: 'thezeosalias@public',
             );
-            print('[new_import] restoreWallet returned: $account');
           } else {
             // Creating new wallet - use createWallet (skips sync)
-            print('[new_import] Calling createWallet...');
             // IMPORTANT: Must use thezeosalias@public for Telos mainnet
             account = await CloakWalletManager.createWallet(
               nameController.text,
               seed,
               aliasAuthority: 'thezeosalias@public',
             );
-            print('[new_import] createWallet returned: $account');
           }
           // Refresh the accounts cache so UI can see the new account
-          print('[new_import] Calling refreshCloakAccountsCache...');
           await refreshCloakAccountsCache();
-          print('[new_import] refreshCloakAccountsCache done');
 
           // Start signature provider server for website auth
-          print('[new_import] Starting signature provider...');
-          final started = await SignatureProvider.start();
-          print('[new_import] Signature provider ${started ? "started" : "failed to start"}');
+          await SignatureProvider.start();
         } else {
           // Non-CLOAK coins no longer supported
           throw 'Only CLOAK accounts are supported';
         }
         
-        print('[new_import] account = $account');
         if (account < 0)
           form.fields['name']!.invalidate(s.thisAccountAlreadyExists);
         else {
-          print('[new_import] Calling setActiveAccount($coin, $account)...');
           setActiveAccount(coin, account);
-          print('[new_import] setActiveAccount done');
           final prefs = await SharedPreferences.getInstance();
-          print('[new_import] Calling aa.save...');
           await aa.save(prefs);
-          print('[new_import] aa.save done');
           
           // CLOAK handles sync differently - no WarpApi account counting needed
           if (widget.first) {

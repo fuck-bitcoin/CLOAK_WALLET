@@ -239,6 +239,16 @@ class NativeLibrary {
     int Function(ffi.Pointer<ffi.Void>)
   >();
 
+  bool wallet_clear_unpublished_notes(ffi.Pointer<ffi.Void> wallet) {
+    return _wallet_clear_unpublished_notes(wallet) != 0;
+  }
+  late final _wallet_clear_unpublished_notesPtr = _lookup<ffi.NativeFunction<
+    ffi.Uint8 Function(ffi.Pointer<ffi.Void>)
+  >>('wallet_clear_unpublished_notes');
+  late final _wallet_clear_unpublished_notes = _wallet_clear_unpublished_notesPtr.asFunction<
+    int Function(ffi.Pointer<ffi.Void>)
+  >();
+
   // ============== Address ==============
 
   bool wallet_default_address(
