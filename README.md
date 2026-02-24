@@ -11,7 +11,7 @@ Private transactions on the [Telos](https://telos.net) blockchain using zero-kno
 [![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS%20%7C%20Windows%20%7C%20Android-333333.svg)](#install-in-one-command)
 [![Build](https://img.shields.io/github/actions/workflow/status/fuck-bitcoin/CLOAK_WALLET/build-linux.yml?label=Build&color=333333)](https://github.com/fuck-bitcoin/CLOAK_WALLET/actions)
 
-**[Web App](https://app.cloak.today)** · **[Discord](https://discord.gg/8rstvq5AHB)** · **[Telegram](https://t.me/ZeosOnEos)**
+**[Web App](https://app.cloak.today)** · **[Telegram](https://t.me/ZeosOfficial)**
 
 ---
 
