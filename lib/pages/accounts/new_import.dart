@@ -333,7 +333,7 @@ class _NewImportAccountState extends State<NewImportAccountPage>
                   if (height != null && height > 0) {
                     syncStatus2.triggerBannerForRestore();
                     aa.reset(height);
-                    Future(() => syncStatus2.rescan(height));
+                    syncStatus2.rescan(height);  // Don't defer - prevents losing sync if app locks
                     GoRouter.of(context).go('/account');
                   } else {
                     // Invalid height, go to rescan page

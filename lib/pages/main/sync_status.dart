@@ -487,7 +487,7 @@ class SyncStatusState extends State<SyncStatusWidget> with SingleTickerProviderS
       });
     } else {
       if (syncStatus2.paused) syncStatus2.setPause(false);
-      Future(() => syncStatus2.sync(false));
+      syncStatus2.sync(false);  // Don't defer - prevents losing sync if app locks
     }
   }
 
