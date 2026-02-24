@@ -649,10 +649,11 @@ class EsrService {
       }
 
       // Try to launch Anchor directly
+      final home = Platform.environment['HOME'] ?? '';
       final anchorPaths = [
         '/opt/Anchor Wallet/anchor-wallet',
-        '/home/kameron/Applications/anchor-wallet.sh',
-        '/home/kameron/Applications/anchor-wallet.AppImage',
+        '$home/Applications/anchor-wallet.sh',
+        '$home/Applications/anchor-wallet.AppImage',
         '/usr/bin/anchor-wallet',
         'anchor-wallet',
         'anchor',

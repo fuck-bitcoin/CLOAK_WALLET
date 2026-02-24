@@ -885,11 +885,12 @@ Future<String> getTempPath() async {
 
 Future<String> getDbPath() async {
   if (Platform.isIOS) return (await getApplicationDocumentsDirectory()).path;
-  // CLOAK Wallet: Keep all data inside the project folder
+  // CLOAK Wallet: Use XDG data directory on Linux
   if (Platform.isLinux) {
-    const projectDataDir = '/home/kameron/Projects/CLOAK Wallet/PRODUCTION/zwallet/data';
-    Directory(projectDataDir).createSync(recursive: true);
-    return projectDataDir;
+    final home = Platform.environment['HOME'] ?? '/tmp';
+    final dataDir = '${Platform.environment['XDG_DATA_HOME'] ?? '$home/.local/share'}/cloak-wallet';
+    Directory(dataDir).createSync(recursive: true);
+    return dataDir;
   }
   final h = await getDataPath();
   return "$h/databases";

@@ -37,7 +37,7 @@ fn format_amount(amount: u64, sym_raw: u64) -> String {
 
 fn main() {
     let path = std::env::args().nth(1).unwrap_or_else(|| {
-        "/home/kameron/Projects/CLOAK Wallet/PRODUCTION/zwallet/data/cloak.wallet".to_string()
+        "data/cloak.wallet".to_string()
     });
 
     let data = fs::read(&path).expect(&format!("Failed to read wallet file: {}", path));
