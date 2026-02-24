@@ -119,22 +119,27 @@ class _SplashState extends State<SplashPage> {
     for (var c in coins) {
       final coin = c.coin;
       _setProgress(0.5 + 0.1 * coin, 'Initializing ${c.ticker}');
-      
-      await CloakWalletManager.init(dbPassword: appStore.dbPassword);
-      if (await CloakWalletManager.walletExists()) {
-        await CloakWalletManager.loadWallet();
-        await refreshCloakAccountsCache();
-      } else {
-        // Auto-restore if we have a seed in the DB but no wallet file
-        final account = await CloakDb.getFirstAccount();
-        if (account != null && account['seed'] != null && (account['seed'] as String).isNotEmpty) {
-          await CloakWalletManager.restoreWallet(
-            account['name'] as String,
-            account['seed'] as String,
-          );
+
+      try {
+        await CloakWalletManager.init(dbPassword: appStore.dbPassword);
+        if (await CloakWalletManager.walletExists()) {
           await CloakWalletManager.loadWallet();
           await refreshCloakAccountsCache();
+        } else {
+          // Auto-restore if we have a seed in the DB but no wallet file
+          final account = await CloakDb.getFirstAccount();
+          if (account != null && account['seed'] != null && (account['seed'] as String).isNotEmpty) {
+            await CloakWalletManager.restoreWallet(
+              account['name'] as String,
+              account['seed'] as String,
+            );
+            await CloakWalletManager.loadWallet();
+            await refreshCloakAccountsCache();
+          }
         }
+      } catch (e) {
+        print('[Splash] Error initializing wallet: $e');
+        // Continue to next coin — don't crash splash screen
       }
     }
   }

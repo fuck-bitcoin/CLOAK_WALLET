@@ -124,28 +124,40 @@ class _ResyncWalletState extends State<ResyncWalletPage> with WithLoadingAnimati
     );
     if (!confirmed) return;
 
-    load(() async {
-      // 1. Reset chain state
-      final success = await CloakWalletManager.resetChainState();
-      if (!success) {
+    try {
+      await load(() async {
+        // 1. Reset chain state
+        final success = await CloakWalletManager.resetChainState();
+        if (!success) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Failed to reset wallet state'),
+              backgroundColor: Colors.red,
+            ),
+          );
+          return;
+        }
+
+        // 2. Reset sync status so banner knows we're not synced
+        syncStatus2.syncedHeight = 0;
+        syncStatus2.isRescan = true;
+
+        // 3. Navigate to balance page — sync banner will appear
+        router.go('/account');
+
+        // 4. Trigger full sync (deferred so balance page renders first)
+        Future(() => syncStatus2.sync(true));
+      });
+    } catch (e) {
+      print('[Resync] Error during resync: $e');
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Failed to reset wallet state'),
+            content: Text('Resync failed. Please try again.'),
             backgroundColor: Colors.red,
           ),
         );
-        return;
       }
-
-      // 2. Reset sync status so banner knows we're not synced
-      syncStatus2.syncedHeight = 0;
-      syncStatus2.isRescan = true;
-
-      // 3. Navigate to balance page — sync banner will appear
-      router.go('/account');
-
-      // 4. Trigger full sync (deferred so balance page renders first)
-      Future(() => syncStatus2.sync(true));
-    });
+    }
   }
 }
