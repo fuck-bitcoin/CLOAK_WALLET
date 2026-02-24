@@ -107,9 +107,11 @@ class _PinSetupPageState extends State<PinSetupPage> {
   @override
   Widget build(BuildContext context) {
     final title = _confirming ? 'Confirm PIN' : 'Set Your PIN';
-    final subtitle = _confirming
-        ? (_error ? 'PINs didn\'t match. Try again.' : 'Enter your PIN again to confirm')
-        : 'Choose a 6-digit PIN to secure your wallet';
+    final subtitle = _error && !_confirming
+        ? 'Setup failed. Please try again.'
+        : _confirming
+            ? (_error ? 'PINs didn\'t match. Try again.' : 'Enter your PIN again to confirm')
+            : 'Choose a 6-digit PIN to secure your wallet';
 
     return Scaffold(
       backgroundColor: const Color(0xFF1E1E1E),
