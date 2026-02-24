@@ -6,8 +6,10 @@
 
 Private transactions on the [Telos](https://telos.net) blockchain using zero-knowledge proofs.
 
+[![Release](https://img.shields.io/github/v/release/fuck-bitcoin/CLOAK_WALLET?color=black&label=Latest)](https://github.com/fuck-bitcoin/CLOAK_WALLET/releases/latest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-black.svg)](LICENSE.md)
 [![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS%20%7C%20Windows%20%7C%20Android-333333.svg)](#install-in-one-command)
+[![Build](https://img.shields.io/github/actions/workflow/status/fuck-bitcoin/CLOAK_WALLET/build-linux.yml?label=Build&color=333333)](https://github.com/fuck-bitcoin/CLOAK_WALLET/actions)
 
 ---
 
@@ -32,15 +34,23 @@ Or download directly from [Releases](https://github.com/fuck-bitcoin/CLOAK_WALLE
 
 ### Private Transactions
 
-Your balance and transaction history are hidden from everyone. Not even the blockchain can see what you own.
+Your balance and transaction history are hidden from everyone. Not even the blockchain can see what you own. Send and receive CLOAK tokens with complete privacy.
 
 ### Vault System
 
-A secure holding area for your tokens. Deposit publicly, withdraw privately. Like a safety deposit box that makes your money invisible.
+A secure holding area for your tokens. Deposit publicly, withdraw privately. Like a safety deposit box that makes your money invisible. Deterministic vault derivation means your vaults are automatically recovered from your seed phrase.
 
 ### Zero-Knowledge Proofs
 
-Mathematical proofs that let you prove you own something without revealing what it is or how much you have. All proofs are generated locally on your device.
+Mathematical proofs that let you prove you own something without revealing what it is or how much you have. All proofs are generated locally on your device -- nothing leaves your machine.
+
+### Encrypted Storage
+
+Your wallet database is encrypted with SQLCipher, protected by a 6-digit PIN. Even if someone gets your device, they can't read your wallet data without the PIN.
+
+### View-Only Wallets
+
+Import a Full Viewing Key (FVK) or Incoming Viewing Key (IVK) to monitor balances and transaction history without spending capability. Track your funds from a secondary device.
 
 ### Self-Custody
 
@@ -131,6 +141,25 @@ flutter build windows --release
 copy zeos-caterpillar\target\release\zeos_caterpillar.dll build\windows\x64\runner\Release\
 ```
 
+### Android
+
+Requires [cargo-ndk](https://github.com/aspect-build/cargo-ndk) and Android NDK.
+
+```bash
+git clone https://github.com/fuck-bitcoin/CLOAK_WALLET.git
+cd CLOAK_WALLET
+
+# Build Rust for Android targets
+cd zeos-caterpillar
+cargo ndk -t arm64-v8a -t armeabi-v7a -o ../android/app/src/main/jniLibs build --release
+cd ..
+
+# Build APK
+flutter pub get && dart run build_runner build -d
+(cd packages/cloak_api_ffi && flutter pub get)
+flutter build apk --release
+```
+
 ---
 
 ## Security
@@ -138,9 +167,10 @@ copy zeos-caterpillar\target\release\zeos_caterpillar.dll build\windows\x64\runn
 CLOAK Wallet uses:
 
 - **Groth16 BLS12-381** zero-knowledge proofs for transaction privacy
-- **SQLCipher** for encrypted local database storage
-- **BIP-39** seed phrases for wallet generation
+- **SQLCipher** for PIN-encrypted local database storage
+- **BIP-39** 24-word seed phrases for wallet generation
 - **HMAC-SHA256** for deterministic vault derivation
+- **Sapling** note encryption for shielded outputs
 
 Your private keys never leave your device. All zero-knowledge proofs are generated locally. No servers, no telemetry, no tracking.
 
