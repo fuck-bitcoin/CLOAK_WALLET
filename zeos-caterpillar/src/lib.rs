@@ -31,22 +31,22 @@ pub mod transaction_spend_tests;
 use wallet::Wallet;
 use crate::address::Address;
 use eosio::{Name, Symbol, Asset, Authorization, ExtendedAsset, Transaction, TransactionPacked, ActionPacked, AbiSerialize};
-#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos", target_os = "android"))]
 use transaction::{ZTransaction, ResolvedZTransaction, resolve_ztransaction, zsign_transaction, zverify_spend_transaction, create_auth_token};
-#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos", target_os = "android"))]
 use contract::{PlsMintAction, PlsSpendAction, PlsAuthenticateAction, PlsPublishNotesAction, PlsWithdrawAction, PlsFtTransfer};
-#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos", target_os = "android"))]
 use keys::IncomingViewingKey;
 use std::collections::HashMap;
 use bellman::groth16::Parameters;
 use crate::engine::Bls12;
 #[cfg(target_arch = "wasm32")]
 use crate::transaction::{MintDesc, zsign_transfer_and_mint_transaction};
-#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos", target_os = "android"))]
 use std::slice;
-#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos", target_os = "android"))]
 use std::ffi::CString;
-#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos", target_os = "android"))]
 use std::ffi::CStr;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
@@ -78,14 +78,14 @@ pub extern "C" fn caterpillar_init() {
     ignore_sigpipe();
 }
 
-#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos", target_os = "android"))]
 fn set_last_error(msg: &str) {
     LAST_ERROR.with(|e| {
         *e.borrow_mut() = Some(msg.to_string());
     });
 }
 
-#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos", target_os = "android"))]
 #[no_mangle]
 pub extern "C" fn wallet_last_error() -> *const libc::c_char {
     LAST_ERROR.with(|e| {
@@ -100,7 +100,7 @@ pub extern "C" fn wallet_last_error() -> *const libc::c_char {
 
 /// The ptr should be a valid pointer to the string allocated by rust
 /// source: https://dev.to/kgrech/7-ways-to-pass-a-string-between-rust-and-c-4ieb
-#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos", target_os = "android"))]
 #[no_mangle]
 pub unsafe extern fn free_string(ptr: *const libc::c_char)
 {
@@ -190,7 +190,7 @@ pub fn js_zsign_transfer_and_mint_transaction(
 //
 // The following functions are exposed to C via FFI:
 
-#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos", target_os = "android"))]
 #[no_mangle]
 pub unsafe extern "C" fn wallet_create(
     seed: *const libc::c_char,
@@ -384,7 +384,7 @@ pub unsafe extern "C" fn wallet_create(
     }
 }
 
-#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos", target_os = "android"))]
 #[no_mangle]
 pub extern "C" fn wallet_close(
     p_wallet: *mut Wallet
@@ -398,7 +398,7 @@ pub extern "C" fn wallet_close(
     }
 }
 
-#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos", target_os = "android"))]
 #[no_mangle]
 pub extern "C" fn wallet_seed_hex(
     p_wallet: *mut Wallet,
@@ -426,7 +426,7 @@ pub extern "C" fn wallet_seed_hex(
 
 /// Get the Incoming Viewing Key as bech32m encoded string (ivk1...)
 /// This key allows viewing incoming transactions without spending capability.
-#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos", target_os = "android"))]
 #[no_mangle]
 pub extern "C" fn wallet_ivk_bech32m(
     p_wallet: *mut Wallet,
@@ -463,7 +463,7 @@ pub extern "C" fn wallet_ivk_bech32m(
 /// Get the Full Viewing Key as bech32m encoded string (fvk1...)
 /// This key allows viewing both incoming AND outgoing transactions.
 /// Returns empty string if this is a view-only wallet.
-#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos", target_os = "android"))]
 #[no_mangle]
 pub extern "C" fn wallet_fvk_bech32m(
     p_wallet: *mut Wallet,
@@ -513,7 +513,7 @@ pub extern "C" fn wallet_fvk_bech32m(
 /// Get the Outgoing Viewing Key as bech32m encoded string (ovk1...)
 /// This key allows viewing outgoing transactions only.
 /// Returns empty string if this is a view-only wallet.
-#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos", target_os = "android"))]
 #[no_mangle]
 pub extern "C" fn wallet_ovk_bech32m(
     p_wallet: *mut Wallet,
@@ -560,7 +560,7 @@ pub extern "C" fn wallet_ovk_bech32m(
     }
 }
 
-#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos", target_os = "android"))]
 #[no_mangle]
 pub extern "C" fn wallet_size(
     p_wallet: *mut Wallet,
@@ -577,7 +577,7 @@ pub extern "C" fn wallet_size(
     true
 }
 
-#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos", target_os = "android"))]
 #[no_mangle]
 pub extern "C" fn wallet_is_ivk(
     p_wallet: *mut Wallet,
@@ -595,7 +595,7 @@ pub extern "C" fn wallet_is_ivk(
     true
 }
 
-#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos", target_os = "android"))]
 #[no_mangle]
 pub extern "C" fn wallet_chain_id(
     p_wallet: *mut Wallet,
@@ -624,7 +624,7 @@ pub extern "C" fn wallet_chain_id(
     }
 }
 
-#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos", target_os = "android"))]
 #[no_mangle]
 pub extern "C" fn wallet_protocol_contract(
     p_wallet: *mut Wallet,
@@ -653,7 +653,7 @@ pub extern "C" fn wallet_protocol_contract(
     }
 }
 
-#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos", target_os = "android"))]
 #[no_mangle]
 pub extern "C" fn wallet_vault_contract(
     p_wallet: *mut Wallet,
@@ -682,7 +682,7 @@ pub extern "C" fn wallet_vault_contract(
     }
 }
 
-#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos", target_os = "android"))]
 #[no_mangle]
 pub extern "C" fn wallet_alias_authority(
     p_wallet: *mut Wallet,
@@ -711,7 +711,7 @@ pub extern "C" fn wallet_alias_authority(
     }
 }
 
-#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos", target_os = "android"))]
 #[no_mangle]
 pub extern "C" fn wallet_block_num(
     p_wallet: *mut Wallet,
@@ -729,7 +729,7 @@ pub extern "C" fn wallet_block_num(
     true
 }
 
-#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos", target_os = "android"))]
 #[no_mangle]
 pub extern "C" fn wallet_leaf_count(
     p_wallet: *mut Wallet,
@@ -747,7 +747,7 @@ pub extern "C" fn wallet_leaf_count(
     true
 }
 
-#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos", target_os = "android"))]
 #[no_mangle]
 pub extern "C" fn wallet_auth_count(
     p_wallet: *mut Wallet,
@@ -765,7 +765,7 @@ pub extern "C" fn wallet_auth_count(
     true
 }
 
-#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos", target_os = "android"))]
 #[no_mangle]
 pub extern "C" fn wallet_set_auth_count(
     p_wallet: *mut Wallet,
@@ -781,7 +781,7 @@ pub extern "C" fn wallet_set_auth_count(
     true
 }
 
-#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos", target_os = "android"))]
 #[no_mangle]
 pub extern "C" fn wallet_reset_chain_state(
     p_wallet: *mut Wallet,
@@ -796,7 +796,7 @@ pub extern "C" fn wallet_reset_chain_state(
     true
 }
 
-#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos", target_os = "android"))]
 #[no_mangle]
 pub extern "C" fn wallet_clear_unpublished_notes(
     p_wallet: *mut Wallet,
@@ -811,7 +811,7 @@ pub extern "C" fn wallet_clear_unpublished_notes(
     true
 }
 
-#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos", target_os = "android"))]
 #[no_mangle]
 pub extern "C" fn wallet_write(
     p_wallet: *mut Wallet,
@@ -852,7 +852,7 @@ pub extern "C" fn wallet_write(
     true
 }
 
-#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos", target_os = "android"))]
 #[no_mangle]
 pub extern "C" fn wallet_read(
     p_bytes: *const u8,
@@ -886,7 +886,7 @@ pub extern "C" fn wallet_read(
     true
 }
 
-#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos", target_os = "android"))]
 #[no_mangle]
 pub extern "C" fn wallet_json(
     p_wallet: *mut Wallet,
@@ -916,7 +916,7 @@ pub extern "C" fn wallet_json(
     }
 }
 
-#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos", target_os = "android"))]
 #[no_mangle]
 pub extern "C" fn wallet_balances_json(
     p_wallet: *mut Wallet,
@@ -960,7 +960,7 @@ pub extern "C" fn wallet_balances_json(
 
 /// Estimate the total send fee for a given amount, accounting for fragmented notes.
 /// Returns the fee in smallest units via out_fee. Returns false on error.
-#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos", target_os = "android"))]
 #[no_mangle]
 pub extern "C" fn wallet_estimate_send_fee(
     p_wallet: *mut Wallet,
@@ -1040,7 +1040,7 @@ pub extern "C" fn wallet_estimate_send_fee(
 
 /// Estimate the total burn fee for a vault burn, accounting for fragmented notes.
 /// Returns the fee in smallest units via out_fee. Returns false on error.
-#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos", target_os = "android"))]
 #[no_mangle]
 pub extern "C" fn wallet_estimate_burn_fee(
     p_wallet: *mut Wallet,
@@ -1110,7 +1110,7 @@ pub extern "C" fn wallet_estimate_burn_fee(
 
 /// Estimate vault creation (auth token publish) fee accounting for fragmented notes.
 /// Returns the fee in smallest units via out_fee. Returns false on error.
-#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos", target_os = "android"))]
 #[no_mangle]
 pub extern "C" fn wallet_estimate_vault_creation_fee(
     p_wallet: *mut Wallet,
@@ -1177,7 +1177,7 @@ pub extern "C" fn wallet_estimate_vault_creation_fee(
     }
 }
 
-#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos", target_os = "android"))]
 #[no_mangle]
 pub extern "C" fn wallet_unspent_notes_json(
     p_wallet: *mut Wallet,
@@ -1220,7 +1220,7 @@ pub extern "C" fn wallet_unspent_notes_json(
     }
 }
 
-#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos", target_os = "android"))]
 #[no_mangle]
 pub extern "C" fn wallet_fungible_tokens_json(
     p_wallet: *mut Wallet,
@@ -1273,7 +1273,7 @@ pub extern "C" fn wallet_fungible_tokens_json(
     }
 }
 
-#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos", target_os = "android"))]
 #[no_mangle]
 pub extern "C" fn wallet_non_fungible_tokens_json(
     p_wallet: *mut Wallet,
@@ -1324,7 +1324,7 @@ pub extern "C" fn wallet_non_fungible_tokens_json(
     }
 }
 
-#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos", target_os = "android"))]
 #[no_mangle]
 pub extern "C" fn wallet_authentication_tokens_json(
     p_wallet: *mut Wallet,
@@ -1394,7 +1394,7 @@ pub extern "C" fn wallet_authentication_tokens_json(
     }
 }
 
-#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos", target_os = "android"))]
 #[no_mangle]
 pub extern "C" fn wallet_unpublished_notes_json(
     p_wallet: *mut Wallet,
@@ -1440,7 +1440,7 @@ pub extern "C" fn wallet_unpublished_notes_json(
     }
 }
 
-#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos", target_os = "android"))]
 #[no_mangle]
 pub extern "C" fn wallet_transaction_history_json(
     p_wallet: *mut Wallet,
@@ -1486,7 +1486,7 @@ pub extern "C" fn wallet_transaction_history_json(
     }
 }
 
-#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos", target_os = "android"))]
 #[no_mangle]
 pub extern "C" fn wallet_addresses_json(
     p_wallet: *mut Wallet,
@@ -1532,7 +1532,7 @@ pub extern "C" fn wallet_addresses_json(
     }
 }
 
-#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos", target_os = "android"))]
 #[no_mangle]
 pub extern "C" fn wallet_default_address(
     p_wallet: *mut Wallet,
@@ -1574,7 +1574,7 @@ pub extern "C" fn wallet_default_address(
     }
 }
 
-#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos", target_os = "android"))]
 #[no_mangle]
 pub extern "C" fn wallet_derive_address(
     p_wallet: *mut Wallet,
@@ -1614,7 +1614,7 @@ pub extern "C" fn wallet_derive_address(
     }
 }
 
-#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos", target_os = "android"))]
 #[no_mangle]
 pub extern "C" fn wallet_add_leaves(
     p_wallet: *mut Wallet,
@@ -1652,7 +1652,7 @@ pub extern "C" fn wallet_add_leaves(
 /// Mark notes as spent by providing on-chain nullifiers.
 /// Takes a hex string of concatenated 32-byte nullifier values.
 /// Returns the number of notes marked as spent via out_count.
-#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos", target_os = "android"))]
 #[no_mangle]
 pub extern "C" fn wallet_add_nullifiers(
     p_wallet: *mut Wallet,
@@ -1719,7 +1719,7 @@ pub extern "C" fn wallet_add_nullifiers(
     true
 }
 
-#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos", target_os = "android"))]
 #[no_mangle]
 pub extern "C" fn wallet_add_notes(
     p_wallet: *mut Wallet,
@@ -1762,7 +1762,7 @@ pub extern "C" fn wallet_add_notes(
     result
 }
 
-#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos", target_os = "android"))]
 #[no_mangle]
 pub extern "C" fn wallet_add_unpublished_notes(
     p_wallet: *mut Wallet,
@@ -1803,7 +1803,7 @@ pub extern "C" fn wallet_add_unpublished_notes(
     true
 }
 
-#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos", target_os = "android"))]
 #[no_mangle]
 pub extern "C" fn wallet_create_unpublished_auth_note(
     p_wallet: *mut Wallet,
@@ -1896,7 +1896,7 @@ pub extern "C" fn wallet_create_unpublished_auth_note(
     }
 }
 
-#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos", target_os = "android"))]
 #[no_mangle]
 pub extern "C" fn wallet_resolve(
     p_wallet: *mut Wallet,
@@ -2001,7 +2001,7 @@ pub extern "C" fn wallet_resolve(
     }
 }
 
-#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos", target_os = "android"))]
 #[no_mangle]
 pub extern "C" fn wallet_zsign(
     p_wallet: *mut Wallet,
@@ -2175,7 +2175,7 @@ pub extern "C" fn wallet_zsign(
     }
 }
 
-#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos", target_os = "android"))]
 #[no_mangle]
 pub extern "C" fn wallet_zverify_spend(
     tx_json: *const libc::c_char,
@@ -2304,7 +2304,7 @@ pub extern "C" fn wallet_zverify_spend(
     true
 }
 
-#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos", target_os = "android"))]
 #[no_mangle]
 pub extern "C" fn wallet_transact(
     p_wallet: *mut Wallet,
@@ -2541,7 +2541,7 @@ pub extern "C" fn wallet_transact(
 
 /// Convert Action to ActionPacked by serializing the action data to ABI binary format
 /// Returns None if the action type is not recognized or serialization fails
-#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos", target_os = "android"))]
 fn action_to_packed(action: &eosio::Action) -> Option<ActionPacked> {
     // Serialize action data based on action name
     let hex_data = match action.name.to_string().as_str() {
@@ -2597,7 +2597,7 @@ fn action_to_packed(action: &eosio::Action) -> Option<ActionPacked> {
 }
 
 /// Convert a Transaction to TransactionPacked
-#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos", target_os = "android"))]
 fn transaction_to_packed(tx: &Transaction) -> Result<TransactionPacked, String> {
     let mut packed_actions = Vec::new();
     for action in &tx.actions {
@@ -2612,7 +2612,7 @@ fn transaction_to_packed(tx: &Transaction) -> Result<TransactionPacked, String> 
 
 /// Like wallet_transact but returns actions with hex_data for ABI-serialized binary data.
 /// This is needed for ESR (EOSIO Signing Request) which requires properly serialized action data.
-#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos", target_os = "android"))]
 #[no_mangle]
 pub extern "C" fn wallet_transact_packed(
     p_wallet: *mut Wallet,
@@ -3011,7 +3011,7 @@ pub extern "C" fn wallet_transact_packed(
     }
 }
 
-#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos", target_os = "android"))]
 #[no_mangle]
 pub extern "C" fn wallet_digest_block(
     p_wallet: *mut Wallet,
@@ -3044,7 +3044,7 @@ pub extern "C" fn wallet_digest_block(
 
 /// Derive a deterministic vault seed at the given index.
 /// Writes the 32-byte seed as a 64-char hex string to out_hex.
-#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos", target_os = "android"))]
 #[no_mangle]
 pub extern "C" fn wallet_derive_vault_seed(
     p_wallet: *mut Wallet,
@@ -3081,7 +3081,7 @@ pub extern "C" fn wallet_derive_vault_seed(
 }
 
 /// Compare spending keys of two wallets. Returns true if they derive from the same seed.
-#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos", target_os = "android"))]
 #[no_mangle]
 pub extern "C" fn wallet_seeds_match(
     p_wallet_a: *mut Wallet,
@@ -3100,7 +3100,7 @@ pub extern "C" fn wallet_seeds_match(
 /// Create a deterministic vault: derives seed at vault_index, creates auth token
 /// using the wallet's default address and the given contract. Returns JSON with
 /// commitment hash and unpublished notes (same format as wallet_create_unpublished_auth_note).
-#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos", target_os = "android"))]
 #[no_mangle]
 pub extern "C" fn wallet_create_deterministic_vault(
     p_wallet: *mut Wallet,
