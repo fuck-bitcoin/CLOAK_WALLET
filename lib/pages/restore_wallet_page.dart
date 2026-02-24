@@ -485,8 +485,11 @@ class _RestoreWalletPageState extends State<RestoreWalletPage>
         final prefs = await SharedPreferences.getInstance();
         await aa.save(prefs);
 
-        // Navigate to account — sync banner appears automatically
-        // (restoreWallet sets synced_height = 0, triggering full sync)
+        // Trigger sync immediately for restore (don't rely on timer)
+        // restoreWallet() sets synced_height = 0, so this does a full sync
+        syncStatus2.sync(true);
+
+        // Navigate to account — sync banner shows progress
         if (mounted) GoRouter.of(context).go('/account');
       });
     } catch (e) {

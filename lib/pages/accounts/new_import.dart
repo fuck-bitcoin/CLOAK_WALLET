@@ -321,8 +321,11 @@ class _NewImportAccountState extends State<NewImportAccountPage>
           if (widget.first) {
             if (_key.isNotEmpty) {
               // Restoring from seed
-              // CLOAK handles sync differently - just go to account page
+              // CLOAK handles sync differently - trigger sync immediately
               if (CloakWalletManager.isCloak(coin)) {
+                // Trigger sync immediately for restore (don't rely on timer)
+                // restoreWallet() sets synced_height = 0, so this does a full sync
+                syncStatus2.sync(true);
                 GoRouter.of(context).go('/account');
               } else {
                 // Zcash/Ycash restore flow
