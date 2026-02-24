@@ -76,6 +76,14 @@ jobs:
             -storepass cloakci123 -keypass cloakci123 \
             -dname "CN=CLOAK Wallet CI, O=CLOAK Team"
 
+      - name: Generate version file
+        run: |
+          mkdir -p lib/src
+          cat > lib/src/version.dart << 'DART'
+          const String commitId = '${{ github.sha }}';
+          const String packageVersion = '2.0.0';
+          DART
+
       - name: Build APK
         env:
           JKS_PASSWORD: cloakci123

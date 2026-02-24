@@ -88,7 +88,7 @@ pub unsafe extern fn free_string(ptr: *const libc::c_char)
 }
 
 // generalized log function for use in different targets
-#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos", target_os = "android"))]
 pub fn log(msg: &str)
 {
     println!("{}", msg);

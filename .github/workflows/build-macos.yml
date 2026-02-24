@@ -48,6 +48,14 @@ jobs:
               https://github.com/flutter/flutter.git $HOME/flutter
           echo "$HOME/flutter/bin" >> $GITHUB_PATH
 
+      - name: Generate version file
+        run: |
+          mkdir -p lib/src
+          cat > lib/src/version.dart << 'DART'
+          const String commitId = '${{ github.sha }}';
+          const String packageVersion = '2.0.0';
+          DART
+
       - name: Build Flutter
         run: |
           flutter pub get
@@ -129,6 +137,14 @@ jobs:
           git clone -b ${{ env.FLUTTER_VERSION }} --depth 1 \
               https://github.com/flutter/flutter.git $HOME/flutter
           echo "$HOME/flutter/bin" >> $GITHUB_PATH
+
+      - name: Generate version file
+        run: |
+          mkdir -p lib/src
+          cat > lib/src/version.dart << 'DART'
+          const String commitId = '${{ github.sha }}';
+          const String packageVersion = '2.0.0';
+          DART
 
       - name: Build Flutter
         run: |

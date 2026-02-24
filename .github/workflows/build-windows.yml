@@ -48,6 +48,15 @@ jobs:
               https://github.com/flutter/flutter.git /d/flutter
           echo "D:/flutter/bin" >> $GITHUB_PATH
 
+      - name: Generate version file
+        shell: bash
+        run: |
+          mkdir -p lib/src
+          cat > lib/src/version.dart << 'DART'
+          const String commitId = '${{ github.sha }}';
+          const String packageVersion = '2.0.0';
+          DART
+
       - name: Build Flutter
         shell: bash
         run: |
