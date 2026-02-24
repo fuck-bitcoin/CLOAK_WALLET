@@ -3,7 +3,6 @@ name: Build Android APK
 on:
   workflow_dispatch:
   push:
-    branches: [main]
     tags:
       - "v*"
 
@@ -28,6 +27,7 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
         with:
+          accept-android-sdk-licenses: true
           packages: |
             ndk;${{ env.ANDROID_NDK_VERSION }}
             platforms;android-34
