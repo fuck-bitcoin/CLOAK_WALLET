@@ -59,18 +59,14 @@ class AtomicAssetsService {
 
     try {
       final url = Uri.parse('$_atomicAssetsEndpoint/assets/$assetId');
-      debugPrint('[ATOMIC] Fetching $url');
       final response = await http.get(url);
 
       if (response.statusCode != 200) {
-        debugPrint(
-            '[ATOMIC] HTTP ${response.statusCode} for asset $assetId');
         return null;
       }
 
       final json = jsonDecode(response.body) as Map<String, dynamic>;
       if (json['success'] != true || json['data'] == null) {
-        debugPrint('[ATOMIC] API returned success=false for asset $assetId');
         return null;
       }
 
@@ -128,7 +124,6 @@ class AtomicAssetsService {
   /// Clear the in-memory cache (e.g. on logout or refresh).
   void clearCache() {
     _cache.clear();
-    debugPrint('[ATOMIC] Cache cleared');
   }
 
   /// Parse a single asset object from the AtomicAssets API response.

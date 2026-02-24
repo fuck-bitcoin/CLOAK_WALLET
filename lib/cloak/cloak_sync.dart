@@ -147,7 +147,26 @@ class CloakSync {
     _autoHealAttempted = false;
     _vaultsReimported = false;
     _vaultDiscoveryDone = false;
-    print('[CloakSync] Cleared cached counters for resync');
+  }
+
+  /// Full reset of all static sync state. Called when the last account is
+  /// deleted so a subsequent create/restore starts completely fresh.
+  static void resetAll() {
+    _lastLeafCount = -1;
+    _lastAuthCount = -1;
+    _autoHealAttempted = false;
+    _vaultsReimported = false;
+    _vaultDiscoveryDone = false;
+    _isNewAccount = false;
+    _initialSyncDone = false;
+    _syncing = false;
+    _syncedHeight = 0;
+    _latestHeight = 0;
+    _cachedGlobal = null;
+    _cachedMerkleEntries = null;
+    _cachedNullifiers = null;
+    initialSyncNotifier.value = false;
+    print('[CloakSync] Full reset of all sync state');
   }
 
   /// Initialize the EOSIO client with the configured endpoint
@@ -157,7 +176,6 @@ class CloakSync {
     // Get endpoint from coin settings
     final endpoint = cloak.lwd.isNotEmpty ? cloak.lwd.first.url : 'https://telos.eosusa.io';
     _client = EosioClient(endpoint);
-    print('CloakSync: Initialized with endpoint $endpoint');
 
     // Load persisted synced height from database
     await _loadSyncedHeight();
@@ -173,14 +191,12 @@ class CloakSync {
     final stored = await CloakDb.getProperty('synced_height');
     if (stored != null) {
       _syncedHeight = int.tryParse(stored) ?? 0;
-      print('CloakSync: Loaded synced height from db: $_syncedHeight');
     }
   }
 
   /// Persist synced height to database
   static Future<void> _saveSyncedHeight(int height) async {
     await CloakDb.setProperty('synced_height', height.toString());
-    print('CloakSync: Saved synced height to db: $height');
   }
 
   /// Update the latest block height from the chain
@@ -190,9 +206,7 @@ class CloakSync {
     try {
       final info = await _client!.getInfo();
       _latestHeight = info.lastIrreversibleBlockNum;
-      print('CloakSync: Latest irreversible block: $_latestHeight');
     } catch (e) {
-      print('CloakSync: Failed to get chain info: $e');
     }
   }
 
@@ -225,7 +239,6 @@ class CloakSync {
     _syncedHeight = _latestHeight;
     await _saveSyncedHeight(_latestHeight);
     _isNewAccount = true;
-    print('CloakSync: New account - set initial height to $_latestHeight');
   }
   
   /// Main sync function - fetches blocks and processes them
@@ -235,19 +248,9 @@ class CloakSync {
   ///
   /// Returns true if this is a "full sync" (restore scenario), false for normal sync
   static Future<bool> sync({bool force = false}) async {
-    if (_walletLocked) {
-      print('CloakSync: Wallet locked for transaction, skipping sync');
-      return false;
-    }
-    if (_syncing && !force) {
-      print('CloakSync: Already syncing, skipping');
-      return false;
-    }
-
-    if (!CloakWalletManager.isLoaded) {
-      print('CloakSync: No wallet loaded, skipping sync');
-      return false;
-    }
+    if (_walletLocked) return false;
+    if (_syncing && !force) return false;
+    if (!CloakWalletManager.isLoaded) return false;
 
     _syncing = true;
     bool isFullSync = false;
@@ -268,7 +271,7 @@ class CloakSync {
           !_isNewAccount &&
           await CloakDb.getProperty('full_sync_done') != 'true') {
         _autoHealAttempted = true;
-        print('CloakSync: Auto-heal - synced_height=$_syncedHeight but full_sync_done not set, resetting to 0');
+        print('CloakSync: Auto-heal — synced_height=$_syncedHeight but full_sync_done not set, resetting to 0');
         _syncedHeight = 0;
         await _saveSyncedHeight(0);
         _isNewAccount = false;
@@ -285,12 +288,8 @@ class CloakSync {
       }
 
       if (isFullSync) {
-        print('CloakSync: FULL SYNC needed (restore scenario)');
-        print('CloakSync: Starting from ZEOS genesis block $ZEOS_GENESIS_BLOCK');
         _syncedHeight = ZEOS_GENESIS_BLOCK;
       } else if (_isNewAccount) {
-        // New account - already synced to latest block, nothing to do
-        print('CloakSync: New account - already synced, skipping');
         await updateLatestHeight();
         if (_syncedHeight < _latestHeight) {
           // Just update the height, don't fetch tables (no transactions possible yet)
@@ -300,31 +299,14 @@ class CloakSync {
         _syncing = false;
         _initialSyncDone = true;
         return false;
-      } else {
-        print('CloakSync: Normal sync from block $_syncedHeight');
       }
 
       // Get latest block from chain
       await updateLatestHeight();
 
       if (_syncedHeight >= _latestHeight) {
-        print('CloakSync: Already synced to latest block');
         _syncing = false;
         return false;
-      }
-
-      final blocksToSync = _latestHeight - _syncedHeight;
-      print('CloakSync: Need to sync $blocksToSync blocks ($_syncedHeight -> $_latestHeight)');
-
-      // Use TABLE-BASED SYNC instead of block-by-block!
-      // This is MUCH faster:
-      // - Old way: Process ~280M blocks (would take days)
-      // - New way: Query ~100 table rows (takes seconds)
-
-      if (isFullSync) {
-        print('CloakSync: Full sync - using table-based approach');
-      } else {
-        print('CloakSync: Normal sync - using table-based approach');
       }
 
       // Perform table-based sync
@@ -338,12 +320,6 @@ class CloakSync {
         // Don't call onProgress(100, 100) here — it makes isSynced=true which
         // hides the banner before syncJustCompleted is set. The completion flow
         // in store2.dart handles the 100% transition via syncJustCompleted.
-
-        print('CloakSync: Table sync complete!');
-        print('CloakSync: - Leaf count: ${global.leafCount}');
-        print('CloakSync: - Merkle entries: ${result.merkleEntries?.length ?? 0}');
-        print('CloakSync: - Nullifiers: ${result.nullifiers?.length ?? 0}');
-        print('CloakSync: - Block: ${global.blockNum}');
 
         // Mark full sync as done so auto-heal and banner don't re-trigger
         if (isFullSync) {
@@ -395,11 +371,6 @@ class CloakSync {
   static Future<ZeosSyncResult> syncFromTables() async {
     if (_client == null) await init();
 
-    print('CloakSync: Starting table-based sync...');
-    final _sw = Stopwatch()..start();
-    int _lastMs = 0;
-    String _elapsed() { final ms = _sw.elapsedMilliseconds; final delta = ms - _lastMs; _lastMs = ms; return '${ms}ms (+${delta}ms)'; }
-
     try {
       // 1. Get global state (leaf count, block number, etc.)
       // This is 1 cheap HTTP call — used for "nothing changed" fast path
@@ -408,8 +379,6 @@ class CloakSync {
         print('CloakSync: Failed to get ZEOS global state');
         return ZeosSyncResult(success: false, error: 'Failed to get global state');
       }
-      print('CloakSync: [${_elapsed()}] getZeosGlobal — block: ${global.blockNum}, leaves: ${global.leafCount}, auth: ${global.authCount}');
-
       // Seed the fast-path cache from the wallet on first sync after launch.
       // Without this, _lastLeafCount starts at -1 and the first sync always
       // does a full table fetch even when nothing changed on-chain.
@@ -421,7 +390,6 @@ class CloakSync {
           if (walletLeaves > 0) {
             _lastLeafCount = walletLeaves;
             _lastAuthCount = walletAuth;
-            print('CloakSync: Seeded fast-path cache from wallet (leaves=$walletLeaves, auth=$walletAuth)');
           }
         }
       }
@@ -434,28 +402,23 @@ class CloakSync {
         _syncedHeight = global.blockNum;
         _latestHeight = global.blockNum;
         _cachedGlobal = global;
-        print('CloakSync: No changes (leaves=${global.leafCount}, auth=${global.authCount}) — skipping full sync');
         return ZeosSyncResult(success: true, global: global, merkleEntries: _cachedMerkleEntries, nullifiers: _cachedNullifiers);
       }
-      print('CloakSync: Changes detected (leaves: $_lastLeafCount→${global.leafCount}, auth: $_lastAuthCount→${global.authCount})');
 
       // 2. Get all merkle tree entries (note commitments)
       onStepChanged?.call('Fetching merkle tree...');
       onProgress?.call(10, 100);
       final merkleEntries = await _client!.getZeosMerkleTree();
-      print('CloakSync: [${_elapsed()}] getZeosMerkleTree — ${merkleEntries.length} entries');
 
       // 3. Get all nullifiers (spent notes)
       onStepChanged?.call('Fetching nullifiers...');
       onProgress?.call(25, 100);
       final nullifiers = await _client!.getZeosNullifiers();
-      print('CloakSync: [${_elapsed()}] getZeosNullifiers — ${nullifiers.length} nullifiers');
 
       // 4. Get action history to extract encrypted notes
       onStepChanged?.call('Fetching transaction history...');
       onProgress?.call(40, 100);
       final actions = await _client!.getZeosActions();
-      print('CloakSync: [${_elapsed()}] getZeosActions — ${actions.length} actions');
 
       // 5. Pass data to Rust wallet for trial decryption
       var wallet = CloakWalletManager.wallet;
@@ -468,14 +431,11 @@ class CloakSync {
         if (walletAuthCount != chainAuthCount) {
           print('CloakSync: auth_count mismatch! wallet=$walletAuthCount chain=$chainAuthCount — updating wallet');
           CloakApi.setAuthCount(wallet, chainAuthCount);
-        } else {
-          print('CloakSync: auth_count in sync ($chainAuthCount)');
         }
 
         // 5a. Add only NEW merkle tree leaves (skip ones wallet already has)
         final walletLeafCount = CloakApi.getLeafCount(wallet) ?? 0;
         final onChainLeafCount = global.leafCount;
-        print('CloakSync: Wallet has $walletLeafCount leaves, chain has $onChainLeafCount');
 
         // Pre-serialize merkle entries to maps (once) for background isolate use
         final merkleEntriesMaps = merkleEntries.map((e) => {
@@ -490,11 +450,8 @@ class CloakSync {
             _convertMerkleEntriesToHexInIsolate,
             _MerkleHexParams(merkleEntriesMaps, global.treeDepth, walletLeafCount),
           );
-          final leafCount = leavesHex.length ~/ 64; // 64 hex chars = 32 bytes per leaf
-          print('CloakSync: Adding $leafCount NEW leaves (skipping first $walletLeafCount)');
           if (leavesHex.isNotEmpty) {
-            final leafSuccess = await FfiIsolate.addLeaves(wallet: wallet!, leavesHex: leavesHex);
-            print('CloakSync: [${_elapsed()}] addLeaves($leafCount leaves): $leafSuccess');
+            await FfiIsolate.addLeaves(wallet: wallet!, leavesHex: leavesHex);
           }
         } else if (walletLeafCount > onChainLeafCount) {
           // Wallet has more leaves than the chain — this is NORMAL after a send.
@@ -504,33 +461,33 @@ class CloakSync {
           // Only auto-repair if the overshoot is large (>20 leaves = real corruption).
           final overshoot = walletLeafCount - onChainLeafCount;
           if (overshoot > 20) {
-            print('CloakSync: WARNING - wallet has $overshoot MORE leaves than chain! Likely corrupted.');
-            print('CloakSync: Auto-repairing: recreating wallet from seed...');
-            final account = await CloakDb.getFirstAccount();
-            if (account != null && account['seed'] != null) {
-              final seed = account['seed'] as String;
-              final name = account['name'] as String;
-              await CloakWalletManager.createWallet(name, seed);
-              await CloakWalletManager.loadWallet();
-              wallet = CloakWalletManager.wallet;
-              if (wallet != null) {
-                final leavesHex = await compute(
-                  _convertMerkleEntriesToHexInIsolate,
-                  _MerkleHexParams(merkleEntriesMaps, global.treeDepth, 0),
-                );
-                final leafCount = leavesHex.length ~/ 64;
-                print('CloakSync: Adding $leafCount leaves to fresh wallet');
-                if (leavesHex.isNotEmpty) {
-                  await FfiIsolate.addLeaves(wallet: wallet!, leavesHex: leavesHex);
+            // Skip auto-repair for IVK (view-only) wallets — they can't send
+            // transactions so the "eager wallet update" overshoot can't happen.
+            // Also, recreating from seed without isIvk flag would corrupt the wallet.
+            final _repairViewOnly = CloakApi.isViewOnly(wallet!) ?? false;
+            if (_repairViewOnly) {
+              print('CloakSync: WARNING — IVK wallet has $overshoot extra leaves, skipping auto-repair (view-only)');
+            } else {
+              print('CloakSync: Auto-repairing — wallet has $overshoot extra leaves, recreating from seed');
+              final account = await CloakDb.getFirstAccount();
+              if (account != null && account['seed'] != null) {
+                final seed = account['seed'] as String;
+                final name = account['name'] as String;
+                await CloakWalletManager.createWallet(name, seed);
+                await CloakWalletManager.loadWallet();
+                wallet = CloakWalletManager.wallet;
+                if (wallet != null) {
+                  final leavesHex = await compute(
+                    _convertMerkleEntriesToHexInIsolate,
+                    _MerkleHexParams(merkleEntriesMaps, global.treeDepth, 0),
+                  );
+                  if (leavesHex.isNotEmpty) {
+                    await FfiIsolate.addLeaves(wallet: wallet!, leavesHex: leavesHex);
+                  }
                 }
-                print('CloakSync: Merkle tree repaired with $leafCount leaves');
               }
             }
-          } else {
-            print('CloakSync: Wallet has $overshoot extra leaves (pending TX confirmation) — normal, skipping');
           }
-        } else {
-          print('CloakSync: Merkle tree already up-to-date ($walletLeafCount leaves)');
         }
 
         // 5b. Extract and add encrypted notes from actions (per-action with timestamps)
@@ -577,51 +534,48 @@ class CloakSync {
           totalNfts = counts['nfts'] ?? 0;
           totalAts = counts['ats'] ?? 0;
         }
-        print('CloakSync: [${_elapsed()}] addNotesAll — $totalNotes notes → $totalFts FTs, $totalNfts NFTs, $totalAts ATs');
-
         // 5c. Sync nullifiers — mark spent notes
         // MUST happen AFTER notes are added so there are notes to mark as spent
         // On a fresh wallet, if this runs before add_notes, it finds 0 notes → all notes stay unspent
         onStepChanged?.call('Syncing nullifiers...');
         onProgress?.call(85, 100);
+        int spentCount = 0;
         if (nullifiers.isNotEmpty) {
           final nullifierMaps = nullifiers.map((nf) => {'val': nf.val.toJson()}).toList();
           final nullifierHex = await compute(
             _convertNullifiersToHexInIsolate,
             _NullifierHexParams(nullifierMaps),
           );
-          final spentCount = await FfiIsolate.addNullifiers(wallet: wallet!, nullifiersHex: nullifierHex);
-          print('CloakSync: [${_elapsed()}] addNullifiers — ${nullifiers.length} nullifiers, $spentCount spent');
-        } else {
-          print('CloakSync: No nullifiers on-chain');
+          spentCount = await FfiIsolate.addNullifiers(wallet: wallet!, nullifiersHex: nullifierHex);
         }
 
-        // 5d. Save wallet state (only if data changed — new leaves, notes, or nullifiers)
+        // 5d. Save wallet state (only if data changed — new leaves, notes, or nullifiers marked spent)
         onStepChanged?.call('Saving wallet...');
         onProgress?.call(95, 100);
         final dataChanged = (totalFts + totalNfts + totalAts) > 0 ||
             walletLeafCount < onChainLeafCount ||
-            walletAuthCount != chainAuthCount;
+            walletAuthCount != chainAuthCount ||
+            spentCount > 0;
         if (dataChanged) {
           await CloakWalletManager.saveWallet();
-          print('CloakSync: [${_elapsed()}] saveWallet');
         }
 
         // 5e. Re-import vault auth tokens from DB into Rust wallet (once per session)
-        if (!_vaultsReimported) {
+        // Skip for IVK (view-only) wallets — they cannot hold auth tokens
+        final _isViewOnly = CloakApi.isViewOnly(wallet!) ?? false;
+        if (!_vaultsReimported && !_isViewOnly) {
           await _reimportVaultsFromDb(wallet!);
           _vaultsReimported = true;
-          print('CloakSync: [${_elapsed()}] reimportVaults');
         }
 
         // 5f. Vault discovery — only during restore/resync, not every 5s sync
-        // Scans deterministic vault indices to find on-chain vaults from this seed
-        if (!_vaultDiscoveryDone && !_isNewAccount) {
+        // Scans deterministic vault indices to find on-chain vaults from this seed.
+        // Skip for IVK (view-only) wallets — they have no spending key to derive vault seeds.
+        if (!_vaultDiscoveryDone && !_isNewAccount && !_isViewOnly) {
           _vaultDiscoveryDone = true;
           onStepChanged?.call('Discovering vaults...');
           try {
-            final found = await CloakWalletManager.discoverVaults();
-            print('CloakSync: [${_elapsed()}] discoverVaults — found ${found.length} vault(s)');
+            await CloakWalletManager.discoverVaults();
           } catch (e) {
             print('CloakSync: Vault discovery failed (non-fatal): $e');
           }
@@ -631,8 +585,6 @@ class CloakSync {
         if ((totalFts + totalNfts + totalAts) > 0) {
           await _extractMessagesFromHistory();
         }
-      } else {
-        print('CloakSync: WARNING - wallet is null, cannot sync!');
       }
 
       // 7. Update sync state and cached counters
@@ -646,9 +598,6 @@ class CloakSync {
       _cachedGlobal = global;
       _cachedMerkleEntries = merkleEntries;
       _cachedNullifiers = nullifiers;
-
-      _sw.stop();
-      print('CloakSync: [${_sw.elapsedMilliseconds}ms TOTAL] Table sync complete! Block: ${global.blockNum}');
 
       return ZeosSyncResult(
         success: true,
@@ -670,34 +619,19 @@ class CloakSync {
   static Future<void> _reimportVaultsFromDb(Pointer<Void> wallet) async {
     try {
       final vaults = await CloakDb.getAllVaults();
-      if (vaults.isEmpty) {
-        print('CloakSync: No vaults in DB to re-import');
-        return;
-      }
-
-      print('CloakSync: Re-importing ${vaults.length} vault(s) from DB...');
+      if (vaults.isEmpty) return;
       int imported = 0;
 
       // Use default address (stable, deterministic) — must match the address
       // used at vault creation time for correct commitment hash.
       final address = CloakWalletManager.getDefaultAddress();
-      if (address == null) {
-        print('CloakSync: Cannot re-import vaults — wallet default address is null');
-        return;
-      }
+      if (address == null) return;
 
       for (final vault in vaults) {
         final status = vault['status'] as String? ?? '';
-        if (status == 'burned') {
-          print('CloakSync: Skipping burned vault ${vault['id']}');
-          continue;
-        }
+        if (status == 'burned') continue;
         final seed = vault['seed'] as String?;
-        final commitmentHash = vault['commitment_hash'] as String?;
-        if (seed == null || seed.isEmpty) {
-          print('CloakSync: Skipping vault ${vault['id']} — no seed');
-          continue;
-        }
+        if (seed == null || seed.isEmpty) continue;
 
         // Yield to let UI breathe between synchronous FFI calls
         await Future.delayed(Duration.zero);
@@ -710,43 +644,19 @@ class CloakSync {
         final notesJson = CloakApi.createUnpublishedAuthNote(
           wallet, seed, contractU64, address,
         );
-        if (notesJson == null) {
-          print('CloakSync: Failed to recreate vault ${commitmentHash?.substring(0, 16) ?? "?"}: ${CloakApi.getLastError()}');
-          continue;
-        }
-
-        // Log hash comparison (diagnostic only — NEVER change the DB vault hash,
-        // it is the on-chain identifier and may use a non-default diversifier).
-        try {
-          final parsed = jsonDecode(notesJson);
-          if (parsed is Map) {
-            final cmList = parsed['__commitment__'];
-            if (cmList is List && cmList.isNotEmpty) {
-              final walletHash = cmList[0] as String;
-              if (commitmentHash != null && walletHash != commitmentHash) {
-                print('CloakSync: Vault hash note: DB=${commitmentHash.substring(0, 16)}... wallet=${walletHash.substring(0, 16)}... (different diversifier, expected)');
-              }
-            }
-          }
-        } catch (e) {
-          print('CloakSync: Error checking vault hash: $e');
-        }
+        if (notesJson == null) continue;
 
         // Yield again before next FFI call
         await Future.delayed(Duration.zero);
 
         if (CloakApi.addUnpublishedNotes(wallet, notesJson)) {
           imported++;
-          print('CloakSync: Re-imported vault ${commitmentHash?.substring(0, 16) ?? "?"}');
-        } else {
-          print('CloakSync: addUnpublishedNotes failed for vault ${commitmentHash?.substring(0, 16) ?? "?"}: ${CloakApi.getLastError()}');
         }
       }
 
       if (imported > 0) {
         await Future.delayed(Duration.zero); // yield before wallet serialization
         await CloakWalletManager.saveWallet();
-        print('CloakSync: Re-imported $imported vault(s), wallet saved');
       }
     } catch (e) {
       print('CloakSync: Error re-importing vaults from DB: $e');
@@ -785,19 +695,10 @@ class CloakSync {
         wallet: wallet,
         pretty: true,
       );
-      if (historyJson == null || historyJson.isEmpty) {
-        print('CloakSync: No transaction history to extract messages from');
-        return;
-      }
+      if (historyJson == null || historyJson.isEmpty) return;
 
       final history = jsonDecode(historyJson);
-      if (history is! List) {
-        print('CloakSync: Invalid transaction history format');
-        return;
-      }
-
-      print('CloakSync: Processing ${history.length} transactions for messages...');
-      int messageCount = 0;
+      if (history is! List) return;
       final accountId = CloakWalletManager.accountId;
       final myAddress = CloakWalletManager.getDefaultAddress() ?? '';
 
@@ -866,12 +767,8 @@ class CloakSync {
           height: blockNum,
           read: false,
         );
-        messageCount++;
       }
 
-      if (messageCount > 0) {
-        print('CloakSync: Extracted $messageCount new messages');
-      }
     } catch (e) {
       print('CloakSync: Error extracting messages: $e');
     }

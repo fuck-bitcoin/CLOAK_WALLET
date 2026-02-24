@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 import '../theme/zashi_tokens.dart';
 
 final colors = [
@@ -49,17 +48,14 @@ Widget avatar(String initial, {bool incoming = false, double radius = 16.0}) => 
       final bg = zashi != null
           ? Color.lerp(zashi.quickGradTop, zashi.quickGradBottom, 0.5)!
           : initialToColor(initial);
+      final iconSize = radius * 1.25;
       return CircleAvatar(
         backgroundColor: bg,
         radius: radius,
-        child: isIncoming
-            ? SvgPicture.string(
-                '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M 16.25 4.639 A 8.5 8.5 0 1 1 7.75 4.639" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" fill="none"/><path d="M12 9.4 V14.6" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><path d="M12 14.6 L10.6 13.2" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><path d="M12 14.6 L13.4 13.2" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>',
-                colorFilter: ColorFilter.mode(onSurf, BlendMode.srcIn),
-              )
-            : SvgPicture.string(
-                '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M 16.25 4.639 A 8.5 8.5 0 1 1 7.75 4.639" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" fill="none"/><path d="M12 14.6 V9.4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><path d="M12 9.4 L10.6 10.8" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><path d="M12 9.4 L13.4 10.8" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>',
-                colorFilter: ColorFilter.mode(onSurf, BlendMode.srcIn),
-              ),
+        child: Icon(
+          isIncoming ? Icons.arrow_downward : Icons.arrow_upward,
+          size: iconSize,
+          color: onSurf,
+        ),
       );
     });

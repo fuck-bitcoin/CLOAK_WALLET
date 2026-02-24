@@ -72,16 +72,13 @@ Future<void> fetchTelosTokenList() async {
             }
           }
         }
-        print('[EosioClient] Loaded tokens from $urlStr');
       }
     } catch (e) {
-      print('[EosioClient] Failed to fetch token list from $urlStr: $e');
       // Continue to next URL
     }
   }
 
   _tokenLogoCacheTimestamp = DateTime.now();
-  print('[EosioClient] Cached ${_cachedTokenLogos!.length} token logos total');
 }
 
 /// Get logo URL from cached Telos token list
@@ -206,6 +203,9 @@ class EosioClient {
   final String endpoint;
   final http.Client _client;
 
+  /// HTTP timeout for all API calls (prevents hangs on slow/unresponsive endpoints)
+  static const _timeout = Duration(seconds: 15);
+
   EosioClient(this.endpoint) : _client = http.Client();
 
   /// Get chain info (head block, chain ID, etc.)
@@ -213,7 +213,7 @@ class EosioClient {
     final response = await _client.post(
       Uri.parse('$endpoint/v1/chain/get_info'),
       headers: {'Content-Type': 'application/json'},
-    );
+    ).timeout(_timeout);
     
     if (response.statusCode != 200) {
       throw Exception('Failed to get chain info: ${response.statusCode}');
@@ -229,7 +229,7 @@ class EosioClient {
       Uri.parse('$endpoint/v1/chain/get_block'),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({'block_num_or_id': blockNum}),
-    );
+    ).timeout(_timeout);
     
     if (response.statusCode != 200) {
       throw Exception('Failed to get block $blockNum: ${response.statusCode}');
@@ -245,8 +245,7 @@ class EosioClient {
       try {
         final block = await getBlock(i);
         blocks.add(block);
-      } catch (e) {
-        print('EosioClient: Failed to fetch block $i: $e');
+      } catch (_) {
         // Continue with next block
       }
     }
@@ -274,7 +273,7 @@ class EosioClient {
         'lower_bound': lowerBound,
         'upper_bound': upperBound,
       }),
-    );
+    ).timeout(_timeout);
 
     if (response.statusCode != 200) {
       throw Exception('Failed to get table rows: ${response.statusCode}');
@@ -314,7 +313,7 @@ class EosioClient {
       Uri.parse('$endpoint/v1/chain/get_table_rows'),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode(body),
-    );
+    ).timeout(_timeout);
 
     if (response.statusCode != 200) {
       throw Exception('Failed to get table rows: ${response.statusCode} - ${response.body}');
@@ -329,7 +328,7 @@ class EosioClient {
       Uri.parse('$endpoint/v1/chain/push_transaction'),
       headers: {'Content-Type': 'application/json'},
       body: signedTxJson,
-    );
+    ).timeout(const Duration(seconds: 30));
     
     if (response.statusCode != 200 && response.statusCode != 202) {
       throw Exception('Failed to push transaction: ${response.statusCode} - ${response.body}');
@@ -344,16 +343,19 @@ class EosioClient {
 
   /// Get action traces for a contract (v1/history/get_actions)
   /// Note: Not all EOSIO endpoints support this. May need Hyperion API.
+  /// [skip] - number of actions already processed (for incremental sync)
   Future<List<ZeosActionTrace>> getZeosActions({
     String account = 'thezeosalias',
+    int skip = 0,
   }) async {
     // Always use Hyperion v2 API - it supports filtering and returns all matching actions
     // The old v1/history/get_actions only returns the last 100 actions which misses older notes
-    return await _getZeosActionsHyperion(account);
+    return await _getZeosActionsHyperion(account, skip: skip);
   }
 
   /// Get action history via Hyperion API (more reliable)
-  Future<List<ZeosActionTrace>> _getZeosActionsHyperion(String account) async {
+  /// [skip] - number of actions to skip (ascending order) for incremental fetch
+  Future<List<ZeosActionTrace>> _getZeosActionsHyperion(String account, {int skip = 0}) async {
     try {
       // Telos Hyperion endpoints
       final hyperionEndpoints = [
@@ -363,26 +365,64 @@ class EosioClient {
 
       for (final hyperion in hyperionEndpoints) {
         try {
-          final response = await _client.get(
-            Uri.parse('$hyperion/v2/history/get_actions?account=$account&filter=*:mint,*:spend,*:publishnotes,*:authenticate&limit=1000'),
-          );
+          // Sort ascending so skip works correctly (skip oldest N, get newest)
+          var url = '$hyperion/v2/history/get_actions?account=$account'
+              '&filter=*:mint,*:spend,*:publishnotes,*:authenticate'
+              '&sort=asc&limit=1000';
+          if (skip > 0) url += '&skip=$skip';
+
+          final response = await _client.get(Uri.parse(url)).timeout(_timeout);
 
           if (response.statusCode == 200) {
             final json = jsonDecode(response.body);
             final actions = json['actions'] as List? ?? [];
             return actions.map((a) => ZeosActionTrace.fromHyperionJson(a)).toList();
           }
-        } catch (e) {
-          print('EosioClient: Hyperion $hyperion failed: $e');
+        } catch (_) {
         }
       }
 
-      print('EosioClient: All Hyperion endpoints failed');
       return [];
-    } catch (e) {
-      print('EosioClient: Hyperion query failed: $e');
+    } catch (_) {
       return [];
     }
+  }
+
+  /// Get only NEW merkle tree leaf entries (incremental fetch)
+  /// [treeDepth] - depth of the merkle tree (leaf offset = 2^treeDepth - 1)
+  /// [startLeafIdx] - first leaf index to fetch (0-based leaf index, not table key)
+  Future<List<ZeosMerkleEntry>> getZeosMerkleLeaves({
+    required int treeDepth,
+    required int startLeafIdx,
+  }) async {
+    final leafOffset = (1 << treeDepth) - 1; // e.g. 1048575 for depth 20
+    final startKey = leafOffset + startLeafIdx;
+    final entries = <ZeosMerkleEntry>[];
+    String nextKey = startKey.toString();
+
+    while (true) {
+      final result = await getTableRows(
+        code: 'zeosprotocol',
+        scope: 'zeosprotocol',
+        table: 'merkletree',
+        limit: 100,
+        lowerBound: nextKey,
+      );
+
+      final rows = result['rows'] as List? ?? [];
+      for (final row in rows) {
+        final entry = ZeosMerkleEntry.fromJson(row);
+        // Only include leaf entries (idx >= leafOffset)
+        if (entry.idx >= leafOffset) entries.add(entry);
+      }
+
+      final more = result['more'] as bool? ?? false;
+      if (!more) break;
+      nextKey = result['next_key']?.toString() ?? '';
+      if (nextKey.isEmpty) break;
+    }
+
+    return entries;
   }
 
   // ============== ZEOS Protocol Table Queries ==============
@@ -627,7 +667,6 @@ Future<List<TokenBalance>> getAccountTokens(String accountName) async {
     for (int retry = 0; retry < maxRetries; retry++) {
       try {
         final url = Uri.parse('$endpoint/v2/state/get_tokens?account=$accountName');
-        print('[EosioClient] Fetching tokens from $endpoint (attempt ${retry + 1})');
 
         final response = await http.get(url).timeout(
           const Duration(seconds: 10),
@@ -646,10 +685,8 @@ Future<List<TokenBalance>> getAccountTokens(String accountName) async {
             .where((t) => t.numericAmount > 0) // Only tokens with balance
             .toList();
 
-        print('[EosioClient] Found ${result.length} tokens for $accountName');
         return result;
       } catch (e) {
-        print('[EosioClient] getAccountTokens error ($endpoint, attempt ${retry + 1}): $e');
         // Small delay before retry
         if (retry < maxRetries - 1) {
           await Future.delayed(const Duration(milliseconds: 500));
@@ -658,7 +695,6 @@ Future<List<TokenBalance>> getAccountTokens(String accountName) async {
     }
   }
 
-  print('[EosioClient] All endpoints failed for getAccountTokens');
   return [];
 }
 

@@ -52,9 +52,7 @@ abstract class CoinBase {
   Future<void> importFromTemp() async {
     final tempDir = await getTempPath();
     final src = File(p.join(tempDir, dbName));
-    print("Import from ${src.path}");
     if (await src.exists()) {
-      print("copied to $dbFullPath");
       await delete();
       await src.copy(dbFullPath);
       await src.delete();

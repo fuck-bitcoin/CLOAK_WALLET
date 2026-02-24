@@ -1,4 +1,4 @@
-import 'package:YWallet/main.dart';
+import 'package:cloak_wallet/main.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_form_builder/flutter_form_builder.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
@@ -417,7 +417,7 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
     const addressFillColor = Color(0xFF2E2C2C);
     final t = Theme.of(context);
     final balanceFontFamily = t.textTheme.displaySmall?.fontFamily;
-    // Revert mini button (chip) styling to YWallet look
+    // Revert mini button (chip) styling
     // Slightly lighter than field fill, with subtle themed border
     final chipBgColor = Color.lerp(addressFillColor, Colors.black, 0.06) ?? addressFillColor;
     final chipBorderColor = (t.extension<ZashiThemeExt>()?.quickBorderColor) ?? t.dividerColor.withOpacity(0.20);
@@ -1150,6 +1150,18 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
       memoKey.currentState?.setReservedBytes(0);
     }
     _didUpdateAddress(_address);
+    // Pre-select token if sendContext carries token fields
+    if (sendContext.tokenSymbol != null && sendContext.tokenContract != null) {
+      final matchIdx = _shieldedTokens.indexWhere(
+        (t) => t.symbol == sendContext.tokenSymbol && t.contract == sendContext.tokenContract,
+      );
+      if (matchIdx >= 0) {
+        setState(() {
+          _selectedToken = _shieldedTokens[matchIdx];
+          _selectedNft = null;
+        });
+      }
+    }
     // Pre-select NFT if sendContext carries NFT fields
     if (sendContext.nftId != null && sendContext.nftContract != null) {
       final matchIdx = _shieldedNfts.indexWhere(

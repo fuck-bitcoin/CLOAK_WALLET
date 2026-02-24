@@ -1282,7 +1282,7 @@ abstract class S {
   /// No description provided for @seedKeys.
   ///
   /// In en, this message translates to:
-  /// **'Seed & Keys'**
+  /// **'Seed, Keys & Auth Tokens'**
   String get seedKeys;
 
   /// No description provided for @seedOrKeyRequired.

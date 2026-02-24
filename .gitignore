@@ -29,7 +29,7 @@
 .packages
 .pub-cache/
 .pub/
-# /build/  # REMOVED - we want full backup to Forgejo
+/build/
 
 # Web related
 lib/generated_plugin_registrant.dart
@@ -47,7 +47,7 @@ app.*.map.json
 
 .gradle/
 
-# target/  # REMOVED - we want full backup to Forgejo
+target/
 jniLibs/
 *.g.dart
 
@@ -59,6 +59,30 @@ build-dir/
 lib/src/version.dart
 
 # Local dev ignores for desktop bring-up
-# linux/lib/  # REMOVED - we want full backup to Forgejo
+linux/lib/
 assets/sapling-*.params
 run-desktop.log
+
+# ZK proving parameters (downloaded at runtime from GitHub Releases)
+assets/zeos/*.params
+assets/zeos/SHA256SUMS
+
+# Wallet data (private keys, databases)
+data/
+*.wallet
+*.wallet.bak*
+*.db
+*.db-shm
+*.db-wal
+
+# Compiled native libraries
+*.so
+*.dylib
+*.dll
+
+# Secrets and keystores
+*.jks
+*.keystore
+key.properties
+build.env
+*.pem

@@ -1,10 +1,8 @@
 import 'dart:async';
 
-import 'package:YWallet/appsettings.dart';
+import 'package:cloak_wallet/appsettings.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
-import 'package:settings_ui/settings_ui.dart';
 
 import '../../accounts.dart';
 import '../../cloak/cloak_wallet_manager.dart';
@@ -24,161 +22,129 @@ class _MorePageState extends State<MorePage> {
   @override
   Widget build(BuildContext context) {
     final s = S.of(context);
-    final c = coins[aa.coin];
-    final moreSections = [
-      MoreSection(title: Text(s.account), tiles: [
-        MoreTile(
-            url: '/messages',
-            icon: FaIcon(FontAwesomeIcons.message),
-            text: s.messages),
-        MoreTile(
-            url: '/contacts_overlay',
-            icon: FaIcon(FontAwesomeIcons.addressBook),
-            text: s.contacts),
-        MoreTile(
-            url: '/more/account_manager',
-            icon: FaIcon(FontAwesomeIcons.users),
-            text: s.accounts),
-        MoreTile(
-            url: '/more/coins',
-            icon: FaIcon(FontAwesomeIcons.moneyBill),
-            text: s.notes),
-        MoreTile(
-            url: '/more/transfer',
-            icon: FaIcon(FontAwesomeIcons.personSwimming),
-            text: s.pools),
-        MoreTile(
-            url: '/account/multi_pay',
-            icon: FaIcon(FontAwesomeIcons.peopleArrows),
-            text: s.multiPay,
-            secured: appSettings.protectSend),
-        if (c.supportsUA)
-          MoreTile(
-              url: '/account/swap',
-              icon: FaIcon(FontAwesomeIcons.arrowRightArrowLeft),
-              text: s.swap,
-              secured: appSettings.protectSend),
-        MoreTile(
-            url: '/more/vote',
-            icon: FaIcon(FontAwesomeIcons.personBooth),
-            text: s.vote),
-        // CLOAK auth requests (signature provider)
-        if (CloakWalletManager.isCloak(aa.coin))
-          MoreTile(
-              url: '/cloak_requests',
-              icon: FaIcon(FontAwesomeIcons.shieldHalved),
-              text: 'Auth Requests'),
-        // CLOAK shield assets from Telos
-        if (CloakWalletManager.isCloak(aa.coin))
-          MoreTile(
-              url: '/shield',
-              icon: FaIcon(FontAwesomeIcons.arrowRightToBracket),
-              text: 'Shield Assets'),
-      ]),
-      MoreSection(title: Text(s.backup), tiles: [
-        MoreTile(
-            url: '/more/backup',
-            icon: FaIcon(FontAwesomeIcons.seedling),
-            text: s.seedKeys,
-            secured: true),
-        MoreTile(
-            url: '/more/batch_backup',
-            icon: FaIcon(FontAwesomeIcons.database),
-            text: s.appData,
-            secured: true),
-      ]),
-      MoreSection(title: Text(s.market), tiles: [
-        MoreTile(
-            url: '/more/budget',
-            icon: FaIcon(FontAwesomeIcons.scaleBalanced),
-            text: s.budget),
-        MoreTile(
-            url: '/more/market',
-            icon: FaIcon(FontAwesomeIcons.arrowTrendUp),
-            text: s.marketPrice),
-      ]),
-      MoreSection(title: Text(s.sync), tiles: [
-        MoreTile(
-            url: '/more/resync',
-            icon: FaIcon(FontAwesomeIcons.arrowsRotate),
-            text: 'Resync Wallet'),
-      ]),
-      MoreSection(
-        title: Text(s.tools),
-        tiles: [
-          if (CloakWalletManager.isCloak(aa.coin))
-            MoreTile(
-                url: '/more/import_gui_wallet',
-                icon: FaIcon(FontAwesomeIcons.fileImport),
-                text: 'Import GUI Wallet'),
-          MoreTile(
-              url: '/more/about',
-              icon: FaIcon(FontAwesomeIcons.circleInfo),
-              text: s.about,
-              onPressed: () async {
-                final contentTemplate =
-                    await rootBundle.loadString('assets/about.md');
-                router.push('/more/about', extra: contentTemplate);
-              }),
-        ],
-      )
-    ];
+    final isDesktop = !(Theme.of(context).platform == TargetPlatform.android ||
+        Theme.of(context).platform == TargetPlatform.iOS);
 
-    final sections = moreSections
-        .map((s) => SettingsSection(
-            title: s.title,
-            tiles: s.tiles
-                .map((t) => SettingsTile.navigation(
-                    leading: SizedBox(width: 32, child: t.icon),
-                    onPressed: (context) => onNav(context, t),
-                    title: Text(t.text)))
-                .toList()))
-        .toList();
+    return Scaffold(
+      backgroundColor: const Color(0xFF1A1A1A),
+      body: SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+          children: [
+            // Header
+            Padding(
+              padding: const EdgeInsets.only(left: 4, bottom: 20),
+              child: Text(
+                'Settings',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 28,
+                  fontWeight: FontWeight.w300,
+                  letterSpacing: 0.5,
+                ),
+              ),
+            ),
 
-    // Display toggles
-    if (!(Theme.of(context).platform == TargetPlatform.android ||
-          Theme.of(context).platform == TargetPlatform.iOS))
-      sections.add(SettingsSection(
-        title: Text('Display'),
-        tiles: [
-          SettingsTile.switchTile(
-            leading: SizedBox(width: 32, child: FaIcon(FontAwesomeIcons.thumbtack)),
-            title: Text('Always On Top'),
-            initialValue: alwaysOnTop.value,
-            onToggle: (val) async {
-              await toggleAlwaysOnTop();
-              setState(() {});
-            },
-          ),
-        ],
-      ));
+            // Account section (hidden for view-only wallets)
+            if (CloakWalletManager.isCloak(aa.coin) && !CloakWalletManager.isViewOnly)
+              _MenuCard(
+                icon: Icons.shield_outlined,
+                iconColor: const Color(0xFF4CAF50),
+                title: 'Auth Requests',
+                subtitle: 'Review pending signature requests',
+                onTap: () => _onNav(MoreTile(url: '/cloak_requests', icon: const SizedBox.shrink(), text: '')),
+              ),
 
-    return SettingsList(sections: sections);
+            if (CloakWalletManager.isCloak(aa.coin) && !CloakWalletManager.isViewOnly)
+              const SizedBox(height: 10),
+
+            // Backup section (hidden for view-only wallets)
+            if (!CloakWalletManager.isViewOnly || !CloakWalletManager.isCloak(aa.coin))
+              _MenuCard(
+                icon: Icons.spa_outlined,
+                iconColor: const Color(0xFF4CAF50),
+                title: s.seedKeys,
+                subtitle: 'View recovery phrase, keys, and tokens',
+                onTap: () => _onNav(MoreTile(url: '/more/backup', icon: const SizedBox.shrink(), text: '', secured: true)),
+                trailing: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF4CAF50).withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    'SECURED',
+                    style: TextStyle(
+                      color: const Color(0xFF4CAF50).withOpacity(0.8),
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                ),
+              ),
+            if (!CloakWalletManager.isViewOnly || !CloakWalletManager.isCloak(aa.coin))
+              const SizedBox(height: 10),
+
+            // Sync section
+            _MenuCard(
+              icon: Icons.sync,
+              iconColor: Colors.white.withOpacity(0.7),
+              title: 'Resync Wallet',
+              subtitle: 'Re-download all chain data from scratch',
+              onTap: () => _onNav(MoreTile(url: '/more/resync', icon: const SizedBox.shrink(), text: '')),
+            ),
+
+            // Display section (desktop only)
+            if (isDesktop) ...[
+              const SizedBox(height: 24),
+              Padding(
+                padding: const EdgeInsets.only(left: 4, bottom: 10),
+                child: Text(
+                  'DISPLAY',
+                  style: TextStyle(
+                    color: Colors.white.withOpacity(0.35),
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 2,
+                  ),
+                ),
+              ),
+              _ToggleCard(
+                icon: Icons.push_pin_outlined,
+                iconColor: Colors.white.withOpacity(0.7),
+                title: 'Always On Top',
+                subtitle: 'Keep window above other apps',
+                value: alwaysOnTop.value,
+                onChanged: (val) async {
+                  await toggleAlwaysOnTop();
+                  setState(() {});
+                },
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
   }
 
-  onNav(BuildContext _, MoreTile tile) async {
-    print('[MorePage] onNav START: url=${tile.url}');
+  void _onNav(MoreTile tile) async {
     final onPressed = tile.onPressed;
     if (onPressed != null) {
-      print('[MorePage] has custom onPressed, calling it');
       await onPressed();
       return;
     }
     if (tile.secured) {
-      print('[MorePage] tile is secured, authenticating');
       final s = S.of(context);
       final auth = await authenticate(context, s.secured);
       if (!auth) return;
     }
     if (tile.url.startsWith('/account/')) {
-      print('[MorePage] account route, pop + go');
       Navigator.of(context).pop();
       router.go(tile.url);
     } else {
-      print('[MorePage] pushing ${tile.url}');
       try {
         final res = await router.push(tile.url);
-        print('[MorePage] push returned: $res');
         if (tile.url == '/more/account_manager' && res != null)
           Timer(Durations.short1, () {
             router.go('/account');
@@ -187,5 +153,172 @@ class _MorePageState extends State<MorePage> {
         print('[MorePage] ERROR pushing ${tile.url}: $e\n$st');
       }
     }
+  }
+}
+
+/// A single menu card with icon, title, subtitle, and optional trailing widget.
+class _MenuCard extends StatelessWidget {
+  final IconData icon;
+  final Color iconColor;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+  final Widget? trailing;
+
+  const _MenuCard({
+    required this.icon,
+    required this.iconColor,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+    this.trailing,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: const Color(0xFF242424),
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          child: Row(
+            children: [
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: iconColor.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Center(
+                  child: Icon(icon, color: iconColor, size: 20),
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      style: TextStyle(
+                        color: Colors.white.withOpacity(0.4),
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (trailing != null) ...[
+                const SizedBox(width: 8),
+                trailing!,
+              ],
+              const SizedBox(width: 4),
+              Icon(
+                Icons.chevron_right,
+                color: Colors.white.withOpacity(0.25),
+                size: 20,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// A toggle card with switch (for display settings).
+class _ToggleCard extends StatelessWidget {
+  final IconData icon;
+  final Color iconColor;
+  final String title;
+  final String subtitle;
+  final bool value;
+  final ValueChanged<bool> onChanged;
+
+  const _ToggleCard({
+    required this.icon,
+    required this.iconColor,
+    required this.title,
+    required this.subtitle,
+    required this.value,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: const Color(0xFF242424),
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: () => onChanged(!value),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          child: Row(
+            children: [
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: iconColor.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Center(
+                  child: Icon(icon, color: iconColor, size: 20),
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      style: TextStyle(
+                        color: Colors.white.withOpacity(0.4),
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              SizedBox(
+                height: 28,
+                child: Switch(
+                  value: value,
+                  onChanged: onChanged,
+                  activeColor: const Color(0xFF4CAF50),
+                  activeTrackColor: const Color(0xFF4CAF50).withOpacity(0.3),
+                  inactiveThumbColor: Colors.white.withOpacity(0.5),
+                  inactiveTrackColor: Colors.white.withOpacity(0.1),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }

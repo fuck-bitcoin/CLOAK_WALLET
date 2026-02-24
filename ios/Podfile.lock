@@ -122,7 +122,7 @@ PODS:
   - quick_actions_ios (0.0.1):
     - Flutter
   - ReachabilitySwift (5.0.0)
-  - rust_lib_YWallet (0.0.1):
+  - rust_lib_cloak_wallet (0.0.1):
     - Flutter
   - SDWebImage (5.18.10):
     - SDWebImage/Core (= 5.18.10)
@@ -139,7 +139,7 @@ PODS:
   - SwiftyGif (5.4.4)
   - url_launcher_ios (0.0.1):
     - Flutter
-  - warp_api (0.0.1):
+  - cloak_api (0.0.1):
     - Flutter
   - workmanager (0.0.1):
     - Flutter
@@ -160,13 +160,13 @@ DEPENDENCIES:
   - network_info_plus (from `.symlinks/plugins/network_info_plus/ios`)
   - path_provider_foundation (from `.symlinks/plugins/path_provider_foundation/darwin`)
   - quick_actions_ios (from `.symlinks/plugins/quick_actions_ios/ios`)
-  - rust_lib_YWallet (from `.symlinks/plugins/rust_lib_YWallet/ios`)
+  - rust_lib_cloak_wallet (from `.symlinks/plugins/rust_lib_cloak_wallet/ios`)
   - sensors_plus (from `.symlinks/plugins/sensors_plus/ios`)
   - share_plus (from `.symlinks/plugins/share_plus/ios`)
   - shared_preferences_foundation (from `.symlinks/plugins/shared_preferences_foundation/darwin`)
   - shared_preferences_ios (from `.symlinks/plugins/shared_preferences_ios/ios`)
   - url_launcher_ios (from `.symlinks/plugins/url_launcher_ios/ios`)
-  - warp_api (from `.symlinks/plugins/warp_api/ios`)
+  - cloak_api (from `.symlinks/plugins/cloak_api/ios`)
   - workmanager (from `.symlinks/plugins/workmanager/ios`)
 
 SPEC REPOS:
@@ -220,8 +220,8 @@ EXTERNAL SOURCES:
     :path: ".symlinks/plugins/path_provider_foundation/darwin"
   quick_actions_ios:
     :path: ".symlinks/plugins/quick_actions_ios/ios"
-  rust_lib_YWallet:
-    :path: ".symlinks/plugins/rust_lib_YWallet/ios"
+  rust_lib_cloak_wallet:
+    :path: ".symlinks/plugins/rust_lib_cloak_wallet/ios"
   sensors_plus:
     :path: ".symlinks/plugins/sensors_plus/ios"
   share_plus:
@@ -232,8 +232,8 @@ EXTERNAL SOURCES:
     :path: ".symlinks/plugins/shared_preferences_ios/ios"
   url_launcher_ios:
     :path: ".symlinks/plugins/url_launcher_ios/ios"
-  warp_api:
-    :path: ".symlinks/plugins/warp_api/ios"
+  cloak_api:
+    :path: ".symlinks/plugins/cloak_api/ios"
   workmanager:
     :path: ".symlinks/plugins/workmanager/ios"
 
@@ -273,7 +273,7 @@ SPEC CHECKSUMS:
   PromisesObjC: f5707f49cb48b9636751c5b2e7d227e43fba9f47
   quick_actions_ios: 5ec8f5f1ae81512ac803fe10c197ebb875767a9e
   ReachabilitySwift: 985039c6f7b23a1da463388634119492ff86c825
-  rust_lib_YWallet: 382dd1cd3d6fb74b73d9fbe29295065feac7d31d
+  rust_lib_cloak_wallet: 382dd1cd3d6fb74b73d9fbe29295065feac7d31d
   SDWebImage: fc8f2d48bbfd72ef39d70e981bd24a3f3be53fec
   sensors_plus: 42b9de1b8237675fa8d8121e4bb93be0f79fa61d
   share_plus: c3fef564749587fc939ef86ffb283ceac0baf9f5
@@ -281,7 +281,7 @@ SPEC CHECKSUMS:
   shared_preferences_ios: 548a61f8053b9b8a49ac19c1ffbc8b92c50d68ad
   SwiftyGif: 93a1cc87bf3a51916001cf8f3d63835fb64c819f
   url_launcher_ios: 5334b05cef931de560670eeae103fd3e431ac3fe
-  warp_api: 37e81d0816f7c75c4f635e1e4f1b42c5949d5df1
+  cloak_api: 37e81d0816f7c75c4f635e1e4f1b42c5949d5df1
   workmanager: 0afdcf5628bbde6924c21af7836fed07b42e30e6
 
 PODFILE CHECKSUM: 5738dbb2a92a16ab365ba909fa5386bb7f2cc9e6

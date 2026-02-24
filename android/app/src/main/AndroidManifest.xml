@@ -1,7 +1,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="me.hanh.ywallet">
+    package="app.cloak.wallet">
    <application
-        android:label="YWallet"
+        android:label="CLOAK Wallet"
         android:icon="@mipmap/ic_launcher"
         android:allowBackup="false">
         <activity
@@ -34,9 +34,7 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data
-                        android:scheme="ycash"/>
-                <data
-                        android:scheme="zcash"/>
+                        android:scheme="cloak"/>
             </intent-filter>
         </activity>
         <!-- Don't delete the meta-data below.

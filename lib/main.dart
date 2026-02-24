@@ -1,8 +1,9 @@
 import 'dart:async';
-import 'dart:io' show Platform;
+import 'dart:io' show File, Platform;
 
 import 'package:decimal/decimal.dart';
 import 'package:flutter/material.dart';
+import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'appsettings.dart';
@@ -38,55 +39,64 @@ void main() async {
   initNotifications();
   final prefs = await SharedPreferences.getInstance();
   final dbPath = await getDbPath();
-  print("db path $dbPath");
 
-  // Initialize CLOAK wallet manager (sets up paths + DB)
-  await CloakWalletManager.init(dbPassword: appStore.dbPassword);
+  final pinSet = prefs.getBool('pin_set') ?? false;
+  final walletFilePath = p.join(dbPath, 'cloak.wallet');
+  final walletFileExists = File(walletFilePath).existsSync();
 
   bool walletReady = false;
-  try {
-    if (await CloakWalletManager.walletExists()) {
-      await CloakWalletManager.loadWallet();
-      await refreshCloakAccountsCache();
-      print('[init] CLOAK wallet loaded');
-      walletReady = true;
 
-      // Validate wallet configuration
-      final validationErrors = await CloakWalletManager.validateWalletConfiguration();
-      if (validationErrors.isNotEmpty) {
-        for (final error in validationErrors) {
-          print('[init] WALLET VALIDATION ERROR: $error');
-        }
-        appStore.cloakWalletValidationErrors = validationErrors;
-      }
+  if (pinSet && walletFileExists) {
+    // PIN is set and wallet exists — defer all DB/wallet init to PIN login page.
+    // The PinLoginPage will init DB, load wallet, restore account, and start sync.
+  } else if (pinSet && !walletFileExists) {
+    // PIN set but no wallet file — unusual state. Go to splash for create/restore.
+    // The PIN setup page will handle re-init.
+  } else {
+    // No PIN — initialize normally (unencrypted DB)
+    await CloakWalletManager.init(dbPassword: appStore.dbPassword);
 
-      // Start signature provider server for website auth
-      final started = await SignatureProvider.start();
-      print('[init] Signature provider ${started ? "started" : "failed to start"}');
-    } else {
-      // Auto-restore if we have a seed in the DB but no wallet file
-      final account = await CloakDb.getFirstAccount();
-      if (account != null && account['seed'] != null && (account['seed'] as String).isNotEmpty) {
-        print('[init] Wallet file missing but seed found - auto-restoring');
-        await CloakWalletManager.restoreWallet(
-          account['name'] as String,
-          account['seed'] as String,
-        );
+    try {
+      if (walletFileExists) {
         await CloakWalletManager.loadWallet();
         await refreshCloakAccountsCache();
-        print('[init] CLOAK wallet auto-restored from seed');
         walletReady = true;
+
+        // Validate wallet configuration
+        final validationErrors = await CloakWalletManager.validateWalletConfiguration();
+        if (validationErrors.isNotEmpty) {
+          appStore.cloakWalletValidationErrors = validationErrors;
+        }
+
+        // Start signature provider server for website auth
+        await SignatureProvider.start();
       } else {
-        print('[init] No CLOAK wallet found — showing splash');
+        // Auto-restore if we have a seed in the DB but no wallet file
+        final account = await CloakDb.getFirstAccount();
+        if (account != null && account['seed'] != null && (account['seed'] as String).isNotEmpty) {
+          await CloakWalletManager.restoreWallet(
+            account['name'] as String,
+            account['seed'] as String,
+          );
+          await CloakWalletManager.loadWallet();
+          await refreshCloakAccountsCache();
+          walletReady = true;
+        }
       }
+    } catch (e) {
+      print('[init] Error initializing wallet: $e');
     }
-  } catch (e) {
-    print('[init] Error initializing wallet: $e');
   }
 
-  // Set initial route BEFORE router is first accessed by runApp
-  if (!walletReady && Platform.environment['YW_INITIAL_ROUTE'] == null) {
-    initialLocation = '/splash';
+  // Set initial route BEFORE router is first accessed by runApp.
+  if (Platform.environment['YW_INITIAL_ROUTE'] == null) {
+    if (pinSet && walletFileExists) {
+      initialLocation = '/pin_login';
+    } else if (walletReady) {
+      initialLocation = '/account';
+    } else {
+      initialLocation = '/splash';
+    }
   }
 
   // Migrate coin index: CLOAK was 2 in multi-coin list, now 0
@@ -103,13 +113,10 @@ void main() async {
   if (walletReady) {
     try {
       final a = ActiveAccount2.fromPrefs(prefs);
-      print('[init] fromPrefs returned: $a (id=${a?.id})');
       if (a != null) {
-        print('[init] Setting active account: coin=${a.coin}, id=${a.id}');
         setActiveAccount(a.coin, a.id);
         aa.update(syncStatus2.latestHeight);
       }
-      print('[init] aa.id is now: ${aa.id}, aa.coin: ${aa.coin}');
     } catch (e) {
       print('[init] Error restoring account: $e');
     }

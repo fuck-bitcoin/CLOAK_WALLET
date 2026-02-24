@@ -72,7 +72,7 @@ Future<void> startAutoSync() async {
     if (aa.id == 0) {
       // No account - skipping initial sync
       // Still set up the timer for when an account is created
-      syncTimer = Timer.periodic(Duration(seconds: 5), (timer) {
+      syncTimer = Timer.periodic(Duration(seconds: 3), (timer) {
         if (aa.id == 0) return; // No account yet
         if (syncStatus2.syncing) {
           return;
@@ -84,7 +84,7 @@ Future<void> startAutoSync() async {
     }
     await syncStatus2.update();
     await syncStatus2.sync(false, auto: true);
-    syncTimer = Timer.periodic(Duration(seconds: 5), (timer) {
+    syncTimer = Timer.periodic(Duration(seconds: 3), (timer) {
       if (aa.id == 0) return; // No account
       // IMPORTANT: Skip FFI calls while sync is in progress to avoid blocking UI
       if (syncStatus2.syncing) {
@@ -113,7 +113,7 @@ void _rescheduleAutoSyncAfter(Duration delay) {
       return;
     }
     syncStatus2.sync(false, auto: true);
-    syncTimer = Timer.periodic(Duration(seconds: 5), (timer) {
+    syncTimer = Timer.periodic(Duration(seconds: 3), (timer) {
       // IMPORTANT: Skip FFI calls while sync is in progress to avoid blocking UI
       if (syncStatus2.syncing) {
         return;
@@ -307,9 +307,7 @@ abstract class _SyncStatus2 with Store {
         };
 
         // Sync returns true if this was a full sync
-        final heightBefore = CloakSync.syncedHeight;
         final wasFullSync = await CloakSync.sync();
-        final heightAfter = CloakSync.syncedHeight;
 
         // Set completion BEFORE updating real heights — prevents banner
         // disappearing between isSynced=true and syncJustCompleted=true
@@ -324,9 +322,13 @@ abstract class _SyncStatus2 with Store {
         // Always call aa.update() for CLOAK — the FFI call is fast (~1ms) and
         // the eager wallet update after zsign may have added outgoing notes
         // that need to appear in the TX list even before on-chain confirmation.
-        print('[SYNC_DEBUG] Calling aa.update(${CloakSync.syncedHeight}) — txs.items.length=${aa.txs.items.length}');
         aa.update(CloakSync.syncedHeight);
-        print('[SYNC_DEBUG] After aa.update — txs.items.length=${aa.txs.items.length}');
+
+        // Force Observer rebuild — aa.update() mutates @observable fields which
+        // SHOULD trigger MobX, but the mutations happen after an async boundary
+        // (await CloakSync.sync()) which can break MobX action batching.
+        // aaSequence.seqno is the guaranteed rebuild trigger the Observer tracks.
+        aaSequence.seqno = DateTime.now().microsecondsSinceEpoch;
       } catch (e) {
         logger.d('[SYNC] CLOAK sync error: $e');
       } finally {
@@ -344,7 +346,6 @@ abstract class _SyncStatus2 with Store {
 
   @action
   Future<void> rescan(int height) async {
-    print('[RESCAN] === STARTING RESCAN ===');
     syncedHeight = 0;
     paused = false;
     await sync(true);

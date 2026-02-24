@@ -67,8 +67,6 @@ class AnchorLinkClient {
       _channelId = const Uuid().v4();
       final channelUrl = '$ANCHOR_LINK_SERVICE/$_channelId';
 
-      print('[AnchorLink] Connecting to: $channelUrl');
-
       // Connect to the relay
       _channel = WebSocketChannel.connect(Uri.parse(channelUrl));
 
@@ -84,14 +82,12 @@ class AnchorLinkClient {
       _channel!.stream.listen(
         _handleMessage,
         onError: (error) {
-          print('[AnchorLink] WebSocket error: $error');
           _setStatus(AnchorLinkStatus.error, 'Connection error: $error');
           if (!_responseCompleter!.isCompleted) {
             _responseCompleter?.complete(null);
           }
         },
         onDone: () {
-          print('[AnchorLink] WebSocket closed');
           if (!_responseCompleter!.isCompleted) {
             _responseCompleter?.complete(null);
           }
@@ -103,7 +99,6 @@ class AnchorLinkClient {
 
       return true;
     } catch (e) {
-      print('[AnchorLink] Connect error: $e');
       _setStatus(AnchorLinkStatus.error, 'Error: $e');
       return false;
     }
@@ -116,7 +111,6 @@ class AnchorLinkClient {
     Duration timeout = const Duration(minutes: 5),
   }) async {
     if (_responseCompleter == null) {
-      print('[AnchorLink] Not connected - call connect() first');
       return null;
     }
 
@@ -125,7 +119,6 @@ class AnchorLinkClient {
       final response = await _responseCompleter!.future.timeout(
         timeout,
         onTimeout: () {
-          print('[AnchorLink] Request timed out');
           _setStatus(AnchorLinkStatus.error, 'Request timed out');
           return null;
         },
@@ -137,7 +130,6 @@ class AnchorLinkClient {
 
       return response;
     } catch (e) {
-      print('[AnchorLink] Error waiting for response: $e');
       _setStatus(AnchorLinkStatus.error, 'Error: $e');
       return null;
     } finally {
@@ -164,13 +156,11 @@ class AnchorLinkClient {
 
       // Send the signing request
       final request = _buildSigningRequest(esrUrl);
-      print('[AnchorLink] Sending request: ${request.length} bytes');
       _channel!.sink.add(request);
 
       // Wait for response
       return await waitForResponse(timeout: timeout);
     } catch (e) {
-      print('[AnchorLink] Error: $e');
       _setStatus(AnchorLinkStatus.error, 'Error: $e');
       return null;
     }
@@ -203,8 +193,6 @@ class AnchorLinkClient {
 
   void _handleMessage(dynamic data) {
     try {
-      print('[AnchorLink] Received message: ${data.toString().substring(0, min(100, data.toString().length))}...');
-
       if (data is String) {
         final json = jsonDecode(data) as Map<String, dynamic>;
 
@@ -230,10 +218,8 @@ class AnchorLinkClient {
         }
 
         // Acknowledgment or other message
-        print('[AnchorLink] Received: $json');
       }
-    } catch (e) {
-      print('[AnchorLink] Error parsing message: $e');
+    } catch (_) {
     }
   }
 

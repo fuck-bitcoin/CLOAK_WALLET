@@ -56,7 +56,6 @@ class SignatureProvider {
     final hasSelfSignedCerts = await File(_sslCertPath!).exists() && await File(_sslKeyPath!).exists();
 
     if (hasMkcertCerts) {
-      print('[SignatureProvider] mkcert SSL certificates found');
       // Ensure chain file exists (include CA cert for proper chain)
       if (!await File(_sslCertPath!).exists()) {
         await _createCertChain(sslDir, certPath);
@@ -65,7 +64,6 @@ class SignatureProvider {
     }
 
     if (hasSelfSignedCerts) {
-      print('[SignatureProvider] Self-signed SSL certificates found');
       return true;
     }
 
@@ -83,7 +81,6 @@ class SignatureProvider {
         final result = await Process.run(path, ['--version']);
         if (result.exitCode == 0) {
           mkcertPath = path;
-          print('[SignatureProvider] Found mkcert at: $path');
           break;
         }
       } catch (_) {}
@@ -92,12 +89,9 @@ class SignatureProvider {
     if (mkcertPath != null) {
       try {
         // Install CA to system trust store (may require user interaction)
-        print('[SignatureProvider] Installing mkcert CA...');
-        final installResult = await Process.run(mkcertPath, ['-install']);
-        print('[SignatureProvider] mkcert -install: ${installResult.exitCode}');
+        await Process.run(mkcertPath, ['-install']);
 
         // Generate certificates for localhost
-        print('[SignatureProvider] Generating SSL certificates...');
         final result = await Process.run(mkcertPath, [
           '-cert-file', certPath,
           '-key-file', _sslKeyPath!,
@@ -105,7 +99,6 @@ class SignatureProvider {
         ], workingDirectory: sslDir);
 
         if (result.exitCode == 0) {
-          print('[SignatureProvider] SSL certificates generated successfully');
           // Create chain file with CA cert
           await _createCertChain(sslDir, certPath);
           return true;
@@ -117,7 +110,6 @@ class SignatureProvider {
       }
     }
 
-    print('[SignatureProvider] mkcert not found - trying self-signed fallback');
     return await _generateSelfSignedCertificate(sslDir);
   }
 
@@ -143,14 +135,12 @@ class SignatureProvider {
           final cert = await File(certPath).readAsString();
           final ca = await File(caPath).readAsString();
           await File(_sslCertPath!).writeAsString('$cert$ca');
-          print('[SignatureProvider] Created certificate chain file');
           return;
         }
       }
 
       // If we can't find CA, just copy the cert as the chain
       await File(certPath).copy(_sslCertPath!);
-      print('[SignatureProvider] Using certificate without CA chain');
     } catch (e) {
       print('[SignatureProvider] Error creating cert chain: $e');
       // Fallback: just copy the cert
@@ -163,8 +153,6 @@ class SignatureProvider {
   /// Generate a self-signed certificate using openssl
   static Future<bool> _generateSelfSignedCertificate(String sslDir) async {
     try {
-      print('[SignatureProvider] Generating self-signed SSL certificate...');
-
       // Generate private key
       final keyResult = await Process.run('openssl', [
         'genrsa', '-out', _sslKeyPath!, '2048',
@@ -173,7 +161,6 @@ class SignatureProvider {
         print('[SignatureProvider] Failed to generate key: ${keyResult.stderr}');
         return false;
       }
-      print('[SignatureProvider] Private key generated');
 
       // Try modern openssl first (with -addext for SAN)
       var certResult = await Process.run('openssl', [
@@ -187,7 +174,6 @@ class SignatureProvider {
 
       // If -addext not supported, try simpler version
       if (certResult.exitCode != 0) {
-        print('[SignatureProvider] Modern openssl failed, trying simpler approach...');
         certResult = await Process.run('openssl', [
           'req', '-new', '-x509',
           '-key', _sslKeyPath!,
@@ -202,8 +188,6 @@ class SignatureProvider {
         return false;
       }
 
-      print('[SignatureProvider] Self-signed certificate generated at $_sslCertPath');
-      print('[SignatureProvider] NOTE: Browser may show security warning - this is expected');
       return true;
     } catch (e) {
       print('[SignatureProvider] Error generating self-signed cert: $e');
@@ -214,7 +198,6 @@ class SignatureProvider {
   /// Start the WSS server with automatic watchdog restart
   static Future<bool> start({int port = 9367}) async {
     if (_server != null) {
-      print('[SignatureProvider] Server already running');
       _startWatchdog(port);
       return true;  // Already running
     }
@@ -237,11 +220,9 @@ class SignatureProvider {
       );
 
       _server!.listen(_handleHttpRequest, onError: (e) {
-        print('[SignatureProvider] Server stream error: $e');
         _server = null;
         signatureProviderStore.setServerRunning(false);
       }, onDone: () {
-        print('[SignatureProvider] Server stream closed unexpectedly');
         _server = null;
         signatureProviderStore.setServerRunning(false);
       });
@@ -283,7 +264,6 @@ class SignatureProvider {
         await start(port: port);
       }
     });
-    print('[SignatureProvider] Watchdog started (15s interval)');
   }
 
   /// Stop the server and watchdog
@@ -302,7 +282,6 @@ class SignatureProvider {
     _server = null;
 
     signatureProviderStore.setServerRunning(false);
-    print('[SignatureProvider] Server and watchdog stopped');
   }
 
   /// Check if server is running
@@ -321,13 +300,10 @@ class SignatureProvider {
         final clientId = _generateClientId();
         _clients[clientId] = socket;
 
-        print('[SignatureProvider] Client connected: $clientId');
-
         socket.listen(
           (data) => _handleMessage(clientId, data),
           onDone: () {
             _clients.remove(clientId);
-            print('[SignatureProvider] Client disconnected: $clientId');
           },
           onError: (e) {
             _clients.remove(clientId);
@@ -353,14 +329,11 @@ class SignatureProvider {
   /// Handle incoming WebSocket message
   static void _handleMessage(String clientId, dynamic data) {
     try {
-      print('[SignatureProvider] RAW MESSAGE: $data');
       final json = jsonDecode(data as String) as Map<String, dynamic>;
       // Website uses "request" field, not "method"
       final method = json['request'] as String? ?? json['method'] as String?;
       final id = json['id'];
       final params = json['params'] as Map<String, dynamic>? ?? {};
-
-      print('[SignatureProvider] Request: method=$method, id=$id');
 
       switch (method) {
         case 'login':
@@ -397,7 +370,6 @@ class SignatureProvider {
           _handleGetUnpublishedNotesRequest(clientId, id, params);
           break;
         default:
-          print('[SignatureProvider] Unknown method: $method');
           _sendError(clientId, id, -32601, 'Method not found: $method');
       }
     } catch (e) {
@@ -457,12 +429,10 @@ class SignatureProvider {
 
   /// Handle get vaults request (auto-approve - read only)
   static void _handleGetVaultsRequest(String clientId, dynamic id, Map<String, dynamic> params) {
-    print('[SignatureProvider] Getting vaults...');
     final vaultsJson = CloakWalletManager.getAuthenticationTokensJson();
     if (vaultsJson != null) {
       try {
         final vaults = jsonDecode(vaultsJson);
-        print('[SignatureProvider] Vaults: $vaults');
         _sendResponse(clientId, id, {'status': 'success', 'vaults': vaults});
       } catch (e) {
         _sendError(clientId, id, -32000, 'Failed to get vaults: $e');
@@ -475,7 +445,6 @@ class SignatureProvider {
 
   /// Handle get auth tokens request (auto-approve - read only)
   static void _handleGetAuthTokensRequest(String clientId, dynamic id, Map<String, dynamic> params) {
-    print('[SignatureProvider] Getting auth tokens...');
     final contract = params['contract'] as int? ?? 0;
     final spent = params['spent'] as bool? ?? false;
     final tokensJson = CloakWalletManager.getAuthenticationTokensJson(contract: contract, spent: spent);
@@ -493,7 +462,6 @@ class SignatureProvider {
 
   /// Handle get unpublished notes request (auto-approve - read only)
   static void _handleGetUnpublishedNotesRequest(String clientId, dynamic id, Map<String, dynamic> params) {
-    print('[SignatureProvider] Getting unpublished notes...');
     final notesJson = CloakWalletManager.getUnpublishedNotesJson();
     if (notesJson != null) {
       try {
@@ -510,7 +478,6 @@ class SignatureProvider {
   /// Handle all_balances request from app.cloak.today
   /// Returns {fts: ["1.0000 CLOAK@thezeostoken", ...], nfts: [...], ats: [...]}
   static void _handleAllBalancesRequest(String clientId, dynamic id, Map<String, dynamic> params) async {
-    print('[SignatureProvider] Handling all_balances request');
     final includeFt = params['ft'] as bool? ?? true;
     final includeNft = params['nft'] as bool? ?? true;
     final includeAt = params['at'] as bool? ?? true;
@@ -530,7 +497,6 @@ class SignatureProvider {
 
   /// Handle filtered balances request from app.cloak.today
   static void _handleFilteredBalancesRequest(String clientId, dynamic id, Map<String, dynamic> params) async {
-    print('[SignatureProvider] Handling balances request');
     try {
       final result = await _buildBalancesResult(
         includeFt: params.containsKey('ft_symbols'),
@@ -592,26 +558,13 @@ class SignatureProvider {
 
     if (includeAt) {
       final tokensJson = CloakWalletManager.getAuthenticationTokensJson();
-      print('[SignatureProvider] Raw auth tokens (unspent): $tokensJson');
-      // Also check spent auth tokens for debugging
+      // Also check spent auth tokens
       final spentJson = CloakWalletManager.getAuthenticationTokensJson(spent: true);
-      print('[SignatureProvider] Raw auth tokens (spent): $spentJson');
-      // Write to log file for debugging
-      try {
-        final logFile = File('/tmp/cloak_at_debug.log');
-        final timestamp = DateTime.now().toIso8601String();
-        logFile.writeAsStringSync(
-          '$timestamp\n'
-          'UNSPENT AUTH TOKENS:\n$tokensJson\n\n'
-          'SPENT AUTH TOKENS:\n$spentJson\n\n',
-        );
-      } catch (_) {}
 
       // DB is the authoritative source for which vaults the user has.
       // Rust wallet auth tokens may lag behind (timing, wallet recreation, etc.)
       final dbVaults = await CloakDb.getAllVaults();
       final knownHashes = dbVaults.map((v) => (v['commitment_hash'] as String).toLowerCase()).toSet();
-      print('[SignatureProvider] Known vault hashes in DB: $knownHashes');
 
       // Track which DB vaults we find in the Rust wallet
       final foundHashes = <String>{};
@@ -632,7 +585,6 @@ class SignatureProvider {
               // This filters out orphaned tokens (e.g., imported from CLOAK GUI
               // but never associated with a user-managed vault).
               if (!knownHashes.contains(hash.toLowerCase())) {
-                print('[SignatureProvider] Filtering out orphaned auth token: ${hash.substring(0, 16)}...');
                 continue;
               }
               ats.add('$hash@thezeosvault');
@@ -674,24 +626,17 @@ class SignatureProvider {
       // cases where authenticate consumed the auth token.
       for (final dbHash in knownHashes) {
         if (!foundHashes.contains(dbHash) && !spentHashSet.contains(dbHash)) {
-          print('[SignatureProvider] Adding DB vault not in Rust wallet: ${dbHash.substring(0, 16)}...');
           ats.add('$dbHash@thezeosvault');
         }
       }
     }
 
-    print('[SignatureProvider] all_balances result: ${fts.length} FTs, ${nfts.length} NFTs, ${ats.length} unspent ATs, ${spentAts.length} spent ATs');
-    print('[SignatureProvider] ATs unspent: $ats');
-    print('[SignatureProvider] ATs spent: $spentAts');
     return {'fts': fts, 'nfts': nfts, 'ats': {'unspent': ats, 'spent': spentAts}};
   }
 
   /// Handle transact request from app.cloak.today
   /// Receives zactions, generates ZK proofs, signs with alias key, broadcasts
   static void _handleTransactRequest(String clientId, dynamic id, Map<String, dynamic> params) {
-    print('[SignatureProvider] Handling transact request');
-    print('[SignatureProvider] Transact params: ${jsonEncode(params)}');
-
     // Show approval dialog for transactions (they move funds)
     final requestId = '$clientId:$id';
     final request = SignatureRequest(
@@ -750,10 +695,7 @@ class SignatureProvider {
         if (global != null) {
           final walletAC = CloakApi.getAuthCount(wallet) ?? 0;
           if (walletAC != global.authCount) {
-            print('[SignatureProvider] auth_count mismatch: wallet=$walletAC chain=${global.authCount} — updating');
             CloakApi.setAuthCount(wallet, global.authCount);
-          } else {
-            print('[SignatureProvider] auth_count in sync (${global.authCount})');
           }
         }
       } catch (e) {
@@ -762,7 +704,6 @@ class SignatureProvider {
     }
 
     // Generate ZK proof + unsigned transaction via Rust FFI
-    print('[SignatureProvider] Generating ZK proof for transact...');
     final txJson = CloakWalletManager.transactPackedPublic(
       ztxJson: ztxJson,
       feesJson: feesJson,
@@ -770,21 +711,7 @@ class SignatureProvider {
 
     if (txJson == null) {
       final rustError = CloakWalletManager.getLastErrorPublic();
-      print('[SignatureProvider] ZK proof FAILED. Rust error: $rustError');
-      print('[SignatureProvider] ztxJson was: $ztxJson');
-      print('[SignatureProvider] feesJson was: $feesJson');
-      // Write to log file for debugging
-      try {
-        final logFile = File('/tmp/cloak_transact_debug.log');
-        logFile.writeAsStringSync(
-          '=== ZK Proof Generation Failed ===\n'
-          'Timestamp: ${DateTime.now().toIso8601String()}\n\n'
-          'RUST ERROR:\n$rustError\n\n'
-          'ZTX JSON:\n$ztxJson\n\n'
-          'FEES JSON:\n$feesJson\n\n'
-        );
-        print('[SignatureProvider] Debug log written to /tmp/cloak_transact_debug.log');
-      } catch (_) {}
+      print('[SignatureProvider] ZK proof generation failed: $rustError');
       throw Exception('ZK proof generation failed: $rustError');
     }
 
@@ -846,7 +773,6 @@ class SignatureProvider {
     );
 
     final txId = result['transaction_id'] as String? ?? 'unknown';
-    print('[SignatureProvider] Transact successful! TX: $txId');
 
     // Save wallet state
     await CloakWalletManager.saveWallet();
@@ -884,11 +810,8 @@ class SignatureProvider {
 
         final account = action['account']?.toString() ?? '';
         final actionName = action['name']?.toString() ?? '';
-        print('[SignatureProvider] ABI-serializing $account::$actionName data...');
-
         final hexData = _serializeActionDataToHex(account, actionName, actionData);
         action['data'] = hexData;
-        print('[SignatureProvider] Serialized $account::$actionName → ${hexData.length} hex chars');
       }
     }
   }
@@ -952,10 +875,7 @@ class SignatureProvider {
   /// Include request id so website can correlate response with request
   static void _sendResponse(String clientId, dynamic id, Map<String, dynamic> result) {
     final socket = _clients[clientId];
-    if (socket == null) {
-      print('[SignatureProvider] Cannot send response - client not found: $clientId');
-      return;
-    }
+    if (socket == null) return;
 
     try {
       // Include id for request correlation, plus the result fields
@@ -963,7 +883,6 @@ class SignatureProvider {
         'id': id,
         ...result,
       });
-      print('[SignatureProvider] SENDING RESPONSE: $response');
       socket.add(response);
     } catch (e) {
       print('[SignatureProvider] Error sending response: $e');
@@ -974,10 +893,7 @@ class SignatureProvider {
   /// Include request id so website can correlate response with request
   static void _sendError(String clientId, dynamic id, int code, String message) {
     final socket = _clients[clientId];
-    if (socket == null) {
-      print('[SignatureProvider] Cannot send error - client not found: $clientId');
-      return;
-    }
+    if (socket == null) return;
 
     try {
       // Include id for request correlation
@@ -986,7 +902,6 @@ class SignatureProvider {
         'status': 'error',
         'error': message,
       });
-      print('[SignatureProvider] SENDING ERROR: $response');
       socket.add(response);
     } catch (e) {
       print('[SignatureProvider] Error sending error response: $e');
@@ -996,10 +911,7 @@ class SignatureProvider {
   /// Send response for a stored request (called after user approves)
   static void sendRequestResponse(String requestId, Map<String, dynamic> result) {
     final parts = requestId.split(':');
-    if (parts.length < 2) {
-      print('[SignatureProvider] Invalid request ID format: $requestId');
-      return;
-    }
+    if (parts.length < 2) return;
 
     final clientId = parts[0];
     // The ID could be a number or string - try to parse as int first
@@ -1017,10 +929,7 @@ class SignatureProvider {
   /// Send rejection for a stored request (called when user declines)
   static void sendRequestRejection(String requestId, String reason) {
     final parts = requestId.split(':');
-    if (parts.length < 2) {
-      print('[SignatureProvider] Invalid request ID format: $requestId');
-      return;
-    }
+    if (parts.length < 2) return;
 
     final clientId = parts[0];
     final idPart = parts.sublist(1).join(':');
@@ -1036,20 +945,21 @@ class SignatureProvider {
 
   /// Notify about a new request - show bottom sheet
   static void _notifyNewRequest(SignatureRequest request) {
-    print('[SignatureProvider] Notifying about new request: ${request.id}');
+    if (CloakWalletManager.isViewOnly) {
+      print('[SignatureProvider] Auth request suppressed for view-only wallet');
+      sendRequestRejection(request.id, 'View-only wallet cannot sign');
+      return;
+    }
 
     // Schedule on main UI thread
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final context = rootNavigatorKey.currentContext;
       if (context != null) {
         try {
-          print('[SignatureProvider] Showing auth sheet...');
           showAuthRequestSheet(context, request);
         } catch (e) {
           print('[SignatureProvider] Failed to show auth sheet: $e');
         }
-      } else {
-        print('[SignatureProvider] No context available for bottom sheet');
       }
     });
   }

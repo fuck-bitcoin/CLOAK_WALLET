@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:YWallet/router.dart';
+import 'package:cloak_wallet/router.dart';
 import 'package:app_links/app_links.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -120,26 +120,20 @@ class _SplashState extends State<SplashPage> {
       final coin = c.coin;
       _setProgress(0.5 + 0.1 * coin, 'Initializing ${c.ticker}');
       
-      print('[init] Initializing CLOAK wallet');
       await CloakWalletManager.init(dbPassword: appStore.dbPassword);
       if (await CloakWalletManager.walletExists()) {
         await CloakWalletManager.loadWallet();
         await refreshCloakAccountsCache();
-        print('[init] CLOAK wallet loaded');
       } else {
         // Auto-restore if we have a seed in the DB but no wallet file
         final account = await CloakDb.getFirstAccount();
         if (account != null && account['seed'] != null && (account['seed'] as String).isNotEmpty) {
-          print('[init] Wallet file missing but seed found - auto-restoring');
           await CloakWalletManager.restoreWallet(
             account['name'] as String,
             account['seed'] as String,
           );
           await CloakWalletManager.loadWallet();
           await refreshCloakAccountsCache();
-          print('[init] CLOAK wallet auto-restored from seed');
-        } else {
-          print('[init] No CLOAK wallet found');
         }
       }
     }
@@ -161,7 +155,6 @@ class _SplashState extends State<SplashPage> {
   }
 
   void _setProgress(double progress, String message) {
-    print("$progress $message");
     progressKey.currentState!.setValue(progress, message);
   }
 

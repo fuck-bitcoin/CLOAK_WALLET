@@ -15,10 +15,6 @@ fi
 
 sudo pacman -Sy --noconfirm unzip jdk11-openjdk
 
-mkdir $HOME/.zcash-params
-curl https://download.z.cash/downloads/sapling-output.params --output $HOME/.zcash-params/sapling-output.params
-curl https://download.z.cash/downloads/sapling-spend.params --output $HOME/.zcash-params/sapling-spend.params
-
 export ANDROID_HOME=$ROOT_DIR/Android/sdk
 mkdir -p $ANDROID_HOME
 export ANDROID_SDK_ROOT=$ANDROID_HOME

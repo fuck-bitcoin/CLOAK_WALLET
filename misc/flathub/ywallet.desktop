@@ -1,7 +1,0 @@
-[Desktop Entry]
-Name=YWallet
-Comment=Light Wallet for Ycash and Zcash
-Exec=ywallet
-Type=Application
-Icon=app.ywallet.Ywallet
-Categories=Office;Finance

@@ -5,9 +5,9 @@ import 'dart:math';
 import 'dart:typed_data';
 import 'dart:ui';
 
-import 'package:YWallet/cloak/cloak_wallet_manager.dart';
-import 'package:YWallet/cloak/cloak_db.dart';
-import 'package:YWallet/main.dart';
+import 'package:cloak_wallet/cloak/cloak_wallet_manager.dart';
+import 'package:cloak_wallet/cloak/cloak_db.dart';
+import 'package:cloak_wallet/main.dart';
 import 'package:awesome_notifications/awesome_notifications.dart';
 import 'package:binary/binary.dart';
 import 'package:collection/collection.dart';
@@ -269,45 +269,14 @@ Future<bool> authBarrier(BuildContext context,
 }
 
 Future<bool> authenticate(BuildContext context, String reason) async {
-  final s = S.of(context);
   if (!isMobile()) {
     if (appStore.dbPassword.isEmpty) return true;
-    final formKey = GlobalKey<FormBuilderState>();
-    final passwdController = TextEditingController();
-    final authed = await showAdaptiveDialog<bool>(
+    final authed = await showDialog<bool>(
             context: context,
-            builder: (context) {
-              return AlertDialog.adaptive(
-                title: Text(s.pleaseAuthenticate),
-                content: Card(
-                    child: FormBuilder(
-                        key: formKey,
-                        child: FormBuilderTextField(
-                          name: 'passwd',
-                          decoration:
-                              InputDecoration(label: Text(s.databasePassword)),
-                          controller: passwdController,
-                          validator: FormBuilderValidators.compose([
-                            FormBuilderValidators.required(),
-                            (v) => v != appStore.dbPassword
-                                ? s.invalidPassword
-                                : null,
-                          ]),
-                          obscureText: true,
-                        ))),
-                actions: [
-                  IconButton(
-                      onPressed: () => GoRouter.of(context).pop(false),
-                      icon: Icon(Icons.cancel)),
-                  IconButton(
-                      onPressed: () {
-                        if (formKey.currentState!.validate())
-                          GoRouter.of(context).pop(true);
-                      },
-                      icon: Icon(Icons.check)),
-                ],
-              );
-            }) ??
+            barrierDismissible: false,
+            barrierColor: Colors.black87,
+            builder: (context) => const _PinAuthDialog(),
+        ) ??
         false;
     return authed;
   }
@@ -325,14 +294,236 @@ Future<bool> authenticate(BuildContext context, String reason) async {
       return true;
     }
   } on PlatformException catch (e) {
+    final s = S.of(context);
     await showDialog(
         context: context,
         barrierDismissible: true,
         builder: (context) => AlertDialog(
-            title: Text(S.of(context).noAuthenticationMethod),
+            title: Text(s.noAuthenticationMethod),
             content: Text(e.message ?? '')));
   }
   return false;
+}
+
+/// Full-screen PIN dialog that matches the app's PIN login page.
+class _PinAuthDialog extends StatefulWidget {
+  const _PinAuthDialog();
+
+  @override
+  State<_PinAuthDialog> createState() => _PinAuthDialogState();
+}
+
+class _PinAuthDialogState extends State<_PinAuthDialog> {
+  String _pin = '';
+  bool _error = false;
+  final FocusNode _focusNode = FocusNode();
+
+  @override
+  void dispose() {
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  void _onDigit(int digit) {
+    if (_pin.length >= 6) return;
+    setState(() {
+      _error = false;
+      _pin += digit.toString();
+    });
+    if (_pin.length == 6) {
+      Future.delayed(const Duration(milliseconds: 200), _onComplete);
+    }
+  }
+
+  void _onBackspace() {
+    if (_pin.isEmpty) return;
+    setState(() {
+      _error = false;
+      _pin = _pin.substring(0, _pin.length - 1);
+    });
+  }
+
+  void _onComplete() {
+    if (_pin == appStore.dbPassword) {
+      Navigator.of(context).pop(true);
+    } else {
+      setState(() {
+        _error = true;
+        _pin = '';
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFF1E1E1E),
+      appBar: AppBar(
+        backgroundColor: const Color(0xFF1E1E1E),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () => Navigator.of(context).pop(false),
+        ),
+        elevation: 0,
+      ),
+      body: KeyboardListener(
+        focusNode: _focusNode,
+        autofocus: true,
+        onKeyEvent: (event) {
+          if (event is! KeyDownEvent) return;
+          final key = event.logicalKey;
+          final digitKeys = {
+            LogicalKeyboardKey.digit0: 0, LogicalKeyboardKey.digit1: 1,
+            LogicalKeyboardKey.digit2: 2, LogicalKeyboardKey.digit3: 3,
+            LogicalKeyboardKey.digit4: 4, LogicalKeyboardKey.digit5: 5,
+            LogicalKeyboardKey.digit6: 6, LogicalKeyboardKey.digit7: 7,
+            LogicalKeyboardKey.digit8: 8, LogicalKeyboardKey.digit9: 9,
+            LogicalKeyboardKey.numpad0: 0, LogicalKeyboardKey.numpad1: 1,
+            LogicalKeyboardKey.numpad2: 2, LogicalKeyboardKey.numpad3: 3,
+            LogicalKeyboardKey.numpad4: 4, LogicalKeyboardKey.numpad5: 5,
+            LogicalKeyboardKey.numpad6: 6, LogicalKeyboardKey.numpad7: 7,
+            LogicalKeyboardKey.numpad8: 8, LogicalKeyboardKey.numpad9: 9,
+          };
+          if (digitKeys.containsKey(key)) {
+            _onDigit(digitKeys[key]!);
+          } else if (key == LogicalKeyboardKey.backspace) {
+            _onBackspace();
+          }
+        },
+        child: SafeArea(
+        child: Column(
+          children: [
+            const Spacer(flex: 2),
+            Text(
+              'Enter PIN',
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 24,
+                fontWeight: FontWeight.w300,
+                letterSpacing: 1,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              _error ? 'Incorrect PIN. Try again.' : 'Enter your PIN to continue',
+              style: TextStyle(
+                color: _error
+                    ? const Color(0xFFEF5350)
+                    : Colors.white.withOpacity(0.45),
+                fontSize: 14,
+              ),
+            ),
+            const SizedBox(height: 36),
+            // PIN dots
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: List.generate(6, (i) {
+                final filled = i < _pin.length;
+                return Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 150),
+                    width: 16,
+                    height: 16,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: filled
+                          ? (_error
+                              ? const Color(0xFFEF5350)
+                              : const Color(0xFF4CAF50))
+                          : Colors.transparent,
+                      border: Border.all(
+                        color: _error
+                            ? const Color(0xFFEF5350).withOpacity(0.5)
+                            : Colors.white.withOpacity(0.25),
+                        width: 1.5,
+                      ),
+                    ),
+                  ),
+                );
+              }),
+            ),
+            const SizedBox(height: 36),
+            const Spacer(flex: 2),
+            // Numpad
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 48),
+              child: Column(
+                children: [
+                  _numRow([1, 2, 3]),
+                  const SizedBox(height: 16),
+                  _numRow([4, 5, 6]),
+                  const SizedBox(height: 16),
+                  _numRow([7, 8, 9]),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Expanded(child: SizedBox(height: 64)),
+                      Expanded(child: _numButton(0)),
+                      Expanded(
+                        child: SizedBox(
+                          height: 64,
+                          child: Material(
+                            color: Colors.transparent,
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(16),
+                              onTap: _onBackspace,
+                              child: Center(
+                                child: Icon(
+                                  Icons.backspace_outlined,
+                                  color: Colors.white.withOpacity(0.6),
+                                  size: 24,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const Spacer(flex: 1),
+          ],
+        ),
+      ),
+      ),
+    );
+  }
+
+  Widget _numRow(List<int> digits) {
+    return Row(
+      children: digits.map((d) => Expanded(child: _numButton(d))).toList(),
+    );
+  }
+
+  Widget _numButton(int digit) {
+    return SizedBox(
+      height: 64,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 6),
+        child: Material(
+          color: const Color(0xFF2A2A2A),
+          borderRadius: BorderRadius.circular(16),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(16),
+            onTap: () => _onDigit(digit),
+            child: Center(
+              child: Text(
+                '$digit',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 28,
+                  fontWeight: FontWeight.w300,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 void handleAccel(AccelerometerEvent event) {
@@ -696,7 +887,7 @@ Future<String> getDbPath() async {
   if (Platform.isIOS) return (await getApplicationDocumentsDirectory()).path;
   // CLOAK Wallet: Keep all data inside the project folder
   if (Platform.isLinux) {
-    const projectDataDir = '/home/kameron/Projects/CLOAK Wallet/zwallet/data';
+    const projectDataDir = '/home/kameron/Projects/CLOAK Wallet/PRODUCTION/zwallet/data';
     Directory(projectDataDir).createSync(recursive: true);
     return projectDataDir;
   }
@@ -946,19 +1137,15 @@ Future<double?> getFxRate(String coin, String fiat) async {
 /// Compute CLOAK fiat price dynamically from on-chain auction data:
 /// CLOAK/fiat = (round_contributions / tokens_per_round) × TLOS/fiat
 Future<double?> _getCloakFxRate(String fiat) async {
-  print('[CLOAK_PRICE] _getCloakFxRate($fiat) called');
   // 1. Get TLOS price in target fiat from CoinGecko
   final tlosRate = await getFxRate('telos', fiat);
-  print('[CLOAK_PRICE] TLOS/$fiat = $tlosRate');
   if (tlosRate == null) return null;
 
   // 2. Get CLOAK/TLOS price from on-chain auction (thezeosalias contract)
   final cloakTlosPrice = await _getCloakTlosPrice();
-  print('[CLOAK_PRICE] CLOAK/TLOS = $cloakTlosPrice');
   if (cloakTlosPrice == null || cloakTlosPrice <= 0) return null;
 
   final result = cloakTlosPrice * tlosRate;
-  print('[CLOAK_PRICE] CLOAK/$fiat = $result');
   return result;
 }
 
@@ -969,20 +1156,17 @@ Future<double?> _getCloakTlosPrice() async {
   const contract = 'thezeosalias';
   try {
     // Fetch auction config
-    print('[CLOAK_PRICE] Fetching auctioncfg...');
     final cfgResp = await http.post(
       Uri.parse('$endpoint/v1/chain/get_table_rows'),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({'code': contract, 'table': 'auctioncfg', 'scope': contract, 'limit': 1, 'json': true}),
     ).timeout(const Duration(seconds: 8));
     if (cfgResp.statusCode != 200) {
-      print('[CLOAK_PRICE] auctioncfg HTTP ${cfgResp.statusCode}');
       return null;
     }
     final cfgData = jsonDecode(cfgResp.body);
     final rows0 = cfgData['rows'] as List?;
     if (rows0 == null || rows0.isEmpty) {
-      print('[CLOAK_PRICE] auctioncfg: no rows');
       return null;
     }
     final cfg = rows0.first as Map<String, dynamic>;
@@ -992,14 +1176,12 @@ Future<double?> _getCloakTlosPrice() async {
     final tokensPerRoundStr = cfg['tokens_per_round'] as String; // "1638001.6380 CLOAK"
     final tokensPerRound = double.tryParse(tokensPerRoundStr.split(' ')[0]);
     if (tokensPerRound == null || tokensPerRound <= 0) {
-      print('[CLOAK_PRICE] bad tokens_per_round: $tokensPerRoundStr');
       return null;
     }
 
     // Compute current round number
     final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
     final currentRound = (now - startTime) ~/ roundDuration;
-    print('[CLOAK_PRICE] now=$now start=$startTime dur=$roundDuration round=$currentRound');
     if (currentRound < 0) return null;
 
     // Fetch contributions for current round
@@ -1009,12 +1191,10 @@ Future<double?> _getCloakTlosPrice() async {
       body: jsonEncode({'code': contract, 'table': 'auction', 'scope': '$currentRound', 'limit': 1000, 'json': true}),
     ).timeout(const Duration(seconds: 8));
     if (auctResp.statusCode != 200) {
-      print('[CLOAK_PRICE] auction HTTP ${auctResp.statusCode}');
       return null;
     }
     final auctData = jsonDecode(auctResp.body);
     final rows = auctData['rows'] as List? ?? [];
-    print('[CLOAK_PRICE] auction round $currentRound: ${rows.length} contributors');
 
     // Sum all contributions (in TLOS smallest units, 4 decimals)
     int totalContributed = 0;
@@ -1023,17 +1203,14 @@ Future<double?> _getCloakTlosPrice() async {
       totalContributed += (amt is num) ? amt.toInt() : 0;
     }
     if (totalContributed <= 0) {
-      print('[CLOAK_PRICE] totalContributed=0');
       return null;
     }
 
     // Price = total_TLOS / tokens_per_round (both in human-readable units)
     final totalTlos = totalContributed / 10000.0;
     final price = totalTlos / tokensPerRound;
-    print('[CLOAK_PRICE] totalTlos=$totalTlos tokensPerRound=$tokensPerRound => CLOAK/TLOS=$price');
     return price;
-  } catch (e, st) {
-    print('[CLOAK_PRICE] FAILED: $e\n$st');
+  } catch (_) {
     return null;
   }
 }
@@ -1152,10 +1329,7 @@ Future<void> refreshCloakAccountsCache() async {
       );
     }).toList();
 
-    print('refreshCloakAccountsCache: loaded ${_cloakAccountsCache.length} accounts');
-  } catch (e, st) {
-    print('refreshCloakAccountsCache ERROR: $e');
-    print('Stack trace: $st');
+  } catch (_) {
     _cloakAccountsCache = [];
   }
 }

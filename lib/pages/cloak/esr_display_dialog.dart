@@ -113,8 +113,6 @@ class _EsrDisplayDialogState extends State<EsrDisplayDialog> {
       // Broadcast using the stored transaction + user's signature + thezeosalias signature
       final txId = await EsrService.broadcastWithManualSignature(sig);
 
-      print('[EsrDisplayDialog] Manual broadcast successful! TX: $txId');
-
       setState(() {
         _transactionSigned = true;
         _statusMessage = 'Transaction broadcast!';
@@ -183,9 +181,6 @@ class _EsrDisplayDialogState extends State<EsrDisplayDialog> {
         });
 
         try {
-          print('[EsrDisplayDialog] Anchor responded, processing...');
-          print('[EsrDisplayDialog] Response keys: ${response.keys.toList()}');
-
           String? txId;
 
           // Primary flow: flags=0 - Anchor returns signed transaction for us to broadcast
@@ -193,31 +188,25 @@ class _EsrDisplayDialogState extends State<EsrDisplayDialog> {
           if (response.containsKey('serializedTransaction') ||
               response.containsKey('packed_trx') ||
               response.containsKey('signatures')) {
-            print('[EsrDisplayDialog] Flags=0 response - adding thezeosalias signature and broadcasting...');
             setState(() {
               _statusMessage = 'Adding protocol signature and broadcasting...';
             });
             txId = await EsrService.addSignatureAndBroadcast(response);
-            print('[EsrDisplayDialog] Broadcast complete! TX: $txId');
           } else if (response.containsKey('transaction_id')) {
             // Fallback: Anchor already broadcast (shouldn't happen with flags=0, but handle it)
             txId = response['transaction_id']?.toString();
-            print('[EsrDisplayDialog] Anchor already broadcast! TX: $txId');
           } else if (response.containsKey('processed')) {
             // Some Anchor versions return processed.id
             final processed = response['processed'];
             if (processed is Map) {
               txId = processed['id']?.toString();
             }
-            print('[EsrDisplayDialog] Transaction processed! TX: $txId');
           } else if (response.containsKey('transaction')) {
             // Anchor may wrap the signed tx in a 'transaction' key
-            print('[EsrDisplayDialog] Found transaction key, adding signature and broadcasting...');
             setState(() {
               _statusMessage = 'Adding protocol signature and broadcasting...';
             });
             txId = await EsrService.addSignatureAndBroadcast(response);
-            print('[EsrDisplayDialog] Broadcast complete! TX: $txId');
           } else {
             // Check for error indicators in the response
             final errorMsg = response['error']?.toString() ??
@@ -239,14 +228,11 @@ class _EsrDisplayDialogState extends State<EsrDisplayDialog> {
             if (txId == null) {
               // No transaction ID and no known success format
               // Try broadcasting with whatever we have, but do NOT silently assume success on failure
-              print('[EsrDisplayDialog] Unknown response format, attempting broadcast...');
-              print('[EsrDisplayDialog] Full response: $response');
               txId = await EsrService.addSignatureAndBroadcast(response);
             }
           }
 
           final result = {'transaction_id': txId};
-          print('[EsrDisplayDialog] Transaction complete! ID: $txId');
 
           if (mounted) {
             setState(() {
@@ -318,7 +304,6 @@ class _EsrDisplayDialogState extends State<EsrDisplayDialog> {
   /// Launch Anchor Desktop directly with the ESR
   Future<void> _launchAnchorDesktop() async {
     try {
-      print('[EsrDisplayDialog] Launching Anchor Desktop...');
       final launched = await EsrService.launchAnchor(widget.esrUrl);
       if (launched) {
         showSnackBar('Anchor opened! Review and sign the transaction.');

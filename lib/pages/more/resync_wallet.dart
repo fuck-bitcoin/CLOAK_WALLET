@@ -20,7 +20,6 @@ class _ResyncWalletState extends State<ResyncWalletPage> with WithLoadingAnimati
 
   @override
   Widget build(BuildContext context) {
-    print('[ResyncWalletPage] build() called');
     final t = Theme.of(context);
     final zashi = t.extension<ZashiThemeExt>();
     final balanceTextColor = zashi?.balanceAmountColor ?? const Color(0xFFBDBDBD);

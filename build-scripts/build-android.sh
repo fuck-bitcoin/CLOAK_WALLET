@@ -27,11 +27,6 @@ fi
 export ANDROID_NDK_ROOT=$ANDROID_SDK_ROOT/ndk/25.1.8937393
 export ANDROID_NDK_HOME=$ANDROID_NDK_ROOT
 
-mkdir -p .zcash-params
-curl https://download.z.cash/downloads/sapling-output.params --output .zcash-params/sapling-output.params
-curl https://download.z.cash/downloads/sapling-spend.params --output .zcash-params/sapling-spend.params
-cp $HOME/.zcash-params/* $BUILD_DIR/assets/
-
 git clone -b $FLUTTER_VERSION --depth 1 https://github.com/flutter/flutter.git flutter
 export PATH=$PATH:$HOME/flutter/bin
 flutter doctor -v
@@ -46,11 +41,11 @@ mv /tmp/out.toml native/zcash-sync/Cargo.toml
 ./configure.sh
 
 cargo ndk --target arm64-v8a build --release --features=dart_ffi
-mkdir -p ./packages/warp_api_ffi/android/src/main/jniLibs/arm64-v8a
-cp ./target/aarch64-linux-android/release/libwarp_api_ffi.so ./packages/warp_api_ffi/android/src/main/jniLibs/arm64-v8a/
+mkdir -p ./packages/cloak_api_ffi/android/src/main/jniLibs/arm64-v8a
+cp ./target/aarch64-linux-android/release/libzeos_caterpillar.so ./packages/cloak_api_ffi/android/src/main/jniLibs/arm64-v8a/
 cargo ndk --target armeabi-v7a build --release --features=dart_ffi
-mkdir -p ./packages/warp_api_ffi/android/src/main/jniLibs/armeabi-v7a
-cp ./target/armv7-linux-androideabi/release/libwarp_api_ffi.so ./packages/warp_api_ffi/android/src/main/jniLibs/armeabi-v7a/
+mkdir -p ./packages/cloak_api_ffi/android/src/main/jniLibs/armeabi-v7a
+cp ./target/armv7-linux-androideabi/release/libzeos_caterpillar.so ./packages/cloak_api_ffi/android/src/main/jniLibs/armeabi-v7a/
 
 flutter build appbundle
 flutter build apk

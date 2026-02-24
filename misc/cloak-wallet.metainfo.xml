@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+    <id>app.cloak.wallet</id>
+    <name>CLOAK Wallet</name>
+    <metadata_license>CC0-1.0</metadata_license>
+    <summary>
+        Privacy wallet for CLOAK on Telos
+    </summary>
+    <url type="homepage">
+        https://cloak.today
+    </url>
+    <launchable type="desktop-id">
+        app.cloak.wallet.desktop
+    </launchable>
+    <description>
+        <p>Private transactions using zk-SNARKs</p>
+        <p>Track your wallet performance and expenditures</p>
+        <p>Watch-only and Cold Wallet</p>
+    </description>
+    <content_rating type="oars-1.1"/>
+    <developer_name>CLOAK Team</developer_name>
+    <releases>
+        <release version="1.0.0" date="2026-02-23" />
+    </releases>
+</component>

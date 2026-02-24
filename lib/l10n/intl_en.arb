@@ -196,7 +196,7 @@
 	"secretKey": "Secret Key",
 	"secured": "Secured",
 	"seed": "Seed",
-	"seedKeys": "Seed & Keys",
+	"seedKeys": "Seed, Keys & Auth Tokens",
 	"seedOrKeyRequired": "Seed or Private Key required",
 	"selectNotesToExcludeFromPayments": "Select notes to EXCLUDE from payments",
 	"send": "Send",

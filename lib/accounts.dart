@@ -82,14 +82,11 @@ Future<void> refreshActiveVaultBalance() async {
 /// Uses runInAction for proper MobX batching so Observers are notified.
 Future<void> _fetchActiveVaultBalance(String commitmentHash) async {
   try {
-    print('[_fetchActiveVaultBalance] querying chain for ${commitmentHash.substring(0, 16)}...');
     final result = await CloakWalletManager.queryVaultTokens(commitmentHash);
-    print('[_fetchActiveVaultBalance] chain returned cloakUnits=${result.cloakUnits}');
     if (_isVaultMode && _activeVaultHash == commitmentHash) {
       final oldBalance = aa.poolBalances.sapling;
       _activeVaultTokens = result;
       if (result.cloakUnits != oldBalance) {
-        print('[_fetchActiveVaultBalance] Balance CHANGED $oldBalance → ${result.cloakUnits} — updating');
         runInAction(() {
           final balance = CloakBalance();
           balance.sapling = result.cloakUnits;
@@ -98,9 +95,7 @@ Future<void> _fetchActiveVaultBalance(String commitmentHash) async {
         });
       }
     }
-  } catch (e) {
-    print('[_fetchActiveVaultBalance] Error: $e');
-  }
+  } catch (e) {}
 }
 
 void setActiveAccount(int coin, int id) {
@@ -148,7 +143,7 @@ class ActiveAccount2 extends _ActiveAccount2 with _$ActiveAccount2 {
   factory ActiveAccount2.fromId(int coin, int id) {
     if (id == 0) return nullAccount;
 
-    final isViewOnly = CloakWalletManager.isViewOnly() ?? false;
+    final isViewOnly = CloakWalletManager.isViewOnly;
     final name = CloakWalletManager.accountName;
     return ActiveAccount2(
         coin, 1, name, null, !isViewOnly, false, true);
@@ -203,18 +198,10 @@ abstract class _ActiveAccount2 with Store {
 
   @action
   void updatePoolBalances() {
-    print('[BALANCE] updatePoolBalances called for coin=$coin, id=$id');
-
     // In vault mode, balance is managed by _fetchActiveVaultBalance — don't overwrite
-    if (isVaultMode) {
-      print('[BALANCE] Skipping — vault mode active');
-      return;
-    }
+    if (isVaultMode) return;
 
-    final newBalances = _getCloakPoolBalances();
-    print('[BALANCE] CLOAK getBalancesJson returned: S=${newBalances.sapling}');
-    poolBalances = newBalances;
-    print('[BALANCE] CLOAK poolBalances updated');
+    poolBalances = _getCloakPoolBalances();
   }
   
   // Parse CLOAK/ZEOS balances into CloakBalance format
@@ -225,16 +212,10 @@ abstract class _ActiveAccount2 with Store {
   CloakBalance _getCloakPoolBalances() {
     final balance = CloakBalance();
 
-    if (!CloakWalletManager.isLoaded) {
-      print('[BALANCE] CLOAK wallet not loaded');
-      return balance;
-    }
+    if (!CloakWalletManager.isLoaded) return balance;
 
     final json = CloakWalletManager.getBalancesJson();
-    if (json == null || json.isEmpty) {
-      print('[BALANCE] CLOAK balances JSON is null/empty');
-      return balance;
-    }
+    if (json == null || json.isEmpty) return balance;
 
     try {
       // JSON is array of ExtendedAsset strings: ["1.0000 CLOAK@thezeostoken", ...]
@@ -257,7 +238,6 @@ abstract class _ActiveAccount2 with Store {
               final amount = double.tryParse(amountStr) ?? 0.0;
               // CLOAK has 4 decimal precision, so multiply by 10000
               cloakSmallestUnits = (amount * 10000).round();
-              print('[BALANCE] Parsed CLOAK balance: $amount -> $cloakSmallestUnits smallest units');
               break;
             }
           }
@@ -269,9 +249,7 @@ abstract class _ActiveAccount2 with Store {
       balance.transparent = 0;
       balance.orchard = 0;
 
-    } catch (e) {
-      print('[BALANCE] Error parsing CLOAK balances: $e');
-    }
+    } catch (e) {}
 
     return balance;
   }
@@ -374,14 +352,12 @@ abstract class _Txs with Store {
     // CLOAK doesn't use WarpApi for transactions
     if (CloakWalletManager.isCloak(coin)) {
       final historyJson = CloakWalletManager.getTransactionHistoryJson();
-      print('[TXS_DEBUG] txs.read() called, historyJson length=${historyJson?.length ?? 0}');
       if (historyJson == null || historyJson.isEmpty) {
         items = [];
         _rebuildIndex();
         return;
       }
       final history = jsonDecode(historyJson) as List;
-      print('[TXS_DEBUG] Parsed ${history.length} transactions from Rust');
       items = [];
       int idx = 0;
       for (final tx in history) {
@@ -446,16 +422,12 @@ abstract class _Txs with Store {
       // false-positiving on rapid create+burn sequences.
       final burnTs = CloakDb.burnTimestampsSync;
       if (burnTs.isNotEmpty) {
-        print('[TX_RELABEL] burnTimestampsSync has ${burnTs.length} entries: $burnTs');
         for (final tx in items) {
           if (tx.address == 'Publish Vault') {
             final txMs = tx.timestamp.millisecondsSinceEpoch;
             final isBurn = burnTs.any((burnMs) => (txMs - burnMs).abs() < 5000);
             if (isBurn) {
               tx.address = 'Burn Vault';
-              print('[TX_RELABEL] Relabeled fee at $txMs → Burn Vault');
-            } else {
-              print('[TX_RELABEL] No match for fee at $txMs (closest: ${burnTs.map((b) => (txMs - b).abs()).reduce((a, b) => a < b ? a : b)}ms)');
             }
           }
         }

@@ -39,16 +39,12 @@ Future<void> toggleBottomNav() async {
 
 Future<void> toggleAlwaysOnTop() async {
   alwaysOnTop.value = !alwaysOnTop.value;
-  print('[ALWAYS_ON_TOP] toggling to ${alwaysOnTop.value}');
   final prefs = await SharedPreferences.getInstance();
   await prefs.setBool('always_on_top', alwaysOnTop.value);
   if (!(Platform.isAndroid || Platform.isIOS)) {
     try {
       await windowManager.setAlwaysOnTop(alwaysOnTop.value);
-      final confirmed = await windowManager.isAlwaysOnTop();
-      print('[ALWAYS_ON_TOP] setAlwaysOnTop(${alwaysOnTop.value}) → isAlwaysOnTop=$confirmed');
-    } catch (e) {
-      print('[ALWAYS_ON_TOP] setAlwaysOnTop failed: $e');
+    } catch (_) {
     }
   }
 }

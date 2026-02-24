@@ -666,6 +666,18 @@ class CloakApi {
     return success;
   }
 
+  /// Clear all unpublished notes (auth tokens for vaults) from the wallet.
+  /// Called before re-importing vaults from DB to prevent duplicate accumulation.
+  /// Caller must call writeWallet() after to persist.
+  static bool clearUnpublishedNotes(Pointer<Void> wallet) {
+    final success = cloak_api_lib.wallet_clear_unpublished_notes(wallet);
+    if (!success) {
+      final err = _getLastError();
+      print('wallet_clear_unpublished_notes failed: $err');
+    }
+    return success;
+  }
+
   // ============== Vault / Auth Token Functions ==============
 
   /// Get authentication tokens (vaults) as JSON array

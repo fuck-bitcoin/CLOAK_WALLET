@@ -1,9 +1,0 @@
-/home/kameron/Projects/CLOAK Wallet/zwallet/build/linux/x64/debug/plugins/rust_lib_YWallet/cargokit_build/x86_64-unknown-linux-gnu/debug/deps/tracing_futures-334f2c737598844e.d: /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tracing-futures-0.2.5/src/lib.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tracing-futures-0.2.5/src/stdlib.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tracing-futures-0.2.5/src/executor/mod.rs
-
-/home/kameron/Projects/CLOAK Wallet/zwallet/build/linux/x64/debug/plugins/rust_lib_YWallet/cargokit_build/x86_64-unknown-linux-gnu/debug/deps/libtracing_futures-334f2c737598844e.rlib: /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tracing-futures-0.2.5/src/lib.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tracing-futures-0.2.5/src/stdlib.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tracing-futures-0.2.5/src/executor/mod.rs
-
-/home/kameron/Projects/CLOAK Wallet/zwallet/build/linux/x64/debug/plugins/rust_lib_YWallet/cargokit_build/x86_64-unknown-linux-gnu/debug/deps/libtracing_futures-334f2c737598844e.rmeta: /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tracing-futures-0.2.5/src/lib.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tracing-futures-0.2.5/src/stdlib.rs /home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tracing-futures-0.2.5/src/executor/mod.rs
-
-/home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tracing-futures-0.2.5/src/lib.rs:
-/home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tracing-futures-0.2.5/src/stdlib.rs:
-/home/kameron/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tracing-futures-0.2.5/src/executor/mod.rs:
