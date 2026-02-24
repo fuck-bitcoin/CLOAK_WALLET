@@ -11,6 +11,8 @@ Private transactions on the [Telos](https://telos.net) blockchain using zero-kno
 [![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS%20%7C%20Windows%20%7C%20Android-333333.svg)](#install-in-one-command)
 [![Build](https://img.shields.io/github/actions/workflow/status/fuck-bitcoin/CLOAK_WALLET/build-linux.yml?label=Build&color=333333)](https://github.com/fuck-bitcoin/CLOAK_WALLET/actions)
 
+**[Web App](https://app.cloak.today)** · **[Discord](https://discord.gg/8rstvq5AHB)** · **[Telegram](https://t.me/ZeosOnEos)**
+
 ---
 
 ### Install in One Command
@@ -55,6 +57,10 @@ Import a Full Viewing Key (FVK) or Incoming Viewing Key (IVK) to monitor balance
 ### Self-Custody
 
 Your keys, your coins. No company, no server, no middleman can touch your funds. A 24-word seed phrase is your entire identity.
+
+### Web App Authentication
+
+Sign in to [app.cloak.today](https://app.cloak.today) directly from your desktop wallet. The wallet runs a local signature provider -- no passwords, no browser extensions. Your keys never leave your device.
 
 ### Cross-Platform
 
@@ -184,11 +190,27 @@ sha256sum -c SHA256SUMS-linux
 
 ---
 
-## Community
+## Architecture
 
-- [Discord](https://discord.gg/8rstvq5AHB)
-- [Telegram](https://t.me/ZeosOnEos)
-- [Web App](https://app.cloak.today)
+```
+┌──────────────────────────────────────────────┐
+│  Flutter UI (Dart)                           │
+│  PIN • Accounts • Vaults • TX History • NFTs │
+├──────────────────────────────────────────────┤
+│  Dart FFI Bridge                             │
+│  CloakWalletManager • CloakSync • CloakDb   │
+├──────────────────────────────────────────────┤
+│  Rust Native Library (zeos-caterpillar)      │
+│  Wallet • ZK Proofs • Merkle Tree • Signing  │
+├──────────────────────────────────────────────┤
+│  Telos Blockchain                            │
+│  zeosprotocol • thezeostoken • thezeosvault  │
+└──────────────────────────────────────────────┘
+```
+
+- **Flutter** handles the UI, encrypted local storage (SQLCipher), and platform integration
+- **Rust** handles all cryptography: key derivation, proof generation, transaction building, and note encryption
+- **Telos** provides the on-chain smart contracts that verify proofs and manage shielded state
 
 ---
 
