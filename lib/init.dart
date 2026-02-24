@@ -222,12 +222,14 @@ class _AppState extends State<App> {
         aaSequence.settingsSeqno;
         final theme = _resolveTheme();
 
+      // Apply correct Zashi extension based on app's palette dark setting
+      final zashiExt = appSettings.palette.dark ? _zashiDark : _zashiLight;
       return MaterialApp.router(
         locale: Locale(appSettings.language),
         title: APP_NAME,
         debugShowCheckedModeBanner: false,
-        theme: theme.copyWith(extensions: [_zashiLight]),
-        darkTheme: theme.copyWith(extensions: [_zashiDark]),
+        theme: theme.copyWith(extensions: [zashiExt]),
+        darkTheme: theme.copyWith(extensions: [zashiExt]),
         scaffoldMessengerKey: rootScaffoldMessengerKey,
         scrollBehavior: _DesktopTouchScrollBehavior(),
         builder: (context, child) {

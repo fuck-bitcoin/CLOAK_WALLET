@@ -30,7 +30,7 @@ import '../../tablelist.dart';
 import '../accounts/send.dart' show SendContext, BatchAsset;
 
 /// Set to false to disable mock NFTs (for when real on-chain NFTs exist)
-const _kMockNfts = true;
+const _kMockNfts = false;
 
 class HomePage extends StatelessWidget {
   @override
