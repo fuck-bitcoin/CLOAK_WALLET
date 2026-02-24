@@ -102,7 +102,7 @@ jobs:
           cp misc/cloak-wallet.desktop \
               "$APPDIR/usr/share/applications/app.cloak.wallet.desktop"
           cp assets/icon.png \
-              "$APPDIR/usr/share/icons/hicolor/256x256/apps/cloak-wallet.png"
+              "$APPDIR/usr/share/icons/hicolor/256x256/apps/app.cloak.wallet.png"
 
           # AppRun entry point
           cat > "$APPDIR/AppRun" << 'APPRUN'
@@ -118,9 +118,9 @@ jobs:
           # Symlinks required by AppImage spec
           ln -sf usr/share/applications/app.cloak.wallet.desktop \
               "$APPDIR/app.cloak.wallet.desktop"
-          ln -sf usr/share/icons/hicolor/256x256/apps/cloak-wallet.png \
-              "$APPDIR/cloak-wallet.png"
-          ln -sf usr/share/icons/hicolor/256x256/apps/cloak-wallet.png \
+          ln -sf usr/share/icons/hicolor/256x256/apps/app.cloak.wallet.png \
+              "$APPDIR/app.cloak.wallet.png"
+          ln -sf usr/share/icons/hicolor/256x256/apps/app.cloak.wallet.png \
               "$APPDIR/.DirIcon"
 
           ARCH=x86_64 /tmp/appimagetool --no-appstream "$APPDIR" \

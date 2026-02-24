@@ -2,7 +2,7 @@
     package="app.cloak.wallet">
    <application
         android:label="CLOAK Wallet"
-        android:icon="@mipmap/ic_launcher"
+        android:icon="@mipmap/launcher_icon"
         android:allowBackup="false">
         <activity
             android:name=".MainActivity"
