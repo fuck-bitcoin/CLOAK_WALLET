@@ -283,6 +283,7 @@ class _DesktopTouchScrollBehavior extends MaterialScrollBehavior {
         PointerDeviceKind.touch,
         PointerDeviceKind.mouse,
         PointerDeviceKind.stylus,
+        PointerDeviceKind.trackpad,
         PointerDeviceKind.unknown,
       };
 }
