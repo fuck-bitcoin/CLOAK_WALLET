@@ -22,8 +22,6 @@ Private transactions on the [Telos](https://telos.net) blockchain using zero-kno
 | **Windows** | `irm https://raw.githubusercontent.com/fuck-bitcoin/CLOAK_WALLET/main/install.ps1 \| iex` |
 | **Android** | [Download APK](https://github.com/fuck-bitcoin/CLOAK_WALLET/releases/latest/download/CLOAK_Wallet.apk) |
 
-> **Note:** Linux is the primary supported platform today. macOS, Windows, and Android builds are coming soon via automated CI -- the install commands above will begin working once those builds are available. Check [Releases](https://github.com/fuck-bitcoin/CLOAK_WALLET/releases/latest) for the latest available downloads.
-
 Or download directly from [Releases](https://github.com/fuck-bitcoin/CLOAK_WALLET/releases/latest).
 
 > On first launch, CLOAK Wallet downloads zero-knowledge proving parameters (~383 MB). This is a one-time download.
