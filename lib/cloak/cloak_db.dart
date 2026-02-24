@@ -97,13 +97,7 @@ class CloakDb {
       _initSqlCipher();
     }
 
-    // On Android, pre-load libsqlcipher.so in the main isolate so that
-    // the background isolate (spawned by sqflite_common_ffi) can also find it.
-    if (Platform.isAndroid) {
-      await applyWorkaroundToOpenSqlCipherOnOldAndroidVersions();
-    }
-
-    // Also set overrides in the main isolate (for any direct sqlite3 usage)
+    // Set SQLCipher library overrides (handles Android library loading)
     _sqlcipherFfiInit();
 
     // Windows-specific init (loads sqlite3.dll path)
