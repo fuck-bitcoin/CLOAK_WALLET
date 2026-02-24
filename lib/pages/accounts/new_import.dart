@@ -273,6 +273,7 @@ class _NewImportAccountState extends State<NewImportAccountPage>
     final form = formKey.currentState!;
     if (form.validate()) {
       form.save();
+      try {
       await load(() async {
         final index = int.parse(accountIndexController.text);
         
@@ -351,6 +352,10 @@ class _NewImportAccountState extends State<NewImportAccountPage>
             GoRouter.of(context).pop();
         }
       });
+      } catch (e) {
+        print('[NewImport] Error creating/restoring wallet: $e');
+        if (mounted) showSnackBar('Failed to create wallet. Please try again.');
+      }
     }
   }
 
