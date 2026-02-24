@@ -57,6 +57,27 @@ thread_local! {
     static LAST_ERROR: RefCell<Option<String>> = RefCell::new(None);
 }
 
+// Ignore SIGPIPE to prevent crashes when stdout/stderr pipes are closed.
+// This is critical for GUI apps that don't have a connected terminal.
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "android"))]
+fn ignore_sigpipe() {
+    unsafe {
+        libc::signal(libc::SIGPIPE, libc::SIG_IGN);
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn ignore_sigpipe() {
+    // Windows doesn't have SIGPIPE
+}
+
+// Call this once at library init
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos", target_os = "android"))]
+#[no_mangle]
+pub extern "C" fn caterpillar_init() {
+    ignore_sigpipe();
+}
+
 #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
 fn set_last_error(msg: &str) {
     LAST_ERROR.with(|e| {
@@ -88,10 +109,13 @@ pub unsafe extern fn free_string(ptr: *const libc::c_char)
 }
 
 // generalized log function for use in different targets
+// Uses writeln! instead of println! to avoid SIGPIPE crashes when stdout is closed
+// (common in GUI apps where stdout isn't connected to a terminal)
 #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos", target_os = "android"))]
 pub fn log(msg: &str)
 {
-    println!("{}", msg);
+    use std::io::Write;
+    let _ = writeln!(std::io::stdout(), "{}", msg);
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -178,6 +202,9 @@ pub unsafe extern "C" fn wallet_create(
     out_p_wallet: &mut *mut Wallet,
 ) -> bool
 {
+    // Ensure SIGPIPE is ignored (critical for GUI apps without terminal)
+    ignore_sigpipe();
+
     *out_p_wallet = std::ptr::null_mut();
 
     if seed.is_null() {

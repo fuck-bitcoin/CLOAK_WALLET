@@ -203,16 +203,8 @@ class CloakWalletManager {
       _preloadZkParamsInBackground();
     }
 
-    // Create a default deterministic vault for NEW wallets only.
-    // Restores skip this — vault creation + publish happens in sync step 5f
-    // after balance is available (publish requires CLOAK for fees).
-    if (!skipAutoVault && !isIvk) {
-      try {
-        await createAndStoreVault();
-      } catch (e) {
-        print('CloakWalletManager: Auto-vault creation failed (non-fatal): $e');
-      }
-    }
+    // Vaults are user-initiated, not auto-created on fresh wallets.
+    // Users can create a vault when they need one via the Shield flow.
 
     return accountId;
   }
