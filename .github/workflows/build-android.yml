@@ -56,7 +56,7 @@ jobs:
         run: |
           export ANDROID_NDK_HOME="$ANDROID_SDK_ROOT/ndk/${{ env.ANDROID_NDK_VERSION }}"
           cargo ndk -t arm64-v8a -t armeabi-v7a \
-            -o ../zwallet/android/app/src/main/jniLibs \
+            -o ../android/app/src/main/jniLibs \
             build --release
 
       - name: Setup Flutter
@@ -67,16 +67,15 @@ jobs:
 
       - name: Generate ephemeral keystore
         run: |
-          mkdir -p zwallet/docker
+          mkdir -p docker
           keytool -genkeypair -v \
-            -keystore zwallet/docker/zwallet.jks \
+            -keystore docker/zwallet.jks \
             -keyalg RSA -keysize 2048 -validity 10000 \
             -alias zwallet \
             -storepass cloakci123 -keypass cloakci123 \
             -dname "CN=CLOAK Wallet CI, O=CLOAK Team"
 
       - name: Build APK
-        working-directory: zwallet
         env:
           JKS_PASSWORD: cloakci123
         run: |
@@ -84,7 +83,7 @@ jobs:
           dart run build_runner build -d
           (cd packages/cloak_api_ffi && flutter pub get)
           flutter build apk --release
-          cp build/app/outputs/flutter-apk/app-release.apk ../CLOAK_Wallet.apk
+          cp build/app/outputs/flutter-apk/app-release.apk CLOAK_Wallet.apk
 
       - name: Generate checksum
         run: sha256sum CLOAK_Wallet.apk > SHA256SUMS-android

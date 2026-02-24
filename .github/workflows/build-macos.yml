@@ -16,7 +16,7 @@ jobs:
           submodules: recursive
 
       - name: Load build config
-        run: cat zwallet/build.env >> $GITHUB_ENV
+        run: cat build.env >> $GITHUB_ENV
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -37,7 +37,7 @@ jobs:
 
       - name: Place native library for Xcode
         run: |
-          # Xcode project references ../target/universal/release/ relative to zwallet/macos/
+          # Xcode project references ../target/universal/release/ relative to macos/
           mkdir -p target/universal/release
           cp zeos-caterpillar/target/release/libzeos_caterpillar.dylib \
               target/universal/release/
@@ -49,7 +49,6 @@ jobs:
           echo "$HOME/flutter/bin" >> $GITHUB_PATH
 
       - name: Build Flutter
-        working-directory: zwallet
         run: |
           flutter pub get
           dart run build_runner build -d
@@ -58,7 +57,7 @@ jobs:
 
       - name: Inject native library into app bundle
         run: |
-          APP="zwallet/build/macos/Build/Products/Release/CLOAK Wallet.app"
+          APP="build/macos/Build/Products/Release/CLOAK Wallet.app"
           cp zeos-caterpillar/target/release/libzeos_caterpillar.dylib \
               "$APP/Contents/Frameworks/"
           install_name_tool -id "@rpath/libzeos_caterpillar.dylib" \
@@ -68,7 +67,7 @@ jobs:
         run: |
           hdiutil create \
             -volname "CLOAK Wallet" \
-            -srcfolder "zwallet/build/macos/Build/Products/Release/CLOAK Wallet.app" \
+            -srcfolder "build/macos/Build/Products/Release/CLOAK Wallet.app" \
             -ov -format UDZO \
             CLOAK_Wallet-macos-arm64.dmg
 
@@ -99,7 +98,7 @@ jobs:
           submodules: recursive
 
       - name: Load build config
-        run: cat zwallet/build.env >> $GITHUB_ENV
+        run: cat build.env >> $GITHUB_ENV
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -120,7 +119,7 @@ jobs:
 
       - name: Place native library for Xcode
         run: |
-          # Xcode project references ../target/universal/release/ relative to zwallet/macos/
+          # Xcode project references ../target/universal/release/ relative to macos/
           mkdir -p target/universal/release
           cp zeos-caterpillar/target/release/libzeos_caterpillar.dylib \
               target/universal/release/
@@ -132,7 +131,6 @@ jobs:
           echo "$HOME/flutter/bin" >> $GITHUB_PATH
 
       - name: Build Flutter
-        working-directory: zwallet
         run: |
           flutter pub get
           dart run build_runner build -d
@@ -141,7 +139,7 @@ jobs:
 
       - name: Inject native library into app bundle
         run: |
-          APP="zwallet/build/macos/Build/Products/Release/CLOAK Wallet.app"
+          APP="build/macos/Build/Products/Release/CLOAK Wallet.app"
           cp zeos-caterpillar/target/release/libzeos_caterpillar.dylib \
               "$APP/Contents/Frameworks/"
           install_name_tool -id "@rpath/libzeos_caterpillar.dylib" \
@@ -151,7 +149,7 @@ jobs:
         run: |
           hdiutil create \
             -volname "CLOAK Wallet" \
-            -srcfolder "zwallet/build/macos/Build/Products/Release/CLOAK Wallet.app" \
+            -srcfolder "build/macos/Build/Products/Release/CLOAK Wallet.app" \
             -ov -format UDZO \
             CLOAK_Wallet-macos-x86_64.dmg
 

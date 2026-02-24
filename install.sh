@@ -355,7 +355,7 @@ install_desktop_entry() {
     # Fallback: download icon directly
     if [ "$icon_installed" = "0" ]; then
         info "Downloading icon..."
-        _download "https://github.com/${REPO}/raw/main/zwallet/assets/icon.png" \
+        _download "https://github.com/${REPO}/raw/main/assets/icon.png" \
             "$ICON_DIR/cloak-wallet.png" 0 2>/dev/null || true
     fi
 

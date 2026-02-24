@@ -16,7 +16,7 @@ jobs:
           submodules: recursive
 
       - name: Load build config
-        run: type zwallet\build.env >> $env:GITHUB_ENV
+        run: type build.env >> $env:GITHUB_ENV
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -38,8 +38,8 @@ jobs:
       - name: Copy DLL to Flutter lib directory
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force -Path zwallet\windows\lib
-          Copy-Item zeos-caterpillar\target\release\zeos_caterpillar.dll zwallet\windows\lib\
+          New-Item -ItemType Directory -Force -Path windows\lib
+          Copy-Item zeos-caterpillar\target\release\zeos_caterpillar.dll windows\lib\
 
       - name: Setup Flutter
         shell: bash
@@ -49,7 +49,6 @@ jobs:
           echo "D:/flutter/bin" >> $GITHUB_PATH
 
       - name: Build Flutter
-        working-directory: zwallet
         shell: bash
         run: |
           flutter pub get
@@ -58,10 +57,9 @@ jobs:
           flutter build windows --release
 
       - name: Package portable ZIP
-        working-directory: zwallet
         shell: bash
         run: |
-          cp ../zeos-caterpillar/target/release/zeos_caterpillar.dll \
+          cp zeos-caterpillar/target/release/zeos_caterpillar.dll \
               build/windows/x64/runner/Release/
           cd build/windows/x64/runner
           mv Release CLOAK_Wallet
@@ -69,14 +67,14 @@ jobs:
 
       - name: Generate checksum
         shell: bash
-        run: sha256sum zwallet/CLOAK_Wallet-windows-x64.zip > SHA256SUMS-windows
+        run: sha256sum CLOAK_Wallet-windows-x64.zip > SHA256SUMS-windows
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: windows-release
           path: |
-            zwallet/CLOAK_Wallet-windows-x64.zip
+            CLOAK_Wallet-windows-x64.zip
             SHA256SUMS-windows
           retention-days: 7
 
@@ -84,4 +82,4 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: zwallet/CLOAK_Wallet-windows-x64.zip
+          files: CLOAK_Wallet-windows-x64.zip

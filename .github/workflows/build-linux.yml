@@ -47,6 +47,7 @@ jobs:
 
       - name: Copy native library
         run: |
+          mkdir -p linux/lib
           cp zeos-caterpillar/target/release/libzeos_caterpillar.so linux/lib/
           cp zeos-caterpillar/target/release/libzeos_caterpillar.so packages/cloak_api_ffi/
 
