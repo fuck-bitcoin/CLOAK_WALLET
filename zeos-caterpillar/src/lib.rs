@@ -2582,7 +2582,7 @@ fn action_to_packed(action: &eosio::Action) -> Option<ActionPacked> {
         _ => {
             // Unknown action type - try to serialize as-is (may fail)
             // For safety, return empty hex_data
-            eprintln!("Warning: Unknown action type '{}', hex_data will be empty", action.name.to_string());
+            log(&format!("Warning: Unknown action type '{}', hex_data will be empty", action.name.to_string()));
             String::new()
         }
     };

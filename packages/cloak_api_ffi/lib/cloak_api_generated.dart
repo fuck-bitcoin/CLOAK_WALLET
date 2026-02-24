@@ -8,6 +8,16 @@ class NativeLibrary {
 
   NativeLibrary(ffi.DynamicLibrary dynamicLibrary) : _lookup = dynamicLibrary.lookup;
 
+  // ============== Initialization ==============
+
+  /// Initialize the native library. Must be called before any other function.
+  /// This sets up SIGPIPE handling to prevent crashes on mobile/GUI apps.
+  void caterpillar_init() {
+    return _caterpillar_init();
+  }
+  late final _caterpillar_initPtr = _lookup<ffi.NativeFunction<ffi.Void Function()>>('caterpillar_init');
+  late final _caterpillar_init = _caterpillar_initPtr.asFunction<void Function()>();
+
   // ============== Memory Management ==============
 
   void free_string(ffi.Pointer<ffi.Char> ptr) {
