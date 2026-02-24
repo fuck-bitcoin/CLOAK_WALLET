@@ -101,10 +101,10 @@ Write-Host "  Disk space: ${freeGB} GB available on $driveLetter" -ForegroundCol
 # ---------------------------------------------------------------------------
 if ($version -eq "latest") {
     $downloadUrl  = "https://github.com/$repo/releases/latest/download/$zipName"
-    $checksumUrl  = "https://github.com/$repo/releases/latest/download/SHA256SUMS"
+    $checksumUrl  = "https://github.com/$repo/releases/latest/download/SHA256SUMS-windows"
 } else {
     $downloadUrl  = "https://github.com/$repo/releases/download/$version/$zipName"
-    $checksumUrl  = "https://github.com/$repo/releases/download/$version/SHA256SUMS"
+    $checksumUrl  = "https://github.com/$repo/releases/download/$version/SHA256SUMS-windows"
 }
 
 # ---------------------------------------------------------------------------

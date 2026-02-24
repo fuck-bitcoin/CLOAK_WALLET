@@ -259,10 +259,10 @@ install_appimage() {
     local download_url checksum_url
     if [ "$VERSION" = "latest" ]; then
         download_url="https://github.com/${REPO}/releases/latest/download/${APPIMAGE_NAME}"
-        checksum_url="https://github.com/${REPO}/releases/latest/download/SHA256SUMS"
+        checksum_url="https://github.com/${REPO}/releases/latest/download/SHA256SUMS-linux"
     else
         download_url="https://github.com/${REPO}/releases/download/${VERSION}/${APPIMAGE_NAME}"
-        checksum_url="https://github.com/${REPO}/releases/download/${VERSION}/SHA256SUMS"
+        checksum_url="https://github.com/${REPO}/releases/download/${VERSION}/SHA256SUMS-linux"
     fi
 
     info "Version: $VERSION"
@@ -344,8 +344,8 @@ install_desktop_entry() {
     extract_dir="$(mktemp -d)"
 
     if "$INSTALL_DIR/$APPIMAGE_NAME" --appimage-extract usr/share/icons 2>/dev/null; then
-        if [ -f "squashfs-root/usr/share/icons/hicolor/256x256/apps/cloak-wallet.png" ]; then
-            cp "squashfs-root/usr/share/icons/hicolor/256x256/apps/cloak-wallet.png" \
+        if [ -f "squashfs-root/usr/share/icons/hicolor/256x256/apps/app.cloak.wallet.png" ]; then
+            cp "squashfs-root/usr/share/icons/hicolor/256x256/apps/app.cloak.wallet.png" \
                 "$ICON_DIR/cloak-wallet.png"
             icon_installed=1
         fi
