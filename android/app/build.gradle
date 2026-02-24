@@ -27,7 +27,7 @@ if (flutterVersionName == null) {
     flutterVersionName = '1.0'
 }
 
-def key = System.getenv("JKS_PASSWORD") ?: file("/run/secrets/pwd").text.trim()
+def key = System.getenv("JKS_PASSWORD") ?: (file("/run/secrets/pwd").exists() ? file("/run/secrets/pwd").text.trim() : "android")
 
 apply plugin: 'com.android.application'
 apply plugin: 'kotlin-android'

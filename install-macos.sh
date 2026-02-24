@@ -83,8 +83,16 @@ case "$ARCH" in
         info "Architecture: Apple Silicon (arm64)"
         ;;
     x86_64)
-        DMG_NAME="CLOAK_Wallet-macos-x86_64.dmg"
-        info "Architecture: Intel (x86_64)"
+        DMG_NAME="CLOAK_Wallet-macos-arm64.dmg"
+        info "Architecture: Intel (x86_64) — using ARM64 build via Rosetta 2"
+        if ! /usr/bin/pgrep -q oahd 2>/dev/null; then
+            echo ""
+            echo "  NOTE: CLOAK Wallet is built for Apple Silicon (arm64)."
+            echo "  On Intel Macs, it runs via Rosetta 2."
+            echo "  If Rosetta 2 is not installed, macOS will prompt you to install it"
+            echo "  when you first launch the app."
+            echo ""
+        fi
         ;;
     *)
         die "Unsupported architecture: $ARCH. CLOAK Wallet supports arm64 and x86_64."
@@ -95,10 +103,10 @@ esac
 
 if [ "$VERSION" = "latest" ]; then
     DOWNLOAD_URL="https://github.com/${REPO}/releases/latest/download/${DMG_NAME}"
-    CHECKSUM_URL="https://github.com/${REPO}/releases/latest/download/SHA256SUMS"
+    CHECKSUM_URL="https://github.com/${REPO}/releases/latest/download/SHA256SUMS-macos"
 else
     DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${VERSION}/${DMG_NAME}"
-    CHECKSUM_URL="https://github.com/${REPO}/releases/download/${VERSION}/SHA256SUMS"
+    CHECKSUM_URL="https://github.com/${REPO}/releases/download/${VERSION}/SHA256SUMS-macos"
 fi
 
 # ── Disk Space Check ─────────────────────────────────────────────────────────
