@@ -6,6 +6,7 @@
 
 import 'dart:ffi';
 import 'dart:io';
+import 'dart:math';
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:sqlite3/open.dart';
@@ -13,72 +14,75 @@ import 'package:sqlcipher_flutter_libs/sqlcipher_flutter_libs.dart';
 
 import '../pages/utils.dart';
 
+/// Top-level function that configures the sqlite3 native library loader.
+/// Must be top-level (not a closure or instance method) so it can be sent
+/// to the background isolate that sqflite_common_ffi uses for DB operations.
+///
+/// Without this, the background isolate cannot find libsqlcipher.so on Android
+/// (Android doesn't ship sqlite3 as a standalone .so — the override is required).
+void _sqlcipherFfiInit() {
+  if (Platform.isAndroid) {
+    open.overrideFor(OperatingSystem.android, () {
+      try {
+        return DynamicLibrary.open('libsqlcipher.so');
+      } catch (_) {
+        // On old Android devices, dlopen with bare name may fail.
+        // Find the full path via /proc/self/cmdline.
+        final appIdAsBytes = File('/proc/self/cmdline').readAsBytesSync();
+        final endOfAppId = max(appIdAsBytes.indexOf(0), 0);
+        final appId = String.fromCharCodes(appIdAsBytes.sublist(0, endOfAppId));
+        return DynamicLibrary.open('/data/data/$appId/lib/libsqlcipher.so');
+      }
+    });
+  } else if (Platform.isLinux) {
+    open.overrideFor(OperatingSystem.linux, () {
+      try {
+        return DynamicLibrary.open('libsqlcipher.so');
+      } catch (_) {
+        try {
+          return DynamicLibrary.open('libsqlcipher.so.0');
+        } catch (_) {
+          return DynamicLibrary.open('libsqlite3.so.0');
+        }
+      }
+    });
+  } else if (Platform.isMacOS) {
+    open.overrideFor(OperatingSystem.macOS, () {
+      final exeDir = File(Platform.resolvedExecutable).parent.path;
+      try {
+        return DynamicLibrary.open(
+            '$exeDir/../Frameworks/sqlcipher_flutter_libs.framework/sqlcipher_flutter_libs');
+      } catch (_) {
+        try {
+          return DynamicLibrary.open('libsqlcipher.dylib');
+        } catch (_) {
+          return DynamicLibrary.open('libsqlite3.dylib');
+        }
+      }
+    });
+  } else if (Platform.isWindows) {
+    open.overrideFor(OperatingSystem.windows, () {
+      try {
+        return DynamicLibrary.open('sqlcipher.dll');
+      } catch (_) {
+        return DynamicLibrary.open('sqlite3.dll');
+      }
+    });
+  }
+}
+
 class CloakDb {
   static Database? _db;
   static String? _dbPath;
   static String _password = '';
   static bool _sqlCipherAvailable = false;
 
-  /// Initialize SQLCipher library for encrypted databases
+  /// Mark SQLCipher as available for PRAGMA key usage.
+  /// The actual library override is handled by _sqlcipherFfiInit() which
+  /// runs in both the main isolate and the sqflite background isolate.
   static void _initSqlCipher() {
-    try {
-      if (Platform.isLinux) {
-        // Linux: override the sqlite library loader to use sqlcipher
-        open.overrideFor(OperatingSystem.linux, () {
-          try {
-            return DynamicLibrary.open('libsqlcipher.so');
-          } catch (_) {
-            try {
-              return DynamicLibrary.open('libsqlcipher.so.0');
-            } catch (_) {
-              print('CloakDb: SQLCipher not found, falling back to sqlite3');
-              return DynamicLibrary.open('libsqlite3.so.0');
-            }
-          }
-        });
-        _sqlCipherAvailable = true;
-      } else if (Platform.isAndroid) {
-        // Android: handled separately via openCipherOnAndroid override
-        _sqlCipherAvailable = true;
-      } else if (Platform.isMacOS) {
-        // macOS: sqlcipher_flutter_libs bundles SQLCipher as a Flutter plugin
-        // framework. The sqlite3 package should find it automatically.
-        // Try to load it via the plugin framework path.
-        open.overrideFor(OperatingSystem.macOS, () {
-          final exeDir = File(Platform.resolvedExecutable).parent.path;
-          // sqlcipher_flutter_libs provides the dylib inside its framework
-          try {
-            return DynamicLibrary.open('$exeDir/../Frameworks/sqlcipher_flutter_libs.framework/sqlcipher_flutter_libs');
-          } catch (_) {
-            // Fallback: try system libsqlcipher
-            try {
-              return DynamicLibrary.open('libsqlcipher.dylib');
-            } catch (_) {
-              print('CloakDb: SQLCipher not found on macOS, using system sqlite3');
-              return DynamicLibrary.open('libsqlite3.dylib');
-            }
-          }
-        });
-        _sqlCipherAvailable = true;
-      } else if (Platform.isWindows) {
-        // Windows: sqlcipher_flutter_libs may bundle SQLCipher as a DLL
-        open.overrideFor(OperatingSystem.windows, () {
-          try {
-            return DynamicLibrary.open('sqlcipher.dll');
-          } catch (_) {
-            print('CloakDb: SQLCipher not found on Windows, using sqlite3');
-            return DynamicLibrary.open('sqlite3.dll');
-          }
-        });
-        _sqlCipherAvailable = true;
-      }
-      if (_sqlCipherAvailable) {
-        print('CloakDb: SQLCipher library override configured');
-      }
-    } catch (e) {
-      print('CloakDb: Failed to configure SQLCipher: $e');
-      _sqlCipherAvailable = false;
-    }
+    _sqlCipherAvailable = true;
+    print('CloakDb: SQLCipher encryption enabled');
   }
 
   /// Initialize the database
@@ -93,17 +97,23 @@ class CloakDb {
       _initSqlCipher();
     }
 
-    // Configure native SQLite/SQLCipher library for each platform
+    // On Android, pre-load libsqlcipher.so in the main isolate so that
+    // the background isolate (spawned by sqflite_common_ffi) can also find it.
     if (Platform.isAndroid) {
-      // Android: sqlcipher_flutter_libs bundles the native .so but we must
-      // tell the sqlite3 package where to find it before FFI init.
       await applyWorkaroundToOpenSqlCipherOnOldAndroidVersions();
-      open.overrideFor(OperatingSystem.android, openCipherOnAndroid);
     }
 
-    // Initialize FFI database factory (works on all platforms once native lib is configured)
+    // Also set overrides in the main isolate (for any direct sqlite3 usage)
+    _sqlcipherFfiInit();
+
+    // Windows-specific init (loads sqlite3.dll path)
     sqfliteFfiInit();
-    databaseFactory = databaseFactoryFfi;
+
+    // CRITICAL: Use createDatabaseFactoryFfi with ffiInit callback.
+    // The default databaseFactoryFfi spawns a background isolate that does
+    // NOT inherit open.overrideFor() from the main isolate. Without ffiInit,
+    // Android can't find libsqlcipher.so and DB operations fail silently.
+    databaseFactory = createDatabaseFactoryFfi(ffiInit: _sqlcipherFfiInit);
 
     final dbDir = await getDbPath();
     _dbPath = p.join(dbDir, 'cloak.db');
