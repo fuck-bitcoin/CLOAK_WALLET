@@ -142,11 +142,12 @@ class _ResyncWalletState extends State<ResyncWalletPage> with WithLoadingAnimati
         syncStatus2.syncedHeight = 0;
         syncStatus2.isRescan = true;
 
-        // 3. Navigate to balance page — sync banner will appear
-        router.go('/account');
+        // 3. Trigger full sync immediately (don't defer - prevents losing sync if app locks)
+        // The sync runs in background, so navigation happens while sync proceeds.
+        syncStatus2.sync(true);
 
-        // 4. Trigger full sync (deferred so balance page renders first)
-        Future(() => syncStatus2.sync(true));
+        // 4. Navigate to balance page — sync banner will show progress
+        router.go('/account');
       });
     } catch (e) {
       print('[Resync] Error during resync: $e');
