@@ -6,8 +6,8 @@
 
 Private transactions on the [Telos](https://telos.net) blockchain using zero-knowledge proofs.
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-black.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS%20%7C%20Windows%20%7C%20Android-333333.svg)](#install)
+[![License: MIT](https://img.shields.io/badge/License-MIT-black.svg)](LICENSE.md)
+[![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS%20%7C%20Windows%20%7C%20Android-333333.svg)](#install-in-one-command)
 
 ---
 
@@ -21,6 +21,8 @@ Private transactions on the [Telos](https://telos.net) blockchain using zero-kno
 | **macOS** | `curl -sSL https://raw.githubusercontent.com/fuck-bitcoin/CLOAK_WALLET/main/install-macos.sh \| bash` |
 | **Windows** | `irm https://raw.githubusercontent.com/fuck-bitcoin/CLOAK_WALLET/main/install.ps1 \| iex` |
 | **Android** | [Download APK](https://github.com/fuck-bitcoin/CLOAK_WALLET/releases/latest/download/CLOAK_Wallet.apk) |
+
+> **Note:** Linux is the primary supported platform today. macOS, Windows, and Android builds are coming soon via automated CI -- the install commands above will begin working once those builds are available. Check [Releases](https://github.com/fuck-bitcoin/CLOAK_WALLET/releases/latest) for the latest available downloads.
 
 Or download directly from [Releases](https://github.com/fuck-bitcoin/CLOAK_WALLET/releases/latest).
 
@@ -81,6 +83,10 @@ Your wallet stores encrypted notes locally. Only your private key can decrypt th
 ### Linux (Ubuntu/Debian)
 
 ```bash
+# Clone the repository
+git clone https://github.com/fuck-bitcoin/CLOAK_WALLET.git
+cd CLOAK_WALLET
+
 # Install system dependencies
 sudo apt-get install -y clang cmake ninja-build libgtk-3-dev \
     libssl-dev libsecret-1-dev libjsoncpp-dev libunwind-dev \
@@ -89,21 +95,24 @@ sudo apt-get install -y clang cmake ninja-build libgtk-3-dev \
 # Build Rust native library
 cd zeos-caterpillar && cargo build --release && cd ..
 
+# Copy .so to Flutter bundle location
+cp zeos-caterpillar/target/release/libzeos_caterpillar.so linux/lib/
+
 # Build Flutter app
-cd zwallet
-cp ../zeos-caterpillar/target/release/libzeos_caterpillar.so linux/lib/
 flutter pub get && dart run build_runner build -d
 (cd packages/cloak_api_ffi && flutter pub get)
 flutter build linux --release
 ```
 
-The built application is at `zwallet/build/linux/x64/release/bundle/`.
+The built application is at `build/linux/x64/release/bundle/`.
 
 ### macOS
 
 ```bash
+git clone https://github.com/fuck-bitcoin/CLOAK_WALLET.git
+cd CLOAK_WALLET
+
 cd zeos-caterpillar && cargo build --release && cd ..
-cd zwallet
 flutter pub get && dart run build_runner build -d
 (cd packages/cloak_api_ffi && flutter pub get)
 flutter build macos --release
@@ -114,12 +123,14 @@ flutter build macos --release
 Requires Visual Studio Build Tools with C++ workload.
 
 ```powershell
+git clone https://github.com/fuck-bitcoin/CLOAK_WALLET.git
+cd CLOAK_WALLET
+
 cd zeos-caterpillar; cargo build --release; cd ..
-cd zwallet
 flutter pub get; dart run build_runner build -d
 cd packages\cloak_api_ffi; flutter pub get; cd ..\..
 flutter build windows --release
-copy ..\zeos-caterpillar\target\release\zeos_caterpillar.dll build\windows\x64\runner\Release\
+copy zeos-caterpillar\target\release\zeos_caterpillar.dll build\windows\x64\runner\Release\
 ```
 
 ---
@@ -155,4 +166,4 @@ sha256sum -c SHA256SUMS-linux
 
 ## License
 
-[MIT](LICENSE) -- CLOAK Wallet Contributors
+[MIT](LICENSE.md) -- CLOAK Wallet Contributors

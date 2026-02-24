@@ -1,0 +1,88 @@
+name: Build Windows
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    tags:
+      - "v*"
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Load build config
+        run: type zwallet\build.env >> $env:GITHUB_ENV
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: actions/cache@v4
+        with:
+          path: |
+            zeos-caterpillar/target
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: windows-rust-${{ hashFiles('zeos-caterpillar/Cargo.lock') }}
+          restore-keys: windows-rust-
+
+      - name: Build Rust native library
+        working-directory: zeos-caterpillar
+        run: cargo build --release
+
+      - name: Copy DLL to Flutter lib directory
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path zwallet\windows\lib
+          Copy-Item zeos-caterpillar\target\release\zeos_caterpillar.dll zwallet\windows\lib\
+
+      - name: Setup Flutter
+        shell: bash
+        run: |
+          git clone -b $FLUTTER_VERSION --depth 1 \
+              https://github.com/flutter/flutter.git /d/flutter
+          echo "D:/flutter/bin" >> $GITHUB_PATH
+
+      - name: Build Flutter
+        working-directory: zwallet
+        shell: bash
+        run: |
+          flutter pub get
+          dart run build_runner build -d
+          (cd packages/cloak_api_ffi && flutter pub get)
+          flutter build windows --release
+
+      - name: Package portable ZIP
+        working-directory: zwallet
+        shell: bash
+        run: |
+          cp ../zeos-caterpillar/target/release/zeos_caterpillar.dll \
+              build/windows/x64/runner/Release/
+          cd build/windows/x64/runner
+          mv Release CLOAK_Wallet
+          7z a ../../../../CLOAK_Wallet-windows-x64.zip CLOAK_Wallet
+
+      - name: Generate checksum
+        shell: bash
+        run: sha256sum zwallet/CLOAK_Wallet-windows-x64.zip > SHA256SUMS-windows
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-release
+          path: |
+            zwallet/CLOAK_Wallet-windows-x64.zip
+            SHA256SUMS-windows
+          retention-days: 7
+
+      - name: Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: zwallet/CLOAK_Wallet-windows-x64.zip

@@ -1,43 +1,143 @@
-name: Build and Release Linux AppImage
+name: Build Linux AppImage
 
 on:
   workflow_dispatch:
-  pull_request:
   push:
+    branches: [main]
     tags:
       - "v*"
+  pull_request:
 
 jobs:
   build-linux:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     if: "!contains(github.head_ref, 'release-please--')"
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - name: env
+      - name: Load build config
+        run: cat build.env >> $GITHUB_ENV
+
+      - name: Install system dependencies
         run: |
-          cat build.env >> $GITHUB_ENV
-          echo $PWD/flutter/bin >> $GITHUB_PATH
+          sudo apt-get update
+          sudo apt-get install -y \
+            clang cmake ninja-build \
+            libgtk-3-dev libssl-dev libsecret-1-dev \
+            libjsoncpp-dev libunwind-dev libudev-dev \
+            pkg-config patchelf squashfs-tools \
+            desktop-file-utils fuse libfuse2
 
-      - name: Build
-        run: ./build-scripts/build-linux.sh "${{ env.FLUTTER_VERSION }}"
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
 
-      - name: appimage
-        run: ./build-scripts/build-appimage.sh
+      - name: Cache Rust build
+        uses: actions/cache@v4
+        with:
+          path: |
+            zeos-caterpillar/target
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: linux-rust-${{ hashFiles('zeos-caterpillar/Cargo.lock') }}
+          restore-keys: linux-rust-
+
+      - name: Build Rust native library
+        working-directory: zeos-caterpillar
+        run: cargo build --release
+
+      - name: Copy native library
+        run: |
+          cp zeos-caterpillar/target/release/libzeos_caterpillar.so linux/lib/
+          cp zeos-caterpillar/target/release/libzeos_caterpillar.so packages/cloak_api_ffi/
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Build Flutter app
+        run: |
+          flutter pub get
+          dart run build_runner build -d
+          (cd packages/cloak_api_ffi && flutter pub get)
+          flutter build linux --release
+
+      - name: Create release tarball
+        run: |
+          cd build/linux/x64/release/bundle
+          tar czf "$GITHUB_WORKSPACE/cloak-wallet-linux-x64.tar.gz" *
+
+      - name: Build AppImage
+        run: |
+          # Download appimagetool
+          wget -q "https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage" \
+              -O /tmp/appimagetool
+          chmod +x /tmp/appimagetool
+
+          # Prepare AppDir
+          APPDIR="/tmp/CLOAK_Wallet.AppDir"
+          mkdir -p "$APPDIR/usr/bin" "$APPDIR/usr/lib"
+          mkdir -p "$APPDIR/usr/share/applications"
+          mkdir -p "$APPDIR/usr/share/icons/hicolor/256x256/apps"
+
+          BUNDLE="build/linux/x64/release/bundle"
+          cp "$BUNDLE/cloak-wallet" "$APPDIR/usr/bin/"
+          cp -r "$BUNDLE/data" "$APPDIR/usr/bin/"
+          cp -r "$BUNDLE/lib/"* "$APPDIR/usr/lib/"
+
+          # Bundle libcrypto for systems without OpenSSL 3
+          cp /lib/x86_64-linux-gnu/libcrypto.so.3 "$APPDIR/usr/lib/" 2>/dev/null || true
+
+          cp misc/cloak-wallet.desktop \
+              "$APPDIR/usr/share/applications/app.cloak.wallet.desktop"
+          cp assets/icon.png \
+              "$APPDIR/usr/share/icons/hicolor/256x256/apps/cloak-wallet.png"
+
+          # AppRun entry point
+          cat > "$APPDIR/AppRun" << 'APPRUN'
+          #!/bin/bash
+          SELF="$(readlink -f "$0")"
+          HERE="${SELF%/*}"
+          export LD_LIBRARY_PATH="${HERE}/usr/lib:${LD_LIBRARY_PATH}"
+          export GDK_BACKEND="${GDK_BACKEND:-x11}"
+          exec "${HERE}/usr/bin/cloak-wallet" "$@"
+          APPRUN
+          chmod +x "$APPDIR/AppRun"
+
+          # Symlinks required by AppImage spec
+          ln -sf usr/share/applications/app.cloak.wallet.desktop \
+              "$APPDIR/app.cloak.wallet.desktop"
+          ln -sf usr/share/icons/hicolor/256x256/apps/cloak-wallet.png \
+              "$APPDIR/cloak-wallet.png"
+          ln -sf usr/share/icons/hicolor/256x256/apps/cloak-wallet.png \
+              "$APPDIR/.DirIcon"
+
+          ARCH=x86_64 /tmp/appimagetool --no-appstream "$APPDIR" \
+              "$GITHUB_WORKSPACE/CLOAK_Wallet-x86_64.AppImage"
+
+      - name: Generate checksums
+        run: sha256sum CLOAK_Wallet-x86_64.AppImage cloak-wallet-linux-x64.tar.gz > SHA256SUMS-linux
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-release
+          path: |
+            CLOAK_Wallet-x86_64.AppImage
+            cloak-wallet-linux-x64.tar.gz
+            SHA256SUMS-linux
+          retention-days: 7
 
       - name: Release
-        uses: softprops/action-gh-release@v1
         if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
         with:
           files: |
-            ./misc/CLOAK-Wallet-x86_64.AppImage
-            ./zwallet.tgz
-            ./libzeos_caterpillar.so
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: AppImage
-          path: ./misc/CLOAK-Wallet-x86_64.AppImage
-          retention-days: 3
+            CLOAK_Wallet-x86_64.AppImage
+            cloak-wallet-linux-x64.tar.gz
+            SHA256SUMS-linux

@@ -1,0 +1,174 @@
+name: Build macOS DMGs
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build-arm64:
+    runs-on: macos-14
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Load build config
+        run: cat zwallet/build.env >> $GITHUB_ENV
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: actions/cache@v4
+        with:
+          path: |
+            zeos-caterpillar/target
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: macos-arm64-rust-${{ hashFiles('zeos-caterpillar/Cargo.lock') }}
+          restore-keys: macos-arm64-rust-
+
+      - name: Build Rust (arm64)
+        working-directory: zeos-caterpillar
+        run: cargo build --release
+
+      - name: Place native library for Xcode
+        run: |
+          # Xcode project references ../target/universal/release/ relative to zwallet/macos/
+          mkdir -p target/universal/release
+          cp zeos-caterpillar/target/release/libzeos_caterpillar.dylib \
+              target/universal/release/
+
+      - name: Setup Flutter
+        run: |
+          git clone -b ${{ env.FLUTTER_VERSION }} --depth 1 \
+              https://github.com/flutter/flutter.git $HOME/flutter
+          echo "$HOME/flutter/bin" >> $GITHUB_PATH
+
+      - name: Build Flutter
+        working-directory: zwallet
+        run: |
+          flutter pub get
+          dart run build_runner build -d
+          (cd packages/cloak_api_ffi && flutter pub get)
+          flutter build macos --release
+
+      - name: Inject native library into app bundle
+        run: |
+          APP="zwallet/build/macos/Build/Products/Release/CLOAK Wallet.app"
+          cp zeos-caterpillar/target/release/libzeos_caterpillar.dylib \
+              "$APP/Contents/Frameworks/"
+          install_name_tool -id "@rpath/libzeos_caterpillar.dylib" \
+              "$APP/Contents/Frameworks/libzeos_caterpillar.dylib"
+
+      - name: Create DMG
+        run: |
+          hdiutil create \
+            -volname "CLOAK Wallet" \
+            -srcfolder "zwallet/build/macos/Build/Products/Release/CLOAK Wallet.app" \
+            -ov -format UDZO \
+            CLOAK_Wallet-macos-arm64.dmg
+
+      - name: Generate checksum
+        run: shasum -a 256 CLOAK_Wallet-macos-arm64.dmg >> SHA256SUMS-macos-arm64
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-arm64-release
+          path: |
+            CLOAK_Wallet-macos-arm64.dmg
+            SHA256SUMS-macos-arm64
+          retention-days: 7
+
+      - name: Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: CLOAK_Wallet-macos-arm64.dmg
+
+  build-x86_64:
+    runs-on: macos-13
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Load build config
+        run: cat zwallet/build.env >> $GITHUB_ENV
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: actions/cache@v4
+        with:
+          path: |
+            zeos-caterpillar/target
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: macos-x86_64-rust-${{ hashFiles('zeos-caterpillar/Cargo.lock') }}
+          restore-keys: macos-x86_64-rust-
+
+      - name: Build Rust (x86_64)
+        working-directory: zeos-caterpillar
+        run: cargo build --release
+
+      - name: Place native library for Xcode
+        run: |
+          # Xcode project references ../target/universal/release/ relative to zwallet/macos/
+          mkdir -p target/universal/release
+          cp zeos-caterpillar/target/release/libzeos_caterpillar.dylib \
+              target/universal/release/
+
+      - name: Setup Flutter
+        run: |
+          git clone -b ${{ env.FLUTTER_VERSION }} --depth 1 \
+              https://github.com/flutter/flutter.git $HOME/flutter
+          echo "$HOME/flutter/bin" >> $GITHUB_PATH
+
+      - name: Build Flutter
+        working-directory: zwallet
+        run: |
+          flutter pub get
+          dart run build_runner build -d
+          (cd packages/cloak_api_ffi && flutter pub get)
+          flutter build macos --release
+
+      - name: Inject native library into app bundle
+        run: |
+          APP="zwallet/build/macos/Build/Products/Release/CLOAK Wallet.app"
+          cp zeos-caterpillar/target/release/libzeos_caterpillar.dylib \
+              "$APP/Contents/Frameworks/"
+          install_name_tool -id "@rpath/libzeos_caterpillar.dylib" \
+              "$APP/Contents/Frameworks/libzeos_caterpillar.dylib"
+
+      - name: Create DMG
+        run: |
+          hdiutil create \
+            -volname "CLOAK Wallet" \
+            -srcfolder "zwallet/build/macos/Build/Products/Release/CLOAK Wallet.app" \
+            -ov -format UDZO \
+            CLOAK_Wallet-macos-x86_64.dmg
+
+      - name: Generate checksum
+        run: shasum -a 256 CLOAK_Wallet-macos-x86_64.dmg >> SHA256SUMS-macos-x86_64
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-x86_64-release
+          path: |
+            CLOAK_Wallet-macos-x86_64.dmg
+            SHA256SUMS-macos-x86_64
+          retention-days: 7
+
+      - name: Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: CLOAK_Wallet-macos-x86_64.dmg
