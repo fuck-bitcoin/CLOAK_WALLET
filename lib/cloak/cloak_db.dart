@@ -9,6 +9,7 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:sqlite3/open.dart';
+import 'package:sqlcipher_flutter_libs/sqlcipher_flutter_libs.dart';
 
 import '../pages/utils.dart';
 
@@ -57,7 +58,15 @@ class CloakDb {
       _initSqlCipher();
     }
 
-    // Initialize FFI for desktop
+    // Configure native SQLite/SQLCipher library for each platform
+    if (Platform.isAndroid) {
+      // Android: sqlcipher_flutter_libs bundles the native .so but we must
+      // tell the sqlite3 package where to find it before FFI init.
+      await applyWorkaroundToOpenSqlCipherOnOldAndroidVersions();
+      open.overrideFor(OperatingSystem.android, openCipherOnAndroid);
+    }
+
+    // Initialize FFI database factory (works on all platforms once native lib is configured)
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
 

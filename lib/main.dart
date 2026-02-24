@@ -54,7 +54,12 @@ void main() async {
     // The PIN setup page will handle re-init.
   } else {
     // No PIN — initialize normally (unencrypted DB)
-    await CloakWalletManager.init(dbPassword: appStore.dbPassword);
+    try {
+      await CloakWalletManager.init(dbPassword: appStore.dbPassword);
+    } catch (e) {
+      print('[init] FATAL: CloakWalletManager.init() failed: $e');
+      // Continue to runApp() so the user sees splash instead of white screen
+    }
 
     try {
       if (walletFileExists) {
