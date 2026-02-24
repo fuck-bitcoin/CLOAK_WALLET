@@ -1,0 +1,106 @@
+name: Build Android APK
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+env:
+  ANDROID_NDK_VERSION: "25.1.8937393"
+
+jobs:
+  build-android:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Load build config
+        run: cat zwallet/build.env >> $GITHUB_ENV
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: |
+            ndk;${{ env.ANDROID_NDK_VERSION }}
+            platforms;android-34
+            build-tools;34.0.0
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk
+
+      - name: Cache Rust build
+        uses: actions/cache@v4
+        with:
+          path: |
+            zeos-caterpillar/target
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: android-rust-${{ hashFiles('zeos-caterpillar/Cargo.lock') }}
+          restore-keys: android-rust-
+
+      - name: Build Rust for Android
+        working-directory: zeos-caterpillar
+        run: |
+          export ANDROID_NDK_HOME="$ANDROID_SDK_ROOT/ndk/${{ env.ANDROID_NDK_VERSION }}"
+          cargo ndk --target arm64-v8a build --release
+
+      - name: Copy native lib
+        run: |
+          mkdir -p zwallet/packages/cloak_api_ffi/android/src/main/jniLibs/arm64-v8a
+          cp zeos-caterpillar/target/aarch64-linux-android/release/libzeos_caterpillar.so \
+              zwallet/packages/cloak_api_ffi/android/src/main/jniLibs/arm64-v8a/
+
+      - name: Setup Flutter
+        run: |
+          git clone -b ${{ env.FLUTTER_VERSION }} --depth 1 \
+              https://github.com/flutter/flutter.git $HOME/flutter
+          echo "$HOME/flutter/bin" >> $GITHUB_PATH
+
+      - name: Decode keystore
+        run: |
+          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > cloak-wallet.jks
+          cat > zwallet/android/key.properties << EOF
+          storePassword=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          keyPassword=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          keyAlias=${{ secrets.ANDROID_KEY_ALIAS }}
+          storeFile=../../cloak-wallet.jks
+          EOF
+
+      - name: Build APK
+        working-directory: zwallet
+        run: |
+          flutter pub get
+          dart run build_runner build -d
+          (cd packages/cloak_api_ffi && flutter pub get)
+          flutter build apk --release
+          mv build/app/outputs/flutter-apk/app-release.apk ../CLOAK_Wallet.apk
+
+      - name: Generate checksum
+        run: sha256sum CLOAK_Wallet.apk > SHA256SUMS-android
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-release
+          path: |
+            CLOAK_Wallet.apk
+            SHA256SUMS-android
+          retention-days: 7
+
+      - name: Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: CLOAK_Wallet.apk

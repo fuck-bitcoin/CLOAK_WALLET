@@ -1,0 +1,94 @@
+# Build artifacts
+zwallet/build/
+zeos-caterpillar/target/
+
+# Flutter generated
+zwallet/.dart_tool/
+zwallet/.packages
+zwallet/.flutter-plugins
+zwallet/.flutter-plugins-dependencies
+
+# IDE
+.idea/
+.vscode/
+*.iml
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Binaries
+*.so
+*.dylib
+*.dll
+*.exe
+*.AppImage
+*.dmg
+*.apk
+*.aab
+*.zip
+*.tar.gz
+*.tgz
+*.flatpak
+*.msix
+
+# ZK params (too large for git) and stale native libs in assets
+zwallet/assets/zeos/*.params
+zwallet/assets/zeos/*.so
+*.params
+
+# Wallet data (NEVER commit)
+zwallet/data/
+*.wallet
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+cloak.wallet
+cloak.db
+
+# Secrets (NEVER commit)
+*.jks
+*.keystore
+key.properties
+*.p12
+*.pem
+*.key
+.env
+.env.*
+
+# Credentials
+**/credentials*
+**/secrets*
+
+# Logs
+*.log
+
+# Node modules (for appdmg)
+node_modules/
+package-lock.json
+
+# Python
+__pycache__/
+*.pyc
+venv/
+
+# Gradle
+.gradle/
+local.properties
+zwallet/android/.gradle/
+
+# Xcode
+xcuserdata/
+*.xcworkspace/xcuserdata/
+DerivedData/
+
+# Cargo
+**/*.rs.bk
+
+# Swap files
+zwallet/data/swapfile
