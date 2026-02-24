@@ -13,7 +13,11 @@ const ZEOS_VAULT_CONTRACT = 'thezeosvault';
 final cloak_api_lib = _init();
 
 NativeLibrary _init() {
-  return NativeLibrary(CloakApi.open());
+  final lib = NativeLibrary(CloakApi.open());
+  // Initialize SIGPIPE handling to prevent crashes on mobile/GUI apps
+  // This MUST be called before any other native function
+  lib.caterpillar_init();
+  return lib;
 }
 
 Pointer<Char> _toNative(String s) {

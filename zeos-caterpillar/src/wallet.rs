@@ -473,7 +473,7 @@ impl Wallet
 
         if let Some(i) = idx {
             let burned = self.unspent_notes.remove(i);
-            eprintln!("[EAGER] Auth token burned: cm={}, moving to spent+outgoing", cm_hex);
+            log(&format!("[EAGER] Auth token burned: cm={}, moving to spent+outgoing", cm_hex));
 
             // Create synthetic outgoing entry (mirrors digest_block wallet.rs:1188-1195)
             let burn_ex = NoteEx::from_parts(0, block_ts, block_ts, 0, burned.note().clone());
@@ -484,7 +484,7 @@ impl Wallet
 
             true
         } else {
-            eprintln!("[EAGER] Auth token cm={} not found in unspent (may already be spent)", cm_hex);
+            log(&format!("[EAGER] Auth token cm={} not found in unspent (may already be spent)", cm_hex));
             false
         }
     }
@@ -493,7 +493,7 @@ impl Wallet
     /// Called when user wants to resync from scratch (e.g., corrupted state).
     /// Caller MUST call wallet.write() after this to persist changes.
     pub fn reset_chain_state(&mut self) {
-        eprintln!("[RESET] Clearing all chain state (block_num, leaves, notes, merkle_tree)");
+        log("[RESET] Clearing all chain state (block_num, leaves, notes, merkle_tree)");
 
         // Reset chain sync position
         self.block_num = 0;
@@ -509,7 +509,7 @@ impl Wallet
         self.merkle_tree.clear();
 
         // Preserve: seed, ivk, diversifiers, chain_id, contracts, unpublished_notes
-        eprintln!("[RESET] Chain state cleared. Wallet ready for full resync.");
+        log("[RESET] Chain state cleared. Wallet ready for full resync.");
     }
 
     /// Clear all unpublished notes (auth tokens stored locally for vaults).
@@ -822,7 +822,7 @@ impl Wallet
                         let cm_bytes = cm.to_bytes();
                         let idx = self.merkle_tree.iter().find_map(|(key, val)| if val.0 == cm_bytes { Some(key) } else { None });
                         if idx.is_none() {
-                            eprintln!("[ADD_NOTES] WARNING: commitment NOT FOUND in merkle tree! Skipping note. tree_size={}", self.merkle_tree.len());
+                            log(&format!("[ADD_NOTES] WARNING: commitment NOT FOUND in merkle tree! Skipping note. tree_size={}", self.merkle_tree.len()));
                             continue;
                         }
                         // verbose: eprintln!("[ADD_NOTES] commitment found in merkle tree at idx={}", idx.unwrap());
