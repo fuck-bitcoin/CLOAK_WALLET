@@ -39,7 +39,14 @@ class CloakApi {
     if (Platform.isIOS) return DynamicLibrary.executable();
     if (Platform.isWindows) return DynamicLibrary.open('zeos_caterpillar.dll');
     if (Platform.isLinux) return DynamicLibrary.open('libzeos_caterpillar.so');
-    if (Platform.isMacOS) return DynamicLibrary.open('libzeos_caterpillar.dylib');
+    if (Platform.isMacOS) {
+      // macOS: dylib is in Contents/Frameworks/ of the app bundle.
+      // DynamicLibrary.open() with a bare name calls dlopen() which does NOT
+      // search @rpath or Frameworks/. Resolve the full path relative to the
+      // executable (Contents/MacOS/<exe> → ../Frameworks/).
+      final exeDir = File(Platform.resolvedExecutable).parent.path;
+      return DynamicLibrary.open('$exeDir/../Frameworks/libzeos_caterpillar.dylib');
+    }
     throw UnsupportedError('This platform is not supported.');
   }
 

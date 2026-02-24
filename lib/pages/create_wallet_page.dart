@@ -268,26 +268,31 @@ class _CreateWalletPageState extends State<CreateWalletPage>
       return;
     }
 
-    await load(() async {
-      final account = await CloakWalletManager.createWallet(
-        name,
-        _seed,
-        aliasAuthority: 'thezeosalias@public',
-      );
+    try {
+      await load(() async {
+        final account = await CloakWalletManager.createWallet(
+          name,
+          _seed,
+          aliasAuthority: 'thezeosalias@public',
+        );
 
-      if (account < 0) {
-        showSnackBar('Wallet already exists');
-        return;
-      }
+        if (account < 0) {
+          showSnackBar('Wallet already exists');
+          return;
+        }
 
-      await refreshCloakAccountsCache();
-      await SignatureProvider.start();
+        await refreshCloakAccountsCache();
+        await SignatureProvider.start();
 
-      setActiveAccount(0, account);
-      final prefs = await SharedPreferences.getInstance();
-      await aa.save(prefs);
+        setActiveAccount(0, account);
+        final prefs = await SharedPreferences.getInstance();
+        await aa.save(prefs);
 
-      if (mounted) GoRouter.of(context).go('/account');
-    });
+        if (mounted) GoRouter.of(context).go('/account');
+      });
+    } catch (e) {
+      print('[CreateWallet] Error creating wallet: $e');
+      if (mounted) showSnackBar('Failed to create wallet. Please try again.');
+    }
   }
 }

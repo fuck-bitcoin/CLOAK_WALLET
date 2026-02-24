@@ -459,34 +459,39 @@ class _RestoreWalletPageState extends State<RestoreWalletPage>
       return;
     }
 
-    await load(() async {
-      // Always clear existing accounts before restore to prevent duplicates
-      await CloakDb.clearAllAccounts();
+    try {
+      await load(() async {
+        // Always clear existing accounts before restore to prevent duplicates
+        await CloakDb.clearAllAccounts();
 
-      final account = await CloakWalletManager.restoreWallet(
-        name,
-        seed,
-        aliasAuthority: 'thezeosalias@public',
-        isIvk: _isIvkMode,
-      );
+        final account = await CloakWalletManager.restoreWallet(
+          name,
+          seed,
+          aliasAuthority: 'thezeosalias@public',
+          isIvk: _isIvkMode,
+        );
 
-      if (account < 0) {
-        showSnackBar(_isIvkMode
-            ? 'Failed to restore view-only wallet. Check the viewing key format.'
-            : 'Wallet already exists');
-        return;
-      }
+        if (account < 0) {
+          showSnackBar(_isIvkMode
+              ? 'Failed to restore view-only wallet. Check the viewing key format.'
+              : 'Wallet already exists');
+          return;
+        }
 
-      await refreshCloakAccountsCache();
-      await SignatureProvider.start();
+        await refreshCloakAccountsCache();
+        await SignatureProvider.start();
 
-      setActiveAccount(0, account);
-      final prefs = await SharedPreferences.getInstance();
-      await aa.save(prefs);
+        setActiveAccount(0, account);
+        final prefs = await SharedPreferences.getInstance();
+        await aa.save(prefs);
 
-      // Navigate to account — sync banner appears automatically
-      // (restoreWallet sets synced_height = 0, triggering full sync)
-      if (mounted) GoRouter.of(context).go('/account');
-    });
+        // Navigate to account — sync banner appears automatically
+        // (restoreWallet sets synced_height = 0, triggering full sync)
+        if (mounted) GoRouter.of(context).go('/account');
+      });
+    } catch (e) {
+      print('[RestoreWallet] Error restoring wallet: $e');
+      if (mounted) showSnackBar('Failed to restore wallet. Please try again.');
+    }
   }
 }
