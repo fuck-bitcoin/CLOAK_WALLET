@@ -28,10 +28,11 @@ jobs:
         uses: android-actions/setup-android@v3
         with:
           accept-android-sdk-licenses: true
-          packages: |
-            ndk;${{ env.ANDROID_NDK_VERSION }}
-            platforms;android-34
-            build-tools;34.0.0
+
+      - name: Install Android SDK packages
+        run: |
+          yes | sdkmanager --licenses > /dev/null 2>&1 || true
+          sdkmanager "ndk;${{ env.ANDROID_NDK_VERSION }}" "platforms;android-34" "build-tools;34.0.0"
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
