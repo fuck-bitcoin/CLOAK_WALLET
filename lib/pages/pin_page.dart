@@ -84,7 +84,15 @@ class _PinSetupPageState extends State<PinSetupPage> {
           }
         } catch (e) {
           print('[PIN] Error initializing encrypted DB: $e');
-          setState(() => _loading = false);
+          if (mounted) {
+            setState(() {
+              _loading = false;
+              _error = true;
+              _pin = '';
+              _confirming = false;
+              _firstPin = null;
+            });
+          }
         }
       } else {
         // PINs don't match — reset to confirm
@@ -215,13 +223,15 @@ class _PinLoginPageState extends State<PinLoginPage> {
       if (mounted) GoRouter.of(context).go('/account');
     } catch (e) {
       print('[PIN] Login error: $e');
-      await CloakDb.close();
+      try { await CloakDb.close(); } catch (_) {}
       appStore.dbPassword = '';
-      setState(() {
-        _error = true;
-        _pin = '';
-        _loading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _error = true;
+          _pin = '';
+          _loading = false;
+        });
+      }
     }
   }
 
