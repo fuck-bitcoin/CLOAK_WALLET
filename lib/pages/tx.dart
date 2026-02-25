@@ -1407,10 +1407,10 @@ void _copyToClipboard(BuildContext context, String value, String label) {
 Widget _buildTxDetailsContent(BuildContext context, Tx tx) {
   final s = S.of(context);
   final confirmations = tx.confirmations ?? 0;
-  // Telos confirms in 1-3 seconds. If we have a timestamp, it's confirmed.
-  // Only show "Pending" if height > 0 but no confirmations (legacy behavior).
+  // Telos confirms in 1-3 seconds. If we have a trxId from Hyperion, it's confirmed.
+  // The transaction wouldn't appear in Hyperion history if it wasn't confirmed.
   final hasTxId = tx.fullTxId.isNotEmpty;
-  final isConfirmed = hasTxId ? (tx.height > 0 && confirmations > 0) : true;
+  final isConfirmed = hasTxId; // If we have a trxId, it's confirmed on Telos
 
   return Column(
     crossAxisAlignment: CrossAxisAlignment.start,
