@@ -520,13 +520,14 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
                                       borderRadius: BorderRadius.circular(14),
                                       borderSide: BorderSide(color: Theme.of(context).colorScheme.error, width: 1.2),
                                     ),
+                                    suffixIconConstraints: const BoxConstraints(minWidth: 48, minHeight: 48),
                                     suffixIcon: (widget.sendContext?.isVaultDeposit == true) ? null : Padding(
-                                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                                      padding: const EdgeInsets.only(right: 6),
                                       child: _SuffixChip(
                                         icon: SvgPicture.string(
                                           _ZASHI_QR_GLYPH,
-                                          width: 32,
-                                          height: 32,
+                                          width: 22,
+                                          height: 22,
                                           colorFilter: ColorFilter.mode(t.colorScheme.onSurface, BlendMode.srcIn),
                                         ),
                                         backgroundColor: chipBgColor,
@@ -1446,7 +1447,7 @@ class _SuffixChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final radius = BorderRadius.circular(10);
+    final radius = BorderRadius.circular(8);
     return Material(
       color: backgroundColor,
       shape: RoundedRectangleBorder(borderRadius: radius, side: BorderSide(color: borderColor)),
@@ -1454,11 +1455,9 @@ class _SuffixChip extends StatelessWidget {
         onTap: onTap,
         borderRadius: radius,
         child: SizedBox(
-          width: 36,
-          height: 36,
-          child: Center(
-            child: icon,
-          ),
+          width: 34,
+          height: 34,
+          child: Center(child: icon),
         ),
       ),
     );
