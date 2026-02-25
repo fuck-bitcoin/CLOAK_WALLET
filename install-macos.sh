@@ -252,6 +252,40 @@ else
     fi
 fi
 
+# Generate SSL certificates for the wallet's signature provider
+# The sandboxed app cannot run mkcert, so we generate certs here
+SSL_DIR="$HOME/Library/Containers/app.cloak.wallet/Data/Library/Application Support/app.cloak.wallet/databases/ssl"
+mkdir -p "$SSL_DIR"
+
+MKCERT_CMD=""
+if [ -f "$MKCERT_PATH" ]; then
+    MKCERT_CMD="$MKCERT_PATH"
+elif command -v mkcert &>/dev/null; then
+    MKCERT_CMD="mkcert"
+fi
+
+if [ -n "$MKCERT_CMD" ]; then
+    info "Generating SSL certificates for web authentication..."
+    CERT_FILE="$SSL_DIR/localhost+2.pem"
+    KEY_FILE="$SSL_DIR/localhost+2-key.pem"
+    CHAIN_FILE="$SSL_DIR/localhost+2-chain.pem"
+
+    # Generate certificate
+    if "$MKCERT_CMD" -cert-file "$CERT_FILE" -key-file "$KEY_FILE" localhost 127.0.0.1 ::1 2>/dev/null; then
+        # Create chain file (cert + CA)
+        CA_ROOT=$("$MKCERT_CMD" -CAROOT 2>/dev/null)
+        if [ -n "$CA_ROOT" ] && [ -f "$CA_ROOT/rootCA.pem" ]; then
+            cat "$CERT_FILE" "$CA_ROOT/rootCA.pem" > "$CHAIN_FILE"
+        else
+            cp "$CERT_FILE" "$CHAIN_FILE"
+        fi
+        info "SSL certificates generated successfully."
+    else
+        echo "  NOTE: Could not generate SSL certificates."
+        echo "  The wallet will generate self-signed certificates on first run."
+    fi
+fi
+
 echo ""
 
 # ── Download ZK Parameters ───────────────────────────────────────────────────

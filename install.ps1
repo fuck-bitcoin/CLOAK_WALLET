@@ -328,6 +328,39 @@ if (-not $mkcertInstalled) {
     } catch {}
 }
 
+# Generate SSL certificates for the wallet's signature provider
+# The MSIX-packaged app may not be able to run external binaries
+$sslDir = "$env:LOCALAPPDATA\cloak-wallet\ssl"
+New-Item -ItemType Directory -Path $sslDir -Force | Out-Null
+
+$certFile = "$sslDir\localhost+2.pem"
+$keyFile = "$sslDir\localhost+2-key.pem"
+$chainFile = "$sslDir\localhost+2-chain.pem"
+
+if (Test-Path $mkcertPath) {
+    Write-Host "  Generating SSL certificates for web authentication..." -ForegroundColor DarkGray
+    try {
+        $genProcess = Start-Process -FilePath $mkcertPath -ArgumentList "-cert-file", "`"$certFile`"", "-key-file", "`"$keyFile`"", "localhost", "127.0.0.1", "::1" -Wait -PassThru -NoNewWindow
+        if ($genProcess.ExitCode -eq 0) {
+            # Create chain file (cert + CA)
+            $caRootProcess = Start-Process -FilePath $mkcertPath -ArgumentList "-CAROOT" -Wait -PassThru -NoNewWindow -RedirectStandardOutput "$env:TEMP\mkcert-caroot.txt"
+            $caRoot = (Get-Content "$env:TEMP\mkcert-caroot.txt" -ErrorAction SilentlyContinue).Trim()
+            $caFile = "$caRoot\rootCA.pem"
+            if (Test-Path $caFile) {
+                $certContent = Get-Content $certFile -Raw
+                $caContent = Get-Content $caFile -Raw
+                Set-Content -Path $chainFile -Value ($certContent + $caContent)
+            } else {
+                Copy-Item $certFile $chainFile
+            }
+            Write-Host "  SSL certificates generated." -ForegroundColor Green
+        }
+    } catch {
+        Write-Host "  WARNING: Could not generate SSL certificates." -ForegroundColor Yellow
+        Write-Host "  The wallet will generate self-signed certificates on first run." -ForegroundColor Yellow
+    }
+}
+
 # ---------------------------------------------------------------------------
 # Download ZK parameters (optional)
 # ---------------------------------------------------------------------------
