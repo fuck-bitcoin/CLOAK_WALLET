@@ -48,7 +48,7 @@ Vaults are derived directly from your wallet seed using HMAC-SHA256. This means 
 
 ### Easy Key & Token Management
 
-Export and import Full Viewing Keys (FVK) or Incoming Viewing Keys (IVK) to monitor balances without spending capability. View your vault authentication tokens, manage multiple accounts, and switch between them seamlessly.
+Export and import Full Viewing Keys (FVK) or Incoming Viewing Keys (IVK) to monitor balances without spending capability. View your vault authentication tokens and manage multiple vaults from a single seed.
 
 ### View-Only Wallets
 
@@ -68,7 +68,7 @@ View, send, and receive AtomicAssets NFTs through the shielded pool. NFT metadat
 
 ### Clean & Intuitive UI
 
-A modern dark theme with smooth animations, slide transitions, and haptic feedback. Transaction details show clear status badges, copyable fields, and direct links to the Telos block explorer. The send flow is streamlined with amount entry, address validation, and confirmation screens.
+A modern dark theme with smooth animations and slide transitions. Transaction details show clear status badges, copyable fields, and direct links to the Telos block explorer. The send flow is streamlined with amount entry, address validation, and confirmation screens.
 
 ### Web App Authentication
 
@@ -332,6 +332,12 @@ sha256sum -c SHA256SUMS-linux
 - **Flutter** handles the UI, encrypted local storage (SQLCipher), and platform integration
 - **Rust** handles all cryptography: key derivation, proof generation, transaction building, and note encryption
 - **Telos** provides the on-chain smart contracts that verify proofs and manage shielded state
+
+---
+
+## Credits
+
+CLOAK Wallet is a fork of [Ywallet](https://github.com/hhanh00/ywallet) by **Hahn**. We extend our gratitude for the foundational work on privacy-preserving cryptocurrency wallets that made this project possible.
 
 ---
 
