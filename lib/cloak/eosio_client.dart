@@ -792,3 +792,88 @@ Future<Map<String, String>> getProtocolFees() async {
     return {};
   }
 }
+
+/// Transaction details fetched from Hyperion on-demand
+class TransactionDetails {
+  final String trxId;
+  final int blockNum;
+  final String blockTime;
+  final String actionName;
+
+  TransactionDetails({
+    required this.trxId,
+    required this.blockNum,
+    required this.blockTime,
+    required this.actionName,
+  });
+}
+
+/// Fetch transaction details from Hyperion by timestamp
+/// Queries the ZEOS actions around the given timestamp to find the matching transaction
+Future<TransactionDetails?> fetchTransactionDetails(int timestampMs) async {
+  final endpoints = [
+    'https://telos.eosusa.io',
+    'https://mainnet.telos.caleos.io',
+  ];
+
+  // Convert timestamp to ISO format with small window (±5 seconds)
+  final dt = DateTime.fromMillisecondsSinceEpoch(timestampMs, isUtc: true);
+  final before = dt.add(const Duration(seconds: 5));
+  final after = dt.subtract(const Duration(seconds: 5));
+  final afterStr = after.toIso8601String().split('.').first;
+  final beforeStr = before.toIso8601String().split('.').first;
+
+  for (final endpoint in endpoints) {
+    try {
+      // Query Hyperion for ZEOS actions in the time window
+      final url = '$endpoint/v2/history/get_actions?account=thezeosalias'
+          '&filter=*:mint,*:spend,*:publishnotes,*:authenticate'
+          '&after=$afterStr&before=$beforeStr'
+          '&sort=asc&limit=10';
+
+      final response = await http.get(Uri.parse(url)).timeout(
+        const Duration(seconds: 10),
+      );
+
+      if (response.statusCode == 200) {
+        final json = jsonDecode(response.body);
+        final actions = json['actions'] as List? ?? [];
+
+        if (actions.isNotEmpty) {
+          // Find the closest match by timestamp
+          TransactionDetails? best;
+          int bestDiff = 999999999;
+
+          for (final action in actions) {
+            final actionTs = action['@timestamp'] ?? action['timestamp'] ?? '';
+            if (actionTs.isEmpty) continue;
+
+            String ts = actionTs;
+            if (!ts.endsWith('Z') && !ts.contains('+')) ts += 'Z';
+            final actionDt = DateTime.tryParse(ts);
+            if (actionDt == null) continue;
+
+            final diff = (actionDt.millisecondsSinceEpoch - timestampMs).abs();
+            if (diff < bestDiff) {
+              bestDiff = diff;
+              best = TransactionDetails(
+                trxId: action['trx_id'] ?? '',
+                blockNum: action['block_num'] ?? 0,
+                blockTime: actionTs,
+                actionName: action['act']?['name'] ?? '',
+              );
+            }
+          }
+
+          if (best != null && best.trxId.isNotEmpty) {
+            return best;
+          }
+        }
+      }
+    } catch (e) {
+      // Try next endpoint
+    }
+  }
+
+  return null;
+}

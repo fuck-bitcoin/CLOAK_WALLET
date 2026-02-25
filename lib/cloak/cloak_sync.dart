@@ -420,24 +420,6 @@ class CloakSync {
       onProgress?.call(40, 100);
       final actions = await _client!.getZeosActions();
 
-      // Cache trxIds for transaction details lookup (only adds new ones)
-      final newTrxIds = <int, String>{};
-      for (final action in actions) {
-        if (action.trxId.isNotEmpty && action.blockTime.isNotEmpty) {
-          try {
-            final dt = DateTime.parse(action.blockTime);
-            final ms = dt.millisecondsSinceEpoch;
-            // Only add if not already in cache
-            if (CloakDb.getTxIdByTimestamp(ms) == null) {
-              newTrxIds[ms] = action.trxId;
-            }
-          } catch (_) {}
-        }
-      }
-      if (newTrxIds.isNotEmpty) {
-        await CloakDb.addTransactionIds(newTrxIds);
-      }
-
       // 5. Pass data to Rust wallet for trial decryption
       var wallet = CloakWalletManager.wallet;
       if (wallet != null) {
@@ -689,11 +671,6 @@ class CloakSync {
   static ZeosGlobal? get cachedGlobal => _cachedGlobal;
   static List<ZeosMerkleEntry>? get cachedMerkleEntries => _cachedMerkleEntries;
   static List<ZeosNullifier>? get cachedNullifiers => _cachedNullifiers;
-
-  /// Get trxId by timestamp - delegates to CloakDb which has the persisted cache
-  static String? getTrxIdByTimestamp(int timestampMs) {
-    return CloakDb.getTxIdByTimestamp(timestampMs);
-  }
 
   /// Close the client
   static void close() {

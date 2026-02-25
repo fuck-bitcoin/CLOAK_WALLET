@@ -136,9 +136,7 @@ class _CloakSubmitState extends State<CloakSubmitPage>
 
           if (result == null) throw 'Transaction failed. Check wallet balance and try again.';
           txId = result;
-          // Store txId with current timestamp for transaction details lookup
-          final nowMs = DateTime.now().millisecondsSinceEpoch;
-          await CloakDb.addSentTransaction(nowMs, txId!);
+          // txId will be fetched on-demand when viewing transaction details
           // Force TX list refresh immediately after send so eager wallet
           // update (outgoing notes added during zsign) shows in the TX list
           // before the next sync cycle.
