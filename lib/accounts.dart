@@ -393,7 +393,8 @@ abstract class _Txs with Store {
               ? parsed.amount
               : (txType == 'Sent' ? -parsed.amount : parsed.amount);
 
-          final displayAccount = account;
+          // Use account field if present, otherwise fall back to address extracted from asset string
+          final displayAccount = account.isNotEmpty ? account : (parsed.address ?? '');
 
           items.add(Tx(
             idx++,
@@ -557,18 +558,24 @@ class SortConfig2 {
 class _CloakAsset {
   final double amount;
   final String ticker;
-  _CloakAsset(this.amount, this.ticker);
+  final String? address;
+  _CloakAsset(this.amount, this.ticker, {this.address});
 }
 
 /// Parse CLOAK asset strings like "25.0000 CLOAK@thezeostoken" or
 /// "25.0000 CLOAK@thezeostoken (@za1...)"
 _CloakAsset _parseCloakAsset(String assetStr) {
-  // Remove trailing shielded address suffix like " (@za1...)"
+  // Extract trailing shielded address suffix like " (@za1...)"
+  String? address;
+  final addrMatch = RegExp(r'\s+\(@(za1[^\)]*)\)$').firstMatch(assetStr);
+  if (addrMatch != null) {
+    address = addrMatch.group(1);
+  }
   var s = assetStr.replaceAll(RegExp(r'\s+\(@za1[^\)]*\)$'), '');
 
   // Expected format: "25.0000 CLOAK@thezeostoken"
   final parts = s.split(' ');
-  if (parts.length < 2) return _CloakAsset(0, 'CLOAK');
+  if (parts.length < 2) return _CloakAsset(0, 'CLOAK', address: address);
 
   final amount = double.tryParse(parts[0]) ?? 0;
   // Ticker part: "CLOAK@thezeostoken" -> extract "CLOAK"
@@ -576,5 +583,5 @@ _CloakAsset _parseCloakAsset(String assetStr) {
   final atIdx = tokenPart.indexOf('@');
   final ticker = atIdx >= 0 ? tokenPart.substring(0, atIdx) : tokenPart;
 
-  return _CloakAsset(amount, ticker);
+  return _CloakAsset(amount, ticker, address: address);
 }
