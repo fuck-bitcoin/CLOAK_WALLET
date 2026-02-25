@@ -630,6 +630,8 @@ printf "  - AppImage:      $INSTALL_DIR\n"
 printf "  - Symlink:       $BIN_DIR/cloak-wallet\n"
 printf "  - Desktop entry: $DESKTOP_DIR/app.cloak.wallet.desktop\n"
 printf "  - Icon:          $ICON_DIR/cloak-wallet.png\n"
+printf "  - SSL certs:     \${XDG_DATA_HOME:-\$HOME/.local/share}/cloak-wallet/ssl\n"
+printf "  - mkcert:        $BIN_DIR/mkcert + CA files\n"
 printf "\n"
 
 # Check if stdin is a terminal (can prompt)
@@ -656,6 +658,18 @@ fi
 
 # Remove icon
 rm -f "$ICON_DIR/cloak-wallet.png"
+
+# Remove mkcert and CA
+if [ -f "$BIN_DIR/mkcert" ]; then
+    "$BIN_DIR/mkcert" -uninstall 2>/dev/null || true
+    rm -f "$BIN_DIR/mkcert"
+fi
+MKCERT_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/mkcert"
+rm -rf "$MKCERT_DIR" 2>/dev/null || true
+
+# Remove SSL certificates
+SSL_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/cloak-wallet/ssl"
+rm -rf "$SSL_DIR" 2>/dev/null || true
 
 # Remove AppImage (but preserve params and wallet data for now)
 find "$INSTALL_DIR" -maxdepth 1 -name "*.AppImage" -delete 2>/dev/null || true
