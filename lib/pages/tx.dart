@@ -1615,6 +1615,24 @@ class TransactionState extends State<TransactionPage> {
 }
 
 void gotoTx(BuildContext context, int index) {
+  // If this is a fee entry, find the parent transaction (same timestamp, not a fee)
+  final txs = aa.txs.items;
+  if (index >= 0 && index < txs.length) {
+    final tx = txs[index];
+    if (TxPageState.isFeeEntry(tx)) {
+      // Find the parent transaction by matching timestamp
+      for (int i = 0; i < txs.length; i++) {
+        final other = txs[i];
+        if (i != index &&
+            !TxPageState.isFeeEntry(other) &&
+            (tx.timestamp.millisecondsSinceEpoch - other.timestamp.millisecondsSinceEpoch).abs() < 5000) {
+          // Found the parent transaction - navigate to it instead
+          GoRouter.of(context).push('/tx_details?index=$i');
+          return;
+        }
+      }
+    }
+  }
   // Transaction details as full-screen overlay via /tx_details
   GoRouter.of(context).push('/tx_details?index=$index');
 }
