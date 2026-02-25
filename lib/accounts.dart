@@ -6,6 +6,7 @@ import 'cloak/cloak_types.dart';
 import 'appsettings.dart';
 import 'cloak/cloak_wallet_manager.dart';
 import 'cloak/cloak_db.dart';
+import 'cloak/cloak_sync.dart';
 import 'coin/coins.dart';
 import 'package:mobx/mobx.dart';
 
@@ -396,14 +397,18 @@ abstract class _Txs with Store {
           // Use account field if present, otherwise fall back to address extracted from asset string
           final displayAccount = account.isNotEmpty ? account : (parsed.address ?? '');
 
-          // Look up txId from sent transactions cache (matches by timestamp within 5s tolerance)
+          // Look up txId from caches:
+          // 1. First try sync cache (has trxIds for all synced transactions)
+          // 2. Fall back to sent tx cache (has trxIds for locally sent transactions)
           final timestampMs = timestamp.millisecondsSinceEpoch;
-          String? storedTxId;
-          final sentTxCache = CloakDb.sentTxCacheSync;
-          for (final entry in sentTxCache.entries) {
-            if ((timestampMs - entry.key).abs() < 5000) {
-              storedTxId = entry.value;
-              break;
+          String? storedTxId = CloakSync.getTrxIdByTimestamp(timestampMs);
+          if (storedTxId == null || storedTxId.isEmpty) {
+            final sentTxCache = CloakDb.sentTxCacheSync;
+            for (final entry in sentTxCache.entries) {
+              if ((timestampMs - entry.key).abs() < 5000) {
+                storedTxId = entry.value;
+                break;
+              }
             }
           }
 
