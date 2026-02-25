@@ -609,12 +609,14 @@ class ZeosActionTrace {
   final int blockNum;
   final String blockTime;
   final String actionName;
+  final String trxId; // Transaction hash
   final List<String> noteCiphertexts; // Base64-encoded encrypted notes
 
   ZeosActionTrace({
     required this.blockNum,
     required this.blockTime,
     required this.actionName,
+    required this.trxId,
     required this.noteCiphertexts,
   });
 
@@ -628,6 +630,7 @@ class ZeosActionTrace {
       blockNum: json['block_num'] ?? 0,
       blockTime: json['block_time'] ?? '',
       actionName: action['name'] ?? '',
+      trxId: json['action_trace']?['trx_id'] ?? '',
       noteCiphertexts: noteCt.map((n) => n.toString()).toList(),
     );
   }
@@ -642,6 +645,7 @@ class ZeosActionTrace {
       blockNum: json['block_num'] ?? 0,
       blockTime: json['@timestamp'] ?? json['timestamp'] ?? '',
       actionName: act['name'] ?? '',
+      trxId: json['trx_id'] ?? '',
       noteCiphertexts: noteCt.map((n) => n.toString()).toList(),
     );
   }
