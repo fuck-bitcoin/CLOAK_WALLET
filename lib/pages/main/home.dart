@@ -29,9 +29,6 @@ import '../tx.dart';
 import '../../tablelist.dart';
 import '../accounts/send.dart' show SendContext, BatchAsset;
 
-/// Set to false to disable mock NFTs (for when real on-chain NFTs exist)
-const _kMockNfts = false;
-
 class HomePage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
@@ -60,7 +57,6 @@ class _HomeState extends State<HomePageInner> {
 
   /// Check if wallet has any shielded NFTs
   bool _hasShieldedNfts() {
-    if (_kMockNfts) return true;
     final nftRaw = CloakWalletManager.getNftsJson();
     if (nftRaw != null && nftRaw.isNotEmpty) {
       try {
@@ -564,7 +560,7 @@ class _HomeState extends State<HomePageInner> {
       return;
     }
     final hasNfts = activeVaultTokens?.nfts.isNotEmpty ?? false;
-    if (vaultBalance <= 0 && !hasNfts && !_kMockNfts) {
+    if (vaultBalance <= 0 && !hasNfts) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Vault has no balance to withdraw')),
       );
@@ -1516,19 +1512,10 @@ class _NftsTabContentState extends State<_NftsTabContent> {
       } catch (_) {}
     }
 
-    // Inject mock NFTs for visual testing
-    if (_kMockNfts && nfts.isEmpty) {
-      nfts.addAll([
-        const _ParsedNft(nftId: '1099511627776', contract: 'atomicassets', imageUrl: 'asset:assets/nft/cloak-gold-coin.png', name: 'CLOAK Gold Coin', collectionName: 'CLOAK Collection'),
-        const _ParsedNft(nftId: '1099511627777', contract: 'atomicassets', imageUrl: 'asset:assets/nft/cloak-front.png', name: 'CLOAK Front', collectionName: 'CLOAK Collection'),
-        const _ParsedNft(nftId: '1099511627778', contract: 'atomicassets', imageUrl: 'asset:assets/nft/anonymous-face.png', name: 'Anonymous Face', collectionName: 'CLOAK Collection'),
-      ]);
-    }
-
     setState(() { _nfts = nfts; });
 
-    // Fetch metadata for non-mock NFTs
-    if (!_kMockNfts || nfts.any((n) => n.name == null)) {
+    // Fetch metadata for NFTs without names
+    if (nfts.any((n) => n.name == null)) {
       _loadMetadata(nfts);
     } else {
       _metadataLoaded = true;
@@ -1852,19 +1839,11 @@ class _VaultNftsTabContentState extends State<_VaultNftsTabContent> {
     final nfts = tokens.nfts;
     final List<_ParsedNft> parsed = [];
 
-    if (_kMockNfts && nfts.isEmpty) {
-      parsed.addAll([
-        const _ParsedNft(nftId: '1099511627776', contract: 'atomicassets', imageUrl: 'asset:assets/nft/cloak-gold-coin.png', name: 'CLOAK Gold Coin', collectionName: 'CLOAK Collection'),
-        const _ParsedNft(nftId: '1099511627777', contract: 'atomicassets', imageUrl: 'asset:assets/nft/cloak-front.png', name: 'CLOAK Front', collectionName: 'CLOAK Collection'),
-        const _ParsedNft(nftId: '1099511627778', contract: 'atomicassets', imageUrl: 'asset:assets/nft/anonymous-face.png', name: 'Anonymous Face', collectionName: 'CLOAK Collection'),
-      ]);
-    } else {
-      for (final nft in nfts) {
-        final nftId = nft['id']?.toString() ?? nft.keys.first;
-        final contract = nft['contract']?.toString() ?? '';
-        final imageUrl = nft['imageUrl']?.toString();
-        parsed.add(_ParsedNft(nftId: nftId, contract: contract, imageUrl: imageUrl));
-      }
+    for (final nft in nfts) {
+      final nftId = nft['id']?.toString() ?? nft.keys.first;
+      final contract = nft['contract']?.toString() ?? '';
+      final imageUrl = nft['imageUrl']?.toString();
+      parsed.add(_ParsedNft(nftId: nftId, contract: contract, imageUrl: imageUrl));
     }
 
     setState(() {
@@ -1872,7 +1851,8 @@ class _VaultNftsTabContentState extends State<_VaultNftsTabContent> {
       _initialized = true;
     });
 
-    if (!_kMockNfts || parsed.any((n) => n.name == null)) {
+    // Fetch metadata for NFTs without names
+    if (parsed.any((n) => n.name == null)) {
       _loadMetadata(parsed);
     } else {
       _metadataLoaded = true;

@@ -214,9 +214,6 @@ List<_SendToken> _parseShieldedTokens() {
   return tokens;
 }
 
-/// Mock NFT flag — matches home.dart
-const _kMockNfts = true;
-
 /// Lightweight NFT descriptor for the send asset picker.
 class _SendNft {
   final String nftId;       // u64 asset ID as string
@@ -227,7 +224,7 @@ class _SendNft {
   _SendNft({required this.nftId, required this.contract, this.name, this.imageUrl});
 }
 
-/// Parse shielded NFTs from getNftsJson(). Injects mock data when empty and _kMockNfts is on.
+/// Parse shielded NFTs from getNftsJson().
 List<_SendNft> _parseShieldedNfts() {
   final raw = CloakWalletManager.getNftsJson();
   final List<_SendNft> nfts = [];
@@ -243,13 +240,6 @@ List<_SendNft> _parseShieldedNfts() {
         nfts.add(_SendNft(nftId: nftId, contract: contract));
       }
     } catch (_) {}
-  }
-  if (_kMockNfts && nfts.isEmpty) {
-    nfts.addAll([
-      _SendNft(nftId: '1099511627776', contract: 'atomicassets', name: 'CLOAK Gold Coin', imageUrl: 'asset:assets/nft/cloak-gold-coin.png'),
-      _SendNft(nftId: '1099511627777', contract: 'atomicassets', name: 'CLOAK Front', imageUrl: 'asset:assets/nft/cloak-front.png'),
-      _SendNft(nftId: '1099511627778', contract: 'atomicassets', name: 'Anonymous Face', imageUrl: 'asset:assets/nft/anonymous-face.png'),
-    ]);
   }
   return nfts;
 }
@@ -274,19 +264,11 @@ List<_SendToken> _parseVaultTokens() {
 List<_SendNft> _parseVaultNfts() {
   final vt = activeVaultTokens;
   if (vt == null) return [];
-  final List<_SendNft> nfts = vt.nfts.map((nft) => _SendNft(
+  return vt.nfts.map((nft) => _SendNft(
     nftId: nft['id']?.toString() ?? '',
     contract: nft['contract']?.toString() ?? '',
     imageUrl: nft['imageUrl']?.toString(),
   )).toList();
-  if (_kMockNfts && nfts.isEmpty) {
-    nfts.addAll([
-      _SendNft(nftId: '1099511627776', contract: 'atomicassets', name: 'CLOAK Gold Coin', imageUrl: 'asset:assets/nft/cloak-gold-coin.png'),
-      _SendNft(nftId: '1099511627777', contract: 'atomicassets', name: 'CLOAK Front', imageUrl: 'asset:assets/nft/cloak-front.png'),
-      _SendNft(nftId: '1099511627778', contract: 'atomicassets', name: 'Anonymous Face', imageUrl: 'asset:assets/nft/anonymous-face.png'),
-    ]);
-  }
-  return nfts;
 }
 
 class QuickSendPage extends StatefulWidget {
