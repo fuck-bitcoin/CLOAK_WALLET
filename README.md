@@ -74,6 +74,81 @@ A modern dark theme with smooth animations and slide transitions. Transaction de
 
 Sign in to [app.cloak.today](https://app.cloak.today) directly from your desktop wallet. The wallet runs a local signature provider that handles ESR (EOSIO Signing Request) links — no passwords, no browser extensions. Your keys never leave your device.
 
+#### Browser Setup
+
+The wallet runs a secure WebSocket server on `localhost:9367`. Some browsers require extra configuration to allow localhost connections from external websites.
+
+<details>
+<summary><strong>Brave Browser</strong></summary>
+
+1. Open `brave://flags` in the address bar
+2. Search for "localhost"
+3. Enable **"Enable Localhost Access Permission Prompt"**
+4. Restart Brave
+5. When you visit app.cloak.today and click authenticate, Brave will prompt you to allow localhost access — click **Allow**
+
+Alternatively, visit `https://127.0.0.1:9367/` directly and click **Advanced** → **Proceed to 127.0.0.1** to trust the certificate.
+
+</details>
+
+<details>
+<summary><strong>Google Chrome</strong></summary>
+
+Chrome typically works out of the box if you've run `mkcert -install` (included in the wallet's first-run setup on Linux). If authentication fails:
+
+1. Open `chrome://flags/#allow-insecure-localhost`
+2. Enable **"Allow invalid certificates for resources loaded from localhost"**
+3. Restart Chrome
+
+Or visit `https://127.0.0.1:9367/` directly and click **Advanced** → **Proceed to 127.0.0.1**.
+
+</details>
+
+<details>
+<summary><strong>Firefox</strong></summary>
+
+Firefox uses its own certificate store, not the system keychain. You need to manually trust the certificate:
+
+1. Open `https://127.0.0.1:9367/` in Firefox
+2. Click **Advanced** → **Accept the Risk and Continue**
+3. Firefox will remember this for future sessions
+4. Return to app.cloak.today and authenticate
+
+</details>
+
+<details>
+<summary><strong>Safari</strong></summary>
+
+Safari uses the macOS system keychain. If you've run `mkcert -install`, authentication should work immediately with no extra configuration.
+
+If it fails, open **Keychain Access**, find "mkcert" in the System keychain, and set it to "Always Trust".
+
+</details>
+
+<details>
+<summary><strong>Edge</strong></summary>
+
+Edge uses the same certificate store as Chrome/Windows. If authentication fails:
+
+1. Open `edge://flags/#allow-insecure-localhost`
+2. Enable **"Allow invalid certificates for resources loaded from localhost"**
+3. Restart Edge
+
+</details>
+
+#### Android Authentication
+
+On mobile, browsers can't connect to localhost WebSocket servers. Instead, Android authentication uses **deep links** — the wallet registers the `cloak://` URL scheme and handles authentication requests directly.
+
+**How it works:**
+1. Website generates a `cloak://auth?origin=app.cloak.today` link
+2. Tapping the link opens CLOAK Wallet
+3. Wallet shows an approval screen: "app.cloak.today wants to log in"
+4. User taps Approve → wallet signs and broadcasts
+5. Wallet redirects back to the browser with the result
+
+**Status:** The wallet-side implementation is complete and ready. Authentication will work automatically once app.cloak.today enables deep link support for mobile users.
+
 ### Cross-Platform
 
 Runs natively on Linux, macOS (Apple Silicon and Intel), Windows, and Android. Same codebase, same features, same privacy everywhere.
@@ -167,11 +242,11 @@ Fully encrypted 1:1 messaging with:
 - Read receipts and typing indicators
 - Photo attachments with chunked encoding
 
-The message parsing, thread building, and reaction aggregation code exists. The ZK-memo infrastructure is there. What's missing is polish and a WebSocket relay for real-time delivery.
+The message parsing, thread building, and reaction aggregation code exists. The ZK-memo infrastructure is there. Real-time delivery comes naturally from Telos's ~0.5 second block times — messages are shielded transaction memos that confirm instantly. No WebSocket relay or external servers required. What's missing is polish and UI completion.
 
 ### Voice & Video Calling
 
-WebRTC signaling infrastructure for peer-to-peer calls. The wallet could exchange SDP offers/answers through encrypted memos, establishing direct audio/video streams between users. Privacy-preserving communication without central servers.
+WebRTC signaling infrastructure for peer-to-peer calls. SDP offers/answers are exchanged through shielded transaction memos on Telos — no STUN/TURN servers or centralized signaling required. Once the handshake completes, audio/video streams flow directly peer-to-peer. Privacy-preserving communication with zero reliance on external infrastructure.
 
 ### Payment Requests
 
@@ -367,7 +442,7 @@ Matthias accomplished something remarkable: he brought **true zero-knowledge pri
 
 Before ZEOS, privacy on Telos and other Antelope chains simply didn't exist. Matthias changed that. Every private transaction you make with CLOAK Wallet is a testament to his vision and technical brilliance.
 
-But this work is about more than technology — it's about **preserving the liberty of the individual**. In a world of increasing financial surveillance, the ability to transact privately isn't a luxury; it's a fundamental right. Matthias gave a dying ecosystem a shot at new life, introducing dynamics that unlock possibilities never before available on these chains. EOSIO and Antelope networks offer the most powerful and expressive smart contract platform in the industry — unmatched flexibility, human-readable accounts, sophisticated permission systems, and the ability to build complex on-chain logic that other platforms can only dream of. What they lacked was the one feature that makes truly sovereign money possible: privacy. ZEOS fills that gap, allowing these high-performance chains to finally realize their full potential as platforms for financial freedom.
+But this work is about more than technology — it's about **preserving the liberty of the individual**. In a world of increasing financial surveillance, the ability to transact privately isn't a luxury; it's a fundamental right. Matthias gave a dying ecosystem a shot at new life, introducing dynamics that unlock possibilities never before available on these chains. EOSIO and Antelope networks offer the most powerful and expressive smart contract platform in the industry — unmatched flexibility, human-readable accounts, sophisticated permission systems, and the ability to build complex on-chain logic that other platforms can only dream of. What they lacked was the one feature that makes truly sovereign money possible: privacy. CLOAK fills that gap, allowing these high-performance chains to finally realize their full potential as platforms for financial freedom.
 
 Thank you, Matthias, for giving us the tools to build a more private, more free future.
 
