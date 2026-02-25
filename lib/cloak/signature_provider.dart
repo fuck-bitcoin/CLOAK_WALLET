@@ -30,6 +30,7 @@ import 'signature_provider_state.dart';
 class SignatureProvider {
   static HttpServer? _server;
   static final Map<String, WebSocket> _clients = {};
+  static final Map<String, String> _clientOrigins = {};  // Store origin per client
   static String? _sslCertPath;
   static String? _sslKeyPath;
   static int _clientCounter = 0;
@@ -303,13 +304,21 @@ class SignatureProvider {
         final clientId = _generateClientId();
         _clients[clientId] = socket;
 
+        // Capture origin from HTTP headers for display in auth dialogs
+        final origin = request.headers.value('origin') ?? request.headers.value('Origin');
+        if (origin != null && origin.isNotEmpty) {
+          _clientOrigins[clientId] = _formatOrigin(origin);
+        }
+
         socket.listen(
           (data) => _handleMessage(clientId, data),
           onDone: () {
             _clients.remove(clientId);
+            _clientOrigins.remove(clientId);
           },
           onError: (e) {
             _clients.remove(clientId);
+            _clientOrigins.remove(clientId);
             print('[SignatureProvider] Client error: $e');
           },
         );
@@ -327,6 +336,33 @@ class SignatureProvider {
   static String _generateClientId() {
     _clientCounter++;
     return '${DateTime.now().millisecondsSinceEpoch}_$_clientCounter';
+  }
+
+  /// Format origin URL for display (extract domain, clean up)
+  static String _formatOrigin(String origin) {
+    try {
+      final uri = Uri.parse(origin);
+      // Return just the host, or host:port if non-standard port
+      final host = uri.host;
+      if (host.isEmpty) return origin;
+      if (uri.port != 80 && uri.port != 443 && uri.port != 0) {
+        return '$host:${uri.port}';
+      }
+      return host;
+    } catch (_) {
+      return origin;
+    }
+  }
+
+  /// Get origin for a client (from stored header or params)
+  static String _getOrigin(String clientId, Map<String, dynamic> params) {
+    // Prefer origin from params if provided
+    final paramOrigin = params['origin'] as String?;
+    if (paramOrigin != null && paramOrigin.isNotEmpty && paramOrigin != 'Unknown') {
+      return _formatOrigin(paramOrigin);
+    }
+    // Fall back to stored origin from WebSocket connection
+    return _clientOrigins[clientId] ?? 'localhost';
   }
 
   /// Handle incoming WebSocket message
@@ -387,7 +423,7 @@ class SignatureProvider {
     final request = SignatureRequest(
       id: requestId,
       type: SignatureRequestType.login,
-      origin: params['origin'] as String? ?? 'Unknown',
+      origin: _getOrigin(clientId, params),
       params: params,
       timestamp: DateTime.now(),
       status: SignatureRequestStatus.pending,
@@ -404,7 +440,7 @@ class SignatureProvider {
     final request = SignatureRequest(
       id: requestId,
       type: SignatureRequestType.sign,
-      origin: params['origin'] as String? ?? 'Unknown',
+      origin: _getOrigin(clientId, params),
       params: params,
       timestamp: DateTime.now(),
       status: SignatureRequestStatus.pending,
