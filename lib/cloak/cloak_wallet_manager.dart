@@ -112,9 +112,6 @@ class CloakWalletManager {
 
     // Load burn timestamps cache for synchronous TX history relabeling
     await CloakDb.refreshBurnTimestampsCache();
-
-    // Load sent transaction IDs cache for TX details
-    await CloakDb.refreshSentTxCache();
   }
 
   /// Create a new CLOAK wallet from seed

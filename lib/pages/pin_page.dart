@@ -205,7 +205,6 @@ class _PinLoginPageState extends State<PinLoginPage> {
       await CloakWalletManager.loadWallet();
       await refreshCloakAccountsCache();
       await CloakDb.refreshBurnTimestampsCache();
-      await CloakDb.refreshSentTxCache();
 
       await SignatureProvider.start();
 

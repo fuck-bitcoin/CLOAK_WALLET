@@ -115,7 +115,7 @@ class CloakDb {
     _db = await databaseFactory.openDatabase(
       _dbPath!,
       options: OpenDatabaseOptions(
-        version: 8, // v8 adds sent_transactions table for txId storage
+        version: 8, // v8 was sent_transactions (removed - now on-demand)
         onConfigure: (db) async {
           // Enable SQLCipher encryption if password provided
           if (_password.isNotEmpty && _sqlCipherAvailable) {
@@ -169,9 +169,6 @@ class CloakDb {
           // Burn events table (v6) — persists vault burn timestamps for TX history labeling
           await _createBurnEventsTable(db);
 
-          // Sent transactions table (v8) — persists txIds for transaction details
-          await _createSentTransactionsTable(db);
-
           // Initialize next_vault_index property (v7)
           await db.insert('properties', {'name': 'next_vault_index', 'value': '0'});
         },
@@ -210,11 +207,7 @@ class CloakDb {
             await db.execute("INSERT OR IGNORE INTO properties(name, value) VALUES('next_vault_index', '0')");
             print('CloakDb: v7 migration — added vault_index column + next_vault_index property');
           }
-          if (oldVersion < 8) {
-            // v8: Add sent_transactions table to persist txIds for transaction details
-            await _createSentTransactionsTable(db);
-            print('CloakDb: v8 migration — added sent_transactions table');
-          }
+          // v8 migration removed - transaction details now fetched on-demand
           await db.update('schema_version', {'version': newVersion}, where: 'id = 1');
         },
       ),
@@ -463,17 +456,6 @@ class CloakDb {
     ''');
   }
 
-  static Future<void> _createSentTransactionsTable(Database db) async {
-    await db.execute('''
-      CREATE TABLE IF NOT EXISTS sent_transactions (
-        id INTEGER PRIMARY KEY,
-        timestamp_ms INTEGER NOT NULL,
-        tx_id TEXT NOT NULL UNIQUE
-      )
-    ''');
-    await db.execute('CREATE INDEX IF NOT EXISTS i_sent_tx_ts ON sent_transactions(timestamp_ms)');
-  }
-
   // ============== Burn Events ==============
 
   /// In-memory cache for synchronous access from txs.read()
@@ -503,67 +485,6 @@ class CloakDb {
     await init();
     final rows = await _db!.query('burn_events', columns: ['timestamp_ms']);
     return rows.map((r) => r['timestamp_ms'] as int).toSet();
-  }
-
-  // ============== Sent Transactions ==============
-
-  /// In-memory cache for synchronous access from txs.read()
-  static Map<int, String> _sentTxCache = {};
-
-  /// Synchronous getter for use in accounts.dart txs.read()
-  static Map<int, String> get sentTxCacheSync => _sentTxCache;
-
-  /// Load sent transactions from DB into cache (call at startup)
-  static Future<void> refreshSentTxCache() async {
-    await init();
-    final rows = await _db!.query('sent_transactions', columns: ['timestamp_ms', 'tx_id']);
-    _sentTxCache = {for (final r in rows) r['timestamp_ms'] as int: r['tx_id'] as String};
-  }
-
-  /// Record a transaction ID for TX history details.
-  /// Also updates the in-memory cache for immediate availability.
-  /// Uses INSERT OR IGNORE to avoid duplicates.
-  static Future<void> addSentTransaction(int timestampMs, String txId) async {
-    await init();
-    await _db!.execute(
-      'INSERT OR IGNORE INTO sent_transactions (timestamp_ms, tx_id) VALUES (?, ?)',
-      [timestampMs, txId],
-    );
-    _sentTxCache[timestampMs] = txId;
-  }
-
-  /// Bulk add transaction IDs (only inserts new ones)
-  /// Used during sync to cache trxIds from Hyperion
-  static Future<void> addTransactionIds(Map<int, String> txIds) async {
-    if (txIds.isEmpty) return;
-    await init();
-    final batch = _db!.batch();
-    for (final entry in txIds.entries) {
-      // Only add if not already in cache
-      if (!_sentTxCache.containsKey(entry.key)) {
-        batch.rawInsert(
-          'INSERT OR IGNORE INTO sent_transactions (timestamp_ms, tx_id) VALUES (?, ?)',
-          [entry.key, entry.value],
-        );
-        _sentTxCache[entry.key] = entry.value;
-      }
-    }
-    await batch.commit(noResult: true);
-  }
-
-  /// Get txId for a transaction by timestamp (with 5s tolerance)
-  static String? getTxIdByTimestamp(int timestampMs) {
-    // Direct match first
-    if (_sentTxCache.containsKey(timestampMs)) {
-      return _sentTxCache[timestampMs];
-    }
-    // Try within 5s tolerance
-    for (final entry in _sentTxCache.entries) {
-      if ((timestampMs - entry.key).abs() < 5000) {
-        return entry.value;
-      }
-    }
-    return null;
   }
 
   // ============== Contacts CRUD ==============

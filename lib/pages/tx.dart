@@ -11,6 +11,7 @@ import 'package:intl/intl.dart';
 import '../accounts.dart';
 import '../cloak/cloak_db.dart';
 import '../cloak/cloak_wallet_manager.dart';
+import '../cloak/eosio_client.dart' show fetchTransactionDetails, TransactionDetails;
 import '../generated/intl/messages.dart';
 import '../appsettings.dart';
 import '../coin/coins.dart';
@@ -1574,18 +1575,58 @@ class TransactionPage extends StatefulWidget {
 
 class TransactionState extends State<TransactionPage> {
   late int idx;
+  TransactionDetails? _details;
+  bool _loading = true;
 
   @override
   void initState() {
     super.initState();
     idx = widget.txIndex;
+    _loadDetails();
   }
 
   Tx get tx => aa.txs.items[idx];
 
+  Future<void> _loadDetails() async {
+    // Only fetch for CLOAK transactions (have timestamp but may lack trxId)
+    if (CloakWalletManager.isCloak(aa.coin)) {
+      final timestampMs = tx.timestamp.millisecondsSinceEpoch;
+      final details = await fetchTransactionDetails(timestampMs);
+      if (mounted) {
+        setState(() {
+          _details = details;
+          _loading = false;
+        });
+      }
+    } else {
+      if (mounted) {
+        setState(() => _loading = false);
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final s = S.of(context);
+
+    // Create an enhanced Tx with fetched details if available
+    final displayTx = _details != null
+        ? Tx(
+            tx.id,
+            _details!.blockNum > 0 ? _details!.blockNum : tx.height,
+            tx.confirmations,
+            tx.timestamp,
+            _details!.trxId,
+            _details!.trxId,
+            tx.value,
+            tx.address,
+            tx.contact,
+            tx.memo,
+            tx.memos,
+            symbol: tx.symbol,
+          )
+        : tx;
+
     return Scaffold(
       backgroundColor: const Color(0xFF1E1E1E),
       appBar: AppBar(
@@ -1597,19 +1638,23 @@ class TransactionState extends State<TransactionPage> {
         ),
         title: Text(s.transactionDetails),
       ),
-      body: SingleChildScrollView(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Gap(8),
-              _buildTxDetailsContent(context, tx),
-              const Gap(32),
-            ],
-          ),
-        ),
-      ),
+      body: _loading
+          ? const Center(
+              child: CircularProgressIndicator(color: Color(0xFF4CAF50)),
+            )
+          : SingleChildScrollView(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Gap(8),
+                    _buildTxDetailsContent(context, displayTx),
+                    const Gap(32),
+                  ],
+                ),
+              ),
+            ),
     );
   }
 }
@@ -1664,6 +1709,8 @@ class TransactionByIdState extends State<TransactionByIdPage> {
   bool _requested = false;
   String? _from;
   int? _threadIndex;
+  TransactionDetails? _details;
+  bool _detailsLoading = true;
 
   @override
   void initState() {
@@ -1683,6 +1730,24 @@ class TransactionByIdState extends State<TransactionByIdPage> {
     });
   }
 
+  Future<void> _loadDetails(Tx tx) async {
+    if (!_detailsLoading) return; // Already loaded
+    if (CloakWalletManager.isCloak(aa.coin)) {
+      final timestampMs = tx.timestamp.millisecondsSinceEpoch;
+      final details = await fetchTransactionDetails(timestampMs);
+      if (mounted) {
+        setState(() {
+          _details = details;
+          _detailsLoading = false;
+        });
+      }
+    } else {
+      if (mounted) {
+        setState(() => _detailsLoading = false);
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final s = S.of(context);
@@ -1693,7 +1758,7 @@ class TransactionByIdState extends State<TransactionByIdPage> {
       syncStatus2.changed; // sync updates
       final idx = aa.txs.indexOfTxId(_txId);
 
-      // Loading state
+      // Loading state - tx not found yet
       if (idx < 0) {
         _ensureTxs();
         return Scaffold(
@@ -1717,6 +1782,29 @@ class TransactionByIdState extends State<TransactionByIdPage> {
 
       final tx = aa.txs.items[idx];
 
+      // Trigger detail loading once we have the tx
+      if (_detailsLoading) {
+        _loadDetails(tx);
+      }
+
+      // Create an enhanced Tx with fetched details if available
+      final displayTx = _details != null
+          ? Tx(
+              tx.id,
+              _details!.blockNum > 0 ? _details!.blockNum : tx.height,
+              tx.confirmations,
+              tx.timestamp,
+              _details!.trxId,
+              _details!.trxId,
+              tx.value,
+              tx.address,
+              tx.contact,
+              tx.memo,
+              tx.memos,
+              symbol: tx.symbol,
+            )
+          : tx;
+
       return Scaffold(
         backgroundColor: const Color(0xFF1E1E1E),
         appBar: AppBar(
@@ -1736,19 +1824,23 @@ class TransactionByIdState extends State<TransactionByIdPage> {
           ),
           title: Text(s.transactionDetails),
         ),
-        body: SingleChildScrollView(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Gap(8),
-                _buildTxDetailsContent(context, tx),
-                const Gap(32),
-              ],
-            ),
-          ),
-        ),
+        body: _detailsLoading
+            ? const Center(
+                child: CircularProgressIndicator(color: Color(0xFF4CAF50)),
+              )
+            : SingleChildScrollView(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Gap(8),
+                      _buildTxDetailsContent(context, displayTx),
+                      const Gap(32),
+                    ],
+                  ),
+                ),
+              ),
       );
     });
   }
