@@ -34,6 +34,7 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   initializeReflectable();
   await restoreSettings();
+  await initUiPrefs();  // Load UI prefs (always-on-top) before window setup
   await initCoins();
   await restoreWindow();
   initNotifications();
@@ -126,9 +127,6 @@ void main() async {
       print('[init] Error restoring account: $e');
     }
   }
-
-  // Restore UI preferences (hide bottom nav, always-on-top)
-  await initUiPrefs();
 
   if (walletReady) {
     // Ensure sync progress events are listened to on desktop startup
