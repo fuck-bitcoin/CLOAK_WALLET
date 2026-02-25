@@ -520,25 +520,26 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
                                       borderRadius: BorderRadius.circular(14),
                                       borderSide: BorderSide(color: Theme.of(context).colorScheme.error, width: 1.2),
                                     ),
-                                    suffixIconConstraints: const BoxConstraints(minWidth: 0, minHeight: 0),
-                                    suffixIcon: (widget.sendContext?.isVaultDeposit == true) ? null : Padding(
-                                      padding: const EdgeInsets.only(right: 8),
-                                      child: _SuffixChip(
-                                        icon: SvgPicture.string(
+                                    suffixIconConstraints: const BoxConstraints(maxHeight: 36, maxWidth: 36),
+                                    suffixIcon: (widget.sendContext?.isVaultDeposit == true) ? null : GestureDetector(
+                                      onTap: () async {
+                                        if ((widget.sendContext?.fromThread ?? false)) {
+                                          return;
+                                        }
+                                        final text = await scanQRCode(context, validator: addressValidator);
+                                        _setAddressFromTop(text);
+                                      },
+                                      child: Padding(
+                                        padding: const EdgeInsets.only(right: 10),
+                                        child: SvgPicture.string(
                                           _ZASHI_QR_GLYPH,
-                                          width: 16,
-                                          height: 16,
-                                          colorFilter: ColorFilter.mode(t.colorScheme.onSurface, BlendMode.srcIn),
+                                          width: 35,
+                                          height: 35,
+                                          colorFilter: ColorFilter.mode(
+                                            t.colorScheme.onSurface,
+                                            BlendMode.srcIn,
+                                          ),
                                         ),
-                                        backgroundColor: chipBgColor,
-                                        borderColor: chipBorderColor,
-                                        onTap: () async {
-                                          if ((widget.sendContext?.fromThread ?? false)) {
-                                            return;
-                                          }
-                                          final text = await scanQRCode(context, validator: addressValidator);
-                                          _setAddressFromTop(text);
-                                        },
                                       ),
                                     ),
                                   ),
