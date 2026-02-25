@@ -47,27 +47,7 @@ class _CloakSubmitState extends State<CloakSubmitPage>
         final sc = SendContext.instance;
         if (sc == null) throw 'No send context';
 
-        // Dry-run mode: mock NFTs use local asset: URLs — simulate the full
-        // flow with timed status messages instead of real ZKP / broadcast.
-        final bool isDryRun = sc.nftImageUrl?.startsWith('asset:') == true;
-
-        if (isDryRun) {
-          const steps = [
-            ('Loading ZK parameters...', 800),
-            ('Syncing with network...', 600),
-            ('Generating zero-knowledge proof...', 2500),
-            ('Preparing transaction...', 700),
-            ('Signing transaction...', 500),
-            ('Broadcasting...', 900),
-          ];
-          for (final (msg, ms) in steps) {
-            if (!mounted) return;
-            setState(() => _statusMessage = msg);
-            await Future.delayed(Duration(milliseconds: ms));
-          }
-          txId = 'dry_run_${DateTime.now().millisecondsSinceEpoch.toRadixString(16)}';
-        } else {
-          setState(() => _statusMessage = 'Loading ZK parameters...');
+        setState(() => _statusMessage = 'Loading ZK parameters...');
           if (!await CloakWalletManager.loadZkParams()) {
             throw 'Failed to load ZK parameters';
           }
@@ -166,7 +146,6 @@ class _CloakSubmitState extends State<CloakSubmitPage>
             await Future.delayed(const Duration(milliseconds: 1500));
             await refreshActiveVaultBalance();
           }
-        }
       } catch (e) {
         error = e.toString();
       }
