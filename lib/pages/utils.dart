@@ -214,9 +214,8 @@ Future<void> showSnackBar(String msg) async {
 }
 
 void openTxInExplorer(String txId) {
-  final settings = CoinSettingsExtension.load(aa.coin);
-  final url = settings.resolveBlockExplorer(aa.coin);
-  launchUrl(Uri.parse("$url/$txId"), mode: LaunchMode.inAppWebView);
+  final url = 'https://explorer.telos.net/transaction/$txId';
+  launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
 }
 
 String? addressValidator(String? v) {

@@ -1,6 +1,7 @@
 import 'dart:math';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'dart:ui' show FontFeature;
 import 'package:flutter_mobx/flutter_mobx.dart';
 import 'package:flutter_svg/flutter_svg.dart';
@@ -401,7 +402,7 @@ class TxPageState extends State<TxPage> {
                 actions: [
                   IconButton(
                     icon: Icon(Icons.close),
-                    onPressed: () => GoRouter.of(context).go('/blank'),
+                    onPressed: () => GoRouter.of(context).go('/account'),
                   ),
                 ],
               ),
@@ -1272,6 +1273,283 @@ class TxItem extends StatelessWidget {
   }
 }
 
+// ════════════════════════════════════════════════════════════════════════════
+// Transaction Details - Shared UI Components
+// ════════════════════════════════════════════════════════════════════════════
+
+/// Date format for transaction details: "Month Day, Year at HH:MM:SS AM/PM"
+final DateFormat _txDetailDateFormat = DateFormat("MMMM d, yyyy 'at' h:mm:ss a");
+
+/// Section label widget matching app design patterns
+Widget _txSectionLabel(String text) {
+  return Text(
+    text.toUpperCase(),
+    style: TextStyle(
+      fontSize: 11,
+      fontWeight: FontWeight.w600,
+      color: Colors.white.withOpacity(0.35),
+      letterSpacing: 2,
+    ),
+  );
+}
+
+/// Section description (layman explanation) widget
+Widget _txSectionDescription(String text) {
+  return Padding(
+    padding: const EdgeInsets.only(top: 4),
+    child: Text(
+      text,
+      style: TextStyle(
+        fontSize: 11,
+        color: Colors.white.withOpacity(0.4),
+        height: 1.3,
+      ),
+    ),
+  );
+}
+
+/// Data field card with optional copy button
+Widget _txDataField({
+  required String value,
+  bool mono = false,
+  VoidCallback? onCopy,
+}) {
+  return Container(
+    width: double.infinity,
+    padding: const EdgeInsets.all(14),
+    decoration: BoxDecoration(
+      color: const Color(0xFF2E2C2C),
+      borderRadius: BorderRadius.circular(14),
+      border: Border.all(color: Colors.white.withOpacity(0.08)),
+    ),
+    child: Row(
+      children: [
+        Expanded(
+          child: SelectableText(
+            value,
+            style: TextStyle(
+              fontFamily: mono ? 'monospace' : null,
+              fontSize: mono ? 12 : 14,
+              color: Colors.white.withOpacity(0.85),
+              height: 1.5,
+            ),
+          ),
+        ),
+        if (onCopy != null) ...[
+          const SizedBox(width: 12),
+          GestureDetector(
+            onTap: onCopy,
+            child: Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.06),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(Icons.copy, size: 16, color: Colors.white.withOpacity(0.5)),
+            ),
+          ),
+        ],
+      ],
+    ),
+  );
+}
+
+/// Status badge for confirmed/pending states
+Widget _txStatusBadge({required bool confirmed, required int confirmations}) {
+  final isConfirmed = confirmed && confirmations > 0;
+  return Container(
+    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+    decoration: BoxDecoration(
+      color: isConfirmed
+          ? const Color(0xFF4CAF50).withOpacity(0.15)
+          : Colors.orange.withOpacity(0.15),
+      borderRadius: BorderRadius.circular(20),
+      border: Border.all(
+        color: isConfirmed
+            ? const Color(0xFF4CAF50).withOpacity(0.3)
+            : Colors.orange.withOpacity(0.3),
+      ),
+    ),
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(
+          isConfirmed ? Icons.check_circle : Icons.schedule,
+          size: 14,
+          color: isConfirmed ? const Color(0xFF4CAF50) : Colors.orange,
+        ),
+        const SizedBox(width: 6),
+        Text(
+          isConfirmed ? 'Confirmed ($confirmations)' : 'Pending',
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            color: isConfirmed ? const Color(0xFF4CAF50) : Colors.orange,
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+/// Copy helper with snackbar feedback
+void _copyToClipboard(BuildContext context, String value, String label) {
+  Clipboard.setData(ClipboardData(text: value));
+  showSnackBar(S.of(context).copiedToClipboard);
+}
+
+/// Build the main transaction details content
+Widget _buildTxDetailsContent(BuildContext context, Tx tx) {
+  final s = S.of(context);
+  final confirmations = tx.confirmations ?? 0;
+  final isConfirmed = tx.height > 0 && confirmations > 0;
+
+  return Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      // ── Status Section ──
+      _txSectionLabel('STATUS'),
+      _txSectionDescription('Current confirmation state of this transaction'),
+      const SizedBox(height: 10),
+      _txStatusBadge(confirmed: isConfirmed, confirmations: confirmations),
+      const SizedBox(height: 24),
+
+      // ── Transaction Hash Section ──
+      _txSectionLabel('TRANSACTION HASH'),
+      _txSectionDescription('Unique identifier for this transaction on the blockchain'),
+      const SizedBox(height: 10),
+      _txDataField(
+        value: tx.fullTxId,
+        mono: true,
+        onCopy: () => _copyToClipboard(context, tx.fullTxId, 'Transaction Hash'),
+      ),
+      const SizedBox(height: 24),
+
+      // ── Block Number Section ──
+      _txSectionLabel('BLOCK NUMBER'),
+      _txSectionDescription('The block that contains this transaction'),
+      const SizedBox(height: 10),
+      _txDataField(
+        value: tx.height > 0 ? tx.height.toString() : 'Pending',
+        mono: true,
+      ),
+      const SizedBox(height: 24),
+
+      // ── Block Time Section ──
+      _txSectionLabel('BLOCK TIME'),
+      _txSectionDescription('When this transaction was included in a block'),
+      const SizedBox(height: 10),
+      _txDataField(
+        value: _txDetailDateFormat.format(tx.timestamp),
+      ),
+      const SizedBox(height: 24),
+
+      // ── Amount Section ──
+      _txSectionLabel('AMOUNT'),
+      _txSectionDescription('The value transferred in this transaction'),
+      const SizedBox(height: 10),
+      Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: const Color(0xFF2E2C2C),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: Colors.white.withOpacity(0.08)),
+        ),
+        child: Text(
+          '${tx.value >= 0 ? '+' : ''}${decimalToString(tx.value)} ${tx.symbol ?? 'CLOAK'}',
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.w600,
+            color: tx.value >= 0 ? const Color(0xFF4CAF50) : Colors.redAccent,
+          ),
+        ),
+      ),
+      const SizedBox(height: 24),
+
+      // ── Address Section (if available) ──
+      if (tx.address != null && tx.address!.isNotEmpty) ...[
+        _txSectionLabel('ADDRESS'),
+        _txSectionDescription('The recipient or sender address'),
+        const SizedBox(height: 10),
+        _txDataField(
+          value: tx.address!,
+          mono: true,
+          onCopy: () => _copyToClipboard(context, tx.address!, 'Address'),
+        ),
+        const SizedBox(height: 24),
+      ],
+
+      // ── Contact Section (if available) ──
+      if (tx.contact != null && tx.contact!.isNotEmpty) ...[
+        _txSectionLabel('CONTACT'),
+        _txSectionDescription('Known contact associated with this transaction'),
+        const SizedBox(height: 10),
+        _txDataField(value: tx.contact!),
+        const SizedBox(height: 24),
+      ],
+
+      // ── Memo Section (if available) ──
+      if (tx.memo != null && tx.memo!.isNotEmpty) ...[
+        _txSectionLabel('MEMO'),
+        _txSectionDescription('Private note attached to this transaction'),
+        const SizedBox(height: 10),
+        _txDataField(value: tx.memo!),
+        const SizedBox(height: 24),
+      ],
+
+      // ── Additional Memos (if any) ──
+      ...tx.memos.map((txm) => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _txSectionLabel('MEMO'),
+          _txSectionDescription('Additional memo from ${txm.address}'),
+          const SizedBox(height: 10),
+          _txDataField(value: txm.memo),
+          const SizedBox(height: 24),
+        ],
+      )),
+
+      // ── View in Explorer Button ──
+      const SizedBox(height: 8),
+      SizedBox(
+        width: double.infinity,
+        height: 52,
+        child: Material(
+          color: const Color(0xFF2E2C2C),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+            side: BorderSide(color: Colors.white.withOpacity(0.08)),
+          ),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(14),
+            onTap: () => openTxInExplorer(tx.fullTxId),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.open_in_new, size: 18, color: Colors.white.withOpacity(0.7)),
+                const SizedBox(width: 10),
+                Text(
+                  s.openInExplorer,
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.white.withOpacity(0.85),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    ],
+  );
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// TransactionPage - Index-based Transaction Details
+// ════════════════════════════════════════════════════════════════════════════
+
 class TransactionPage extends StatefulWidget {
   final int txIndex;
 
@@ -1282,7 +1560,6 @@ class TransactionPage extends StatefulWidget {
 }
 
 class TransactionState extends State<TransactionPage> {
-  late final s = S.of(context);
   late int idx;
 
   @override
@@ -1295,92 +1572,50 @@ class TransactionState extends State<TransactionPage> {
 
   @override
   Widget build(BuildContext context) {
-    final n = aa.txs.items.length;
+    final s = S.of(context);
     return Scaffold(
-        appBar: AppBar(
-          leading: IconButton(
-            icon: const Icon(Icons.arrow_back),
-            onPressed: () => Navigator.maybePop(context),
+      backgroundColor: const Color(0xFF1E1E1E),
+      appBar: AppBar(
+        backgroundColor: const Color(0xFF1E1E1E),
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () => Navigator.maybePop(context),
+        ),
+        title: Text(s.transactionDetails),
+      ),
+      body: SingleChildScrollView(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Gap(8),
+              _buildTxDetailsContent(context, tx),
+              const Gap(32),
+            ],
           ),
-          title: Text(s.transactionDetails), actions: [
-          IconButton(
-              onPressed: idx > 0 ? prev : null, icon: Icon(Icons.chevron_left)),
-          IconButton(
-              onPressed: idx < n - 1 ? next : null,
-              icon: Icon(Icons.chevron_right)),
-          IconButton(onPressed: open, icon: Icon(Icons.open_in_browser)),
-        ]),
-        body: SingleChildScrollView(
-          child: Padding(
-            padding: EdgeInsets.symmetric(horizontal: 16),
-            child: Column(
-              children: [
-                Gap(16),
-                Panel(s.txID, text: tx.fullTxId),
-                Gap(8),
-                Panel(s.height, text: tx.height.toString()),
-                Gap(8),
-                Panel(s.confs, text: tx.confirmations.toString()),
-                Gap(8),
-                Panel(s.timestamp, text: noteDateFormat.format(tx.timestamp)),
-                Gap(8),
-                Panel(s.amount, text: decimalToString(tx.value)),
-                Gap(8),
-                Panel(s.address, text: tx.address ?? ''),
-                Gap(8),
-                Panel(s.contactName,
-                    text: tx.contact ?? ''), // Add Contact button
-                Gap(8),
-                Panel(s.memo, text: tx.memo ?? ''),
-                Gap(8),
-                ..._memos()
-              ],
-            ),
-          ),
-        ));
-  }
-
-  List<Widget> _memos() {
-    List<Widget> ms = [];
-    for (var txm in tx.memos) {
-      ms.add(Gap(8));
-      ms.add(Panel(s.memo, text: txm.address + '\n' + txm.memo));
-    }
-    return ms;
-  }
-
-  open() {
-    openTxInExplorer(tx.fullTxId);
-  }
-
-  prev() {
-    if (idx > 0) idx -= 1;
-    setState(() {});
-  }
-
-  next() {
-    final n = aa.txs.items.length;
-    if (idx < n - 1) idx += 1;
-    setState(() {});
-  }
-
-  _addContact() async {
-    // await addContact(context, ContactT(address: tx.address));
+        ),
+      ),
+    );
   }
 }
 
 void gotoTx(BuildContext context, int index) {
-  final state = GoRouterState.of(context);
-  // History is nested under /blank; always route via /blank/history
-  GoRouter.of(context).go('/blank/history/details?index=$index');
+  // Transaction details as full-screen overlay via /tx_details
+  GoRouter.of(context).push('/tx_details?index=$index');
 }
 
 void gotoTxById(BuildContext context, int txId, {String? from, int? threadIndex}) {
   final params = <String>['tx=$txId'];
   if (from != null && from.isNotEmpty) params.add('from=$from');
   if (threadIndex != null) params.add('thread=$threadIndex');
-  GoRouter.of(context).go('/blank/history/details/byid?${params.join('&')}');
+  GoRouter.of(context).push('/tx_details/byid?${params.join('&')}');
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// TransactionByIdPage - ID-based Transaction Details with Observer
+// ════════════════════════════════════════════════════════════════════════════
 
 class TransactionByIdPage extends StatefulWidget {
   final int txId;
@@ -1426,74 +1661,65 @@ class TransactionByIdState extends State<TransactionByIdPage> {
       aaSequence.seqno; // global refresh ticks
       syncStatus2.changed; // sync updates
       final idx = aa.txs.indexOfTxId(_txId);
+
+      // Loading state
       if (idx < 0) {
         _ensureTxs();
         return Scaffold(
+          backgroundColor: const Color(0xFF1E1E1E),
           appBar: AppBar(
+            backgroundColor: const Color(0xFF1E1E1E),
+            elevation: 0,
             leading: IconButton(
               icon: const Icon(Icons.arrow_back),
               onPressed: () => Navigator.maybePop(context),
             ),
             title: Text(s.transactionDetails),
           ),
-          body: const Center(child: CircularProgressIndicator()),
+          body: const Center(
+            child: CircularProgressIndicator(
+              color: Color(0xFF4CAF50),
+            ),
+          ),
         );
       }
+
       final tx = aa.txs.items[idx];
+
       return Scaffold(
-          appBar: AppBar(title: Text(s.transactionDetails), leading: IconButton(
-            icon: Icon(Icons.arrow_back),
+        backgroundColor: const Color(0xFF1E1E1E),
+        appBar: AppBar(
+          backgroundColor: const Color(0xFF1E1E1E),
+          elevation: 0,
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back),
             onPressed: () {
               if (_from == 'messages' && _threadIndex != null) {
                 // Return to the exact thread details view
                 GoRouter.of(context).go('/messages/details?index=${_threadIndex}');
               } else {
-                // Default back: close details and return to history list
-                GoRouter.of(context).go('/blank/history');
+                // Pop the overlay to reveal the page underneath
+                GoRouter.of(context).pop();
               }
             },
-          ), actions: [
-            IconButton(onPressed: idx > 0 ? () => setState(() { _txId = aa.txs.items[idx - 1].id; }) : null, icon: Icon(Icons.chevron_left)),
-            IconButton(onPressed: idx < aa.txs.items.length - 1 ? () => setState(() { _txId = aa.txs.items[idx + 1].id; }) : null, icon: Icon(Icons.chevron_right)),
-            IconButton(onPressed: () => openTxInExplorer(tx.fullTxId), icon: Icon(Icons.open_in_browser)),
-          ]),
-          body: SingleChildScrollView(
-            child: Padding(
-              padding: EdgeInsets.symmetric(horizontal: 16),
-              child: Column(
-                children: [
-                  Gap(16),
-                  Panel(s.txID, text: tx.fullTxId),
-                  Gap(8),
-                  Panel(s.height, text: tx.height.toString()),
-                  Gap(8),
-                  Panel(s.confs, text: (tx.confirmations ?? 0).toString()),
-                  Gap(8),
-                  Panel(s.timestamp, text: noteDateFormat.format(tx.timestamp)),
-                  Gap(8),
-                  Panel(s.amount, text: decimalToString(tx.value)),
-                  Gap(8),
-                  Panel(s.address, text: tx.address ?? ''),
-                  Gap(8),
-                  Panel(s.contactName, text: tx.contact ?? ''),
-                  Gap(8),
-                  Panel(s.memo, text: tx.memo ?? ''),
-                  Gap(8),
-                  ..._memos(tx)
-                ],
-              ),
+          ),
+          title: Text(s.transactionDetails),
+        ),
+        body: SingleChildScrollView(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Gap(8),
+                _buildTxDetailsContent(context, tx),
+                const Gap(32),
+              ],
             ),
-          ));
+          ),
+        ),
+      );
     });
-  }
-
-  List<Widget> _memos(Tx tx) {
-    List<Widget> ms = [];
-    for (var txm in tx.memos) {
-      ms.add(Gap(8));
-      ms.add(Panel(S.of(context).memo, text: txm.address + '\n' + txm.memo));
-    }
-    return ms;
   }
 }
 

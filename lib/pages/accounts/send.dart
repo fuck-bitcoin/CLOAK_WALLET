@@ -367,8 +367,6 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
   late bool custom;
   String? _addressError;
   bool _addressIsValid = false;
-  bool _showAddContactHelp = false;
-  Timer? _addContactTimer;
 
   @override
   void initState() {
@@ -542,119 +540,22 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
                                     ),
                                     suffixIcon: (widget.sendContext?.isVaultDeposit == true) ? null : Padding(
                                       padding: const EdgeInsets.symmetric(horizontal: 8),
-                                      child: Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          _SuffixChip(
-                                            icon: SvgPicture.string(
-                                              _ZASHI_CONTACT_GLYPH,
-                                              width: 32,
-                                              height: 32,
-                                              colorFilter: ColorFilter.mode(t.colorScheme.onSurface, BlendMode.srcIn),
-                                            ),
-                                            backgroundColor: chipBgColor,
-                                            borderColor: chipBorderColor,
-                                            onTap: () async {
-                                              if ((widget.sendContext?.fromThread ?? false)) {
-                                                // In thread-launched mode, do not change destination
-                                                return;
-                                              }
-                                              final String currentText = _sendToTopController.text.trim();
-                                              // If field is empty: open contacts picker
-                                              if (currentText.isEmpty) {
-                                                final picked = await GoRouter.of(context).push('/contacts_overlay/pick');
-                                                if (picked is Contact) {
-                                                  final t = picked.unpack();
-                                                  final addr = (t.address ?? '').trim();
-                                                  final name = (t.name ?? '').trim();
-                                                  if (addr.isNotEmpty) {
-                                                    _address = addr;
-                                                    _sendToTopController.text = name.isNotEmpty ? name : addr;
-                                                    _didUpdateAddress(_address);
-                                                    _cancelAddContactHint();
-                                                  }
-                                                }
-                                                return;
-                                              }
-                                              // If field has something, check if it's a valid address
-                                              final String asEntered = currentText;
-                                              String candidate = asEntered;
-                                              bool parsedTex = false;
-                                              bool isValidAddr = false;
-                                              if (CloakWalletManager.isCloak(aa.coin)) {
-                                                // CLOAK address validation
-                                                isValidAddr = _isValidCloakAddress(candidate);
-                                              } else {
-                                                // Non-CLOAK address validation not supported
-                                                isValidAddr = false;
-                                              }
-                                              if (isValidAddr) {
-                                                // Check if address matches an existing contact
-                                                String? existingName;
-                                                try {
-                                                  for (final c in contacts.contacts) {
-                                                    final t = c.unpack();
-                                                    final ad = (t.address ?? '').trim();
-                                                    if (ad == candidate) { existingName = (t.name ?? '').trim(); break; }
-                                                  }
-                                                } catch (_) {}
-                                                if ((existingName ?? '').isNotEmpty) {
-                                                  // Show dialog: Contact Exists
-                                                  await showDialog<void>(
-                                                    context: context,
-                                                    builder: (ctx) => AlertDialog(
-                                                      title: const Text('Contact Exists'),
-                                                      content: const Text('This address is already associated with a contact.'),
-                                                      actions: [
-                                                        TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('OK')),
-                                                      ],
-                                                    ),
-                                                  );
-                                                  // Fill visible field with the contact name; keep underlying address
-                                                  _address = candidate;
-                                                  _sendToTopController.text = existingName!;
-                                                  _didUpdateAddress(_address);
-                                                  return;
-                                                } else {
-                                                  // Not in contacts: open Add Contact prefilled with address
-                                                  GoRouter.of(context).push('/contacts/add', extra: candidate);
-                                                  return;
-                                                }
-                                              }
-                                              // Otherwise (not a valid address): open picker
-                                              final picked2 = await GoRouter.of(context).push('/contacts_overlay/pick');
-                                              if (picked2 is Contact) {
-                                                final t2 = picked2.unpack();
-                                                final addr2 = (t2.address ?? '').trim();
-                                                final name2 = (t2.name ?? '').trim();
-                                                if (addr2.isNotEmpty) {
-                                                  _address = addr2;
-                                                  _sendToTopController.text = name2.isNotEmpty ? name2 : addr2;
-                                                  _didUpdateAddress(_address);
-                                                  _cancelAddContactHint();
-                                                }
-                                              }
-                                            },
-                                          ),
-                                          const SizedBox(width: 8),
-                                          _SuffixChip(
-                                            icon: SvgPicture.string(
-                                              _ZASHI_QR_GLYPH,
-                                              width: 32,
-                                              height: 32,
-                                              colorFilter: ColorFilter.mode(t.colorScheme.onSurface, BlendMode.srcIn),
-                                            ),
-                                            backgroundColor: chipBgColor,
-                                            borderColor: chipBorderColor,
-                                            onTap: () async {
-                                              if ((widget.sendContext?.fromThread ?? false)) {
-                                                return;
-                                              }
-                                              final text = await scanQRCode(context, validator: addressValidator);
-                                              _setAddressFromTop(text);
-                                            },
-                                          ),
-                                        ],
+                                      child: _SuffixChip(
+                                        icon: SvgPicture.string(
+                                          _ZASHI_QR_GLYPH,
+                                          width: 32,
+                                          height: 32,
+                                          colorFilter: ColorFilter.mode(t.colorScheme.onSurface, BlendMode.srcIn),
+                                        ),
+                                        backgroundColor: chipBgColor,
+                                        borderColor: chipBorderColor,
+                                        onTap: () async {
+                                          if ((widget.sendContext?.fromThread ?? false)) {
+                                            return;
+                                          }
+                                          final text = await scanQRCode(context, validator: addressValidator);
+                                          _setAddressFromTop(text);
+                                        },
                                       ),
                                     ),
                                   ),
@@ -824,47 +725,6 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
                                 ],
                               ],
                               ),
-                              if (_showAddContactHelp)
-                                Positioned(
-                                  left: 0,
-                                  right: 0,
-                                  top: 62,
-                                  child: Container(
-                                    decoration: BoxDecoration(
-                                      color: Color.lerp(addressFillColor, Colors.white, 0.08),
-                                      borderRadius: BorderRadius.circular(14),
-                                    ),
-                                    constraints: const BoxConstraints(minHeight: 48, maxHeight: 48),
-                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                                    child: FittedBox(
-                                      fit: BoxFit.scaleDown,
-                                      alignment: Alignment.center,
-                                      child: Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        mainAxisAlignment: MainAxisAlignment.center,
-                                        crossAxisAlignment: CrossAxisAlignment.center,
-                                        children: [
-                                          SvgPicture.string(
-                                            _ZASHI_CONTACT_GLYPH,
-                                            width: 40,
-                                            height: 40,
-                                            colorFilter: ColorFilter.mode(Theme.of(context).colorScheme.onSurface, BlendMode.srcIn),
-                                          ),
-                                          const SizedBox(width: 8),
-                                          Text(
-                                            'Add contact by tapping on the contact icon.',
-                                            maxLines: 1,
-                                            softWrap: false,
-                                            style: (Theme.of(context).textTheme.bodyMedium ?? const TextStyle()).copyWith(
-                                              fontFamily: balanceFontFamily,
-                                              color: Theme.of(context).colorScheme.onSurface,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ),
-                                ),
                             ],
                           ),
                         ),
@@ -1200,7 +1060,6 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
       final bool fromThread = widget.sendContext?.fromThread ?? false;
       if (address.isEmpty) {
         _addressIsValid = false;
-        _cancelAddContactHint();
         _addressError = fromThread ? null : (_amount.value > 0 ? 'Enter address, account, or vault hash' : null);
       } else {
         if (fromThread) {
@@ -1210,7 +1069,6 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
           _addressError = validAddr ? null : S.of(context).invalidAddress;
           _addressIsValid = validAddr;
         }
-        if (_addressIsValid) _showAddContactHint();
       }
       return;
     }
@@ -1219,35 +1077,12 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
     final bool fromThread = widget.sendContext?.fromThread ?? false;
     if (address.isEmpty) {
       _addressIsValid = false;
-      _cancelAddContactHint();
       _addressError = fromThread ? null : 'Enter address';
     } else {
       _addressError = null;
       _addressIsValid = false; // Non-CLOAK addresses not validated
     }
     _contactReplyToUA = null;
-  }
-
-  void _showAddContactHint() {
-    // Suppress hint when launched from an existing thread with prefilled recipient
-    final bool fromThread = widget.sendContext?.fromThread ?? false;
-    if (fromThread || widget.sendContext?.isVaultDeposit == true) {
-      _cancelAddContactHint();
-      setState(() => _showAddContactHelp = false);
-      return;
-    }
-    _cancelAddContactHint();
-    setState(() => _showAddContactHelp = true);
-    _addContactTimer = Timer(const Duration(milliseconds: 2000), () {
-      if (!mounted) return;
-      setState(() => _showAddContactHelp = false);
-    });
-  }
-
-  void _cancelAddContactHint() {
-    _addContactTimer?.cancel();
-    _addContactTimer = null;
-    if (_showAddContactHelp) setState(() => _showAddContactHelp = false);
   }
 
   void _showSendAssetSheet(BuildContext context) {
@@ -2137,14 +1972,7 @@ class _ZashiAmountRowState extends State<ZashiAmountRow> {
   }
 }
 
-// Exact Zashi glyphs (inside 36x36 viewport). Box is provided by _SuffixChip.
-const String _ZASHI_CONTACT_GLYPH =
-    '<svg width="36" height="36" viewBox="0 0 36 36" xmlns="http://www.w3.org/2000/svg">\n'
-    '  <g transform="translate(0.5,0.5)">\n'
-    '    <path d="M10.5 24.667C12.446 22.602 15.089 21.333 18 21.333C20.911 21.333 23.553 22.602 25.5 24.667M21.75 14.25C21.75 16.321 20.071 18 18 18C15.929 18 14.25 16.321 14.25 14.25C14.25 12.179 15.929 10.5 18 10.5C20.071 10.5 21.75 12.179 21.75 14.25Z" stroke="#231F20" stroke-width="1.6" stroke-linecap="square" stroke-linejoin="miter" fill="none"/>\n'
-    '  </g>\n'
-    '</svg>';
-
+// Exact Zashi glyph (inside 36x36 viewport). Box is provided by _SuffixChip.
 const String _ZASHI_QR_GLYPH =
     '<svg width="36" height="36" viewBox="0 0 36 36" xmlns="http://www.w3.org/2000/svg">\n'
     '  <g transform="translate(0.5,0.5)">\n'
