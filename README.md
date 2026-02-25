@@ -110,7 +110,7 @@ The vault system uses authentication tokens — special zero-value ZK commitment
 
 ### Vault Restoration
 
-**Important:** Vaults can be restored from your seed phrase, but **only if the vault was created with this wallet**. We derive vault authentication tokens deterministically from your seed using HMAC-SHA256. The main CLOAK wallet by Matthias Schoenbeck may use different derivation — vaults created there won't appear when you restore here.
+**Important:** Vaults can be restored from your seed phrase, but **only if the vault was created with this wallet**. We derive vault authentication tokens deterministically from your seed using HMAC-SHA256. The main CLOAK wallet by Matthias Schönebeck may use different derivation — vaults created there won't appear when you restore here.
 
 ---
 
@@ -338,6 +338,16 @@ sha256sum -c SHA256SUMS-linux
 ## Credits
 
 CLOAK Wallet is a fork of [Ywallet](https://github.com/hhanh00/ywallet) by **Hahn**. We extend our gratitude for the foundational work on privacy-preserving cryptocurrency wallets that made this project possible.
+
+### Matthias Schönebeck & ZEOS Protocol
+
+This wallet would not exist without the extraordinary work of [**Matthias Schönebeck**](https://github.com/mschoenebeck), creator of the [ZEOS Protocol](https://github.com/mschoenebeck/zeos-caterpillar) and the `zeos-caterpillar` cryptographic library that powers every shielded transaction in CLOAK.
+
+Matthias accomplished something remarkable: he brought **true zero-knowledge privacy** to EOSIO and Antelope blockchains — ecosystems that had no native privacy features. His implementation of Groth16 zk-SNARKs on BLS12-381, the Merkle tree commitment scheme, the nullifier system, and the entire shielded protocol architecture represents years of deep cryptographic engineering.
+
+Before ZEOS, privacy on Telos and other Antelope chains simply didn't exist. Matthias changed that. Every private transaction you make with CLOAK Wallet is a testament to his vision and technical brilliance.
+
+Thank you, Matthias, for giving us the tools to build privacy-preserving applications on chains that needed them most.
 
 ---
 
