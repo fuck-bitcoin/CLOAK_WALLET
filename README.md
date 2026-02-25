@@ -30,6 +30,21 @@ Or download directly from [Releases](https://github.com/fuck-bitcoin/CLOAK_WALLE
 
 > On first launch, CLOAK Wallet downloads zero-knowledge proving parameters (~383 MB). This is a one-time download.
 
+<div align="center">
+
+### Uninstall in One Command
+
+</div>
+
+| Platform | Uninstall Command |
+|:---------|:------------------|
+| **Linux** | `rm -rf ~/.local/share/cloak-wallet ~/.local/bin/cloak-wallet ~/.local/share/applications/app.cloak.wallet.desktop` |
+| **macOS** | `rm -rf "/Applications/CLOAK Wallet.app" ~/Library/Containers/app.cloak.wallet ~/Library/Application\ Support/cloak-wallet` |
+| **Windows** | `Remove-Item -Recurse -Force "$env:LOCALAPPDATA\cloak-wallet"; Remove-Item "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\CLOAK Wallet.lnk"; Remove-Item "$env:USERPROFILE\Desktop\CLOAK Wallet.lnk"` |
+| **Android** | Uninstall from Settings → Apps → CLOAK Wallet |
+
+> **Note:** Uninstalling removes the app and wallet data. Back up your seed phrase before uninstalling.
+
 ---
 
 ## Why This Wallet Rocks
