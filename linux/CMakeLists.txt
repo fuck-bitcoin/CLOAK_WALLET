@@ -94,6 +94,14 @@ set_target_properties(${BINARY_NAME}
 # them to the application.
 include(flutter/generated_plugins.cmake)
 
+# Hide sqlite3 symbols from the sqlcipher plugin to prevent conflicts with
+# system libsqlite3. Without this, both the plugin and system sqlite3 export
+# identical symbols, causing null-pointer crashes on newer distros (Fedora 43+).
+if(TARGET sqlcipher_flutter_libs_plugin)
+  target_link_options(sqlcipher_flutter_libs_plugin PRIVATE
+    "LINKER:--version-script=${CMAKE_CURRENT_SOURCE_DIR}/sqlcipher_symbol_hide.map")
+endif()
+
 
 # === Installation ===
 # By default, "installing" just makes a relocatable bundle in the build

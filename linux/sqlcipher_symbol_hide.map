@@ -1,0 +1,9 @@
+{
+  global:
+    sqlite3_flutter_libs_plugin_register_with_registrar;
+    sqlcipher_register_provider;
+  local:
+    sqlite3*;
+    sqlcipher*;
+    xoshiro_*;
+};

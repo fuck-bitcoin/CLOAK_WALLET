@@ -99,6 +99,10 @@ jobs:
           cp -r "$BUNDLE/data" "$APPDIR/usr/bin/"
           cp -r "$BUNDLE/lib/"* "$APPDIR/usr/lib/"
 
+          # Flutter resolves AOT snapshot as exe_dir/lib/libapp.so (= usr/bin/lib/libapp.so).
+          # Symlink usr/bin/lib -> ../lib so the engine finds libapp.so at the expected path.
+          ln -s ../lib "$APPDIR/usr/bin/lib"
+
           # Bundle libcrypto for systems without OpenSSL 3
           cp /lib/x86_64-linux-gnu/libcrypto.so.3 "$APPDIR/usr/lib/" 2>/dev/null || true
 

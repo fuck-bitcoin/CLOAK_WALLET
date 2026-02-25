@@ -1,6 +1,7 @@
 #include "my_application.h"
 
 #include <flutter_linux/flutter_linux.h>
+#include <gdk-pixbuf/gdk-pixbuf.h>
 #ifdef GDK_WINDOWING_X11
 #include <gdk/gdkx.h>
 #endif
@@ -97,6 +98,23 @@ static void my_application_activate(GApplication* application) {
                      }
                      return FALSE;
                    }), NULL);
+  // Set window icon from bundled assets (exe_dir/data/flutter_assets/assets/icon.png)
+  {
+    g_autofree gchar* exe_path = g_file_read_link("/proc/self/exe", NULL);
+    if (exe_path != NULL) {
+      g_autofree gchar* exe_dir = g_path_get_dirname(exe_path);
+      g_autofree gchar* icon_path = g_build_filename(exe_dir, "data", "flutter_assets", "assets", "icon.png", NULL);
+      GError* icon_error = NULL;
+      GdkPixbuf* pixbuf = gdk_pixbuf_new_from_file(icon_path, &icon_error);
+      if (pixbuf != NULL) {
+        gtk_window_set_icon(window, pixbuf);
+        g_object_unref(pixbuf);
+      } else {
+        g_clear_error(&icon_error);
+      }
+    }
+  }
+
   gtk_widget_show(GTK_WIDGET(window));
 
   g_autoptr(FlDartProject) project = fl_dart_project_new();

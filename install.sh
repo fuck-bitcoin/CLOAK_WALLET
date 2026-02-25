@@ -315,8 +315,16 @@ install_symlink() {
     step "Creating command-line launcher"
 
     mkdir -p "$BIN_DIR"
-    ln -sf "$INSTALL_DIR/$APPIMAGE_NAME" "$BIN_DIR/cloak-wallet"
-    success "Symlink: $BIN_DIR/cloak-wallet"
+
+    # Write a wrapper script (not a symlink) so GDK_BACKEND=x11 is set
+    # before the AppImage runs. This prevents black-screen on Wayland.
+    cat > "$BIN_DIR/cloak-wallet" << WRAPPER_EOF
+#!/bin/bash
+export GDK_BACKEND=x11
+exec "$INSTALL_DIR/$APPIMAGE_NAME" "\$@"
+WRAPPER_EOF
+    chmod +x "$BIN_DIR/cloak-wallet"
+    success "Launcher: $BIN_DIR/cloak-wallet"
 
     # Check if BIN_DIR is in PATH
     case ":$PATH:" in
