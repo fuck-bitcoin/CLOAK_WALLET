@@ -548,7 +548,7 @@ download_params() {
         # Check if file already exists and is valid
         if [ -f "$filepath" ]; then
             info "Verifying existing $file..."
-            expected="$(grep "$file" "$PARAMS_DIR/SHA256SUMS" | awk '{print $1}')"
+            expected="$(grep -F "  $file" "$PARAMS_DIR/SHA256SUMS" | awk '{print $1}')"
             actual="$(_sha256 "$filepath")"
             if [ -n "$expected" ] && [ "$expected" = "$actual" ]; then
                 success "$file already exists and is valid. Skipping."
@@ -581,7 +581,7 @@ download_params() {
             # File was skipped (already valid) or download was partial
             continue
         fi
-        expected="$(grep "$file" "$PARAMS_DIR/SHA256SUMS" | awk '{print $1}')"
+        expected="$(grep -F "  $file" "$PARAMS_DIR/SHA256SUMS" | awk '{print $1}')"
         actual="$(_sha256 "$filepath")"
         if [ -n "$expected" ] && [ "$expected" = "$actual" ]; then
             success "$file verified"
