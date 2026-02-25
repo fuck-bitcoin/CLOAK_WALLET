@@ -38,12 +38,12 @@ Or download directly from [Releases](https://github.com/fuck-bitcoin/CLOAK_WALLE
 
 | Platform | Uninstall Command |
 |:---------|:------------------|
-| **Linux** | `rm -rf ~/.local/share/cloak-wallet ~/.local/bin/cloak-wallet ~/.local/share/applications/app.cloak.wallet.desktop` |
-| **macOS** | `rm -rf "/Applications/CLOAK Wallet.app" ~/Library/Containers/app.cloak.wallet ~/Library/Application\ Support/cloak-wallet` |
-| **Windows** | `Remove-Item -Recurse -Force "$env:LOCALAPPDATA\cloak-wallet"; Remove-Item "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\CLOAK Wallet.lnk"; Remove-Item "$env:USERPROFILE\Desktop\CLOAK Wallet.lnk"` |
+| **Linux** | `~/.local/bin/mkcert -uninstall 2>/dev/null; rm -rf ~/.local/share/cloak-wallet ~/.local/bin/cloak-wallet ~/.local/share/applications/app.cloak.wallet.desktop ~/.local/share/mkcert ~/.local/bin/mkcert` |
+| **macOS** | `~/.local/bin/mkcert -uninstall 2>/dev/null; rm -rf "/Applications/CLOAK Wallet.app" ~/Library/Containers/app.cloak.wallet ~/Library/Application\ Support/cloak-wallet ~/Library/Application\ Support/mkcert ~/.local/bin/mkcert` |
+| **Windows** | `& "$env:LOCALAPPDATA\mkcert\mkcert.exe" -uninstall 2>$null; Remove-Item -Recurse -Force "$env:LOCALAPPDATA\cloak-wallet","$env:LOCALAPPDATA\databases","$env:LOCALAPPDATA\mkcert" -ErrorAction SilentlyContinue; Remove-Item "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\CLOAK Wallet.lnk","$env:USERPROFILE\Desktop\CLOAK Wallet.lnk" -ErrorAction SilentlyContinue` |
 | **Android** | Uninstall from Settings → Apps → CLOAK Wallet |
 
-> **Note:** Uninstalling removes the app and wallet data. Back up your seed phrase before uninstalling.
+> **Note:** Uninstalling removes the app, wallet data, and SSL certificates. **Back up your seed phrase before uninstalling.**
 
 ---
 

@@ -479,6 +479,28 @@ Write-Host "  Removing shortcuts..."
 Remove-Item "$startMenuLnk" -Force
 Remove-Item "$desktopLnk" -Force
 
+# Remove SSL certificates
+`$sslDir = "`$env:LOCALAPPDATA\databases\ssl"
+if (Test-Path "`$sslDir") {
+    Write-Host "  Removing SSL certificates..."
+    Remove-Item "`$sslDir" -Recurse -Force
+}
+
+# Remove databases directory if empty
+`$dbDir = "`$env:LOCALAPPDATA\databases"
+if ((Test-Path "`$dbDir") -and ((Get-ChildItem "`$dbDir" -Force | Measure-Object).Count -eq 0)) {
+    Remove-Item "`$dbDir" -Force
+}
+
+# Remove mkcert
+`$mkcertDir = "`$env:LOCALAPPDATA\mkcert"
+if (Test-Path "`$mkcertDir\mkcert.exe") {
+    Write-Host "  Removing mkcert CA from trust store..."
+    & "`$mkcertDir\mkcert.exe" -uninstall 2>`$null
+    Write-Host "  Removing mkcert..."
+    Remove-Item "`$mkcertDir" -Recurse -Force
+}
+
 # Remove uninstall script itself
 Remove-Item "$installDir\uninstall.ps1" -Force
 

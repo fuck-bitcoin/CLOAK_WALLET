@@ -403,7 +403,8 @@ if spctl --assess --type execute "/Applications/${APP_NAME}.app" 2>&1 | grep -q 
     echo ""
 fi
 
-echo "  To uninstall:"
-echo "    rm -rf '/Applications/${APP_NAME}.app'"
-echo "    rm -rf '$PARAMS_DIR'"
+echo "  To uninstall (removes everything):"
+echo "    ~/.local/bin/mkcert -uninstall 2>/dev/null; rm -rf '/Applications/${APP_NAME}.app' ~/Library/Containers/app.cloak.wallet ~/Library/Application\\ Support/cloak-wallet ~/Library/Application\\ Support/mkcert ~/.local/bin/mkcert"
+echo ""
+echo "  WARNING: This removes your wallet data. Back up your seed phrase first!"
 echo ""
