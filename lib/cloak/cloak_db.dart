@@ -468,7 +468,7 @@ class CloakDb {
       CREATE TABLE IF NOT EXISTS sent_transactions (
         id INTEGER PRIMARY KEY,
         timestamp_ms INTEGER NOT NULL,
-        tx_id TEXT NOT NULL
+        tx_id TEXT NOT NULL UNIQUE
       )
     ''');
     await db.execute('CREATE INDEX IF NOT EXISTS i_sent_tx_ts ON sent_transactions(timestamp_ms)');
@@ -520,20 +520,50 @@ class CloakDb {
     _sentTxCache = {for (final r in rows) r['timestamp_ms'] as int: r['tx_id'] as String};
   }
 
-  /// Record a sent transaction for TX history details.
+  /// Record a transaction ID for TX history details.
   /// Also updates the in-memory cache for immediate availability.
+  /// Uses INSERT OR IGNORE to avoid duplicates.
   static Future<void> addSentTransaction(int timestampMs, String txId) async {
     await init();
-    await _db!.insert('sent_transactions', {
-      'timestamp_ms': timestampMs,
-      'tx_id': txId,
-    });
+    await _db!.execute(
+      'INSERT OR IGNORE INTO sent_transactions (timestamp_ms, tx_id) VALUES (?, ?)',
+      [timestampMs, txId],
+    );
     _sentTxCache[timestampMs] = txId;
   }
 
-  /// Get txId for a transaction by timestamp (returns null if not found)
+  /// Bulk add transaction IDs (only inserts new ones)
+  /// Used during sync to cache trxIds from Hyperion
+  static Future<void> addTransactionIds(Map<int, String> txIds) async {
+    if (txIds.isEmpty) return;
+    await init();
+    final batch = _db!.batch();
+    for (final entry in txIds.entries) {
+      // Only add if not already in cache
+      if (!_sentTxCache.containsKey(entry.key)) {
+        batch.rawInsert(
+          'INSERT OR IGNORE INTO sent_transactions (timestamp_ms, tx_id) VALUES (?, ?)',
+          [entry.key, entry.value],
+        );
+        _sentTxCache[entry.key] = entry.value;
+      }
+    }
+    await batch.commit(noResult: true);
+  }
+
+  /// Get txId for a transaction by timestamp (with 5s tolerance)
   static String? getTxIdByTimestamp(int timestampMs) {
-    return _sentTxCache[timestampMs];
+    // Direct match first
+    if (_sentTxCache.containsKey(timestampMs)) {
+      return _sentTxCache[timestampMs];
+    }
+    // Try within 5s tolerance
+    for (final entry in _sentTxCache.entries) {
+      if ((timestampMs - entry.key).abs() < 5000) {
+        return entry.value;
+      }
+    }
+    return null;
   }
 
   // ============== Contacts CRUD ==============
