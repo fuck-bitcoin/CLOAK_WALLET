@@ -1,37 +1,53 @@
 # Changelog
 
-## [2.0.0] - 2026-02-24
+All notable changes to CLOAK Wallet will be documented in this file.
+
+## [1.0.0] - 2026-02-25
 
 ### Overview
 
-CLOAK Wallet v2.0.0 -- the first public release of a privacy-focused shielded
-wallet for Telos. Forked from YWallet and entirely rebranded and rearchitected
-for the CLOAK/ZEOS protocol.
+CLOAK Wallet v1.0.0 -- the first public release of a privacy-focused shielded
+wallet for Telos. Built on the ZEOS protocol with full zero-knowledge proof
+support for private transactions.
 
 ### Features
 
-- Shielded send/receive with zk-SNARK proofs on Telos mainnet
-- Deterministic vault creation and discovery (HMAC-SHA256 derived)
-- Full Viewing Key (FVK) wallet support (view-only mode)
-- In-app ZK parameter download with resume support and SHA256 verification
-- ESR (EOSIO Signing Request) deep-link integration with Anchor Wallet
-- WebSocket bridge for app.cloak.today (balance queries, transaction signing)
-- Vault management: create, deposit, withdraw, burn
-- Transaction history with fee breakdown (Send Fee, Burn Vault labels)
-- Multi-language support (English, Spanish, French, Portuguese)
-- AppImage packaging for Linux with XWayland support
+- **Shielded Transactions**: Send/receive with zk-SNARK proofs on Telos mainnet
+- **Deterministic Vaults**: HMAC-SHA256 derived vault creation and discovery
+- **Full Viewing Key Support**: View-only wallet mode with FVK import
+- **ZK Parameters**: In-app download with resume support and SHA256 verification
+- **ESR Integration**: Deep-link signing with Anchor Wallet
+- **Web Authentication**: WebSocket bridge for app.cloak.today
+- **Transaction History**: Detailed history with fee breakdown
+- **Multi-language**: English, Spanish, French, Portuguese
+
+### Web Authentication
+
+- mkcert SSL certificate generation for trusted localhost connections
+- Automatic mkcert installation in platform installers
+- Browser-specific setup documentation for Brave, Chrome, Firefox, Safari, Edge
+- Android deep link authentication support (`cloak://auth`)
 
 ### Security
 
-- SHA256 checksum verification on all ZK parameter downloads
+- SHA256 checksum verification on all downloads
 - SQLCipher encrypted local database
 - No private keys transmitted over network
-- View-only wallets reject all signing requests
+- View-only wallets reject signing requests
 
-### Platform
+### Platforms
 
-- Linux x86_64 (primary target, AppImage)
-- macOS, Windows, Android, iOS (build targets present, not yet released)
+- Linux x86_64 (AppImage)
+- macOS arm64 (DMG, runs on Intel via Rosetta 2)
+- Windows x86_64 (MSIX)
+- Android (APK)
+
+### One-Line Installers
+
+All platforms include one-line install commands that download everything needed:
+- Application binary
+- ZK proving parameters (~380 MB)
+- mkcert for SSL certificates
 
 ---
 
