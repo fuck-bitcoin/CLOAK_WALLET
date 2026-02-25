@@ -396,13 +396,24 @@ abstract class _Txs with Store {
           // Use account field if present, otherwise fall back to address extracted from asset string
           final displayAccount = account.isNotEmpty ? account : (parsed.address ?? '');
 
+          // Look up txId from sent transactions cache (matches by timestamp within 5s tolerance)
+          final timestampMs = timestamp.millisecondsSinceEpoch;
+          String? storedTxId;
+          final sentTxCache = CloakDb.sentTxCacheSync;
+          for (final entry in sentTxCache.entries) {
+            if ((timestampMs - entry.key).abs() < 5000) {
+              storedTxId = entry.value;
+              break;
+            }
+          }
+
           items.add(Tx(
             idx++,
             0,
             null,
             timestamp,
-            '',
-            '',
+            storedTxId ?? '',
+            storedTxId ?? '',
             value,
             displayAccount,
             null,

@@ -9,6 +9,7 @@ import '../utils.dart';
 import 'send.dart' show SendContext, BatchAsset;
 import '../../theme/zashi_tokens.dart';
 import '../../cloak/cloak_wallet_manager.dart';
+import '../../cloak/cloak_db.dart';
 import 'submit.dart' show BeatPulse, SendingEllipses;
 
 class CloakSubmitPage extends StatefulWidget {
@@ -135,6 +136,9 @@ class _CloakSubmitState extends State<CloakSubmitPage>
 
           if (result == null) throw 'Transaction failed. Check wallet balance and try again.';
           txId = result;
+          // Store txId with current timestamp for transaction details lookup
+          final nowMs = DateTime.now().millisecondsSinceEpoch;
+          await CloakDb.addSentTransaction(nowMs, txId!);
           // Force TX list refresh immediately after send so eager wallet
           // update (outgoing notes added during zsign) shows in the TX list
           // before the next sync cycle.
