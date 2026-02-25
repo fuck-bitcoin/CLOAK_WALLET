@@ -400,6 +400,73 @@ DESKTOP_EOF
 }
 
 # ---------------------------------------------------------------------------
+# Install mkcert for web authentication
+# ---------------------------------------------------------------------------
+install_mkcert() {
+    step "Setting up web authentication certificates"
+
+    local mkcert_path="$HOME/.local/bin/mkcert"
+
+    # Check if mkcert already installed
+    if command -v mkcert &>/dev/null; then
+        success "mkcert already installed (system)"
+        mkcert -install 2>/dev/null || true
+        return 0
+    fi
+
+    if [ -f "$mkcert_path" ]; then
+        success "mkcert already installed at $mkcert_path"
+        "$mkcert_path" -install 2>/dev/null || true
+        return 0
+    fi
+
+    # Determine architecture
+    local arch
+    arch="$(uname -m)"
+    case "$arch" in
+        x86_64)
+            local mkcert_bin="mkcert-v1.4.4-linux-amd64"
+            ;;
+        aarch64|arm64)
+            local mkcert_bin="mkcert-v1.4.4-linux-arm64"
+            ;;
+        armv7l|armhf)
+            local mkcert_bin="mkcert-v1.4.4-linux-arm"
+            ;;
+        *)
+            warn "Unsupported architecture for mkcert: $arch"
+            warn "Web authentication may require manual browser setup."
+            return 0
+            ;;
+    esac
+
+    local mkcert_url="https://github.com/FiloSottile/mkcert/releases/download/v1.4.4/${mkcert_bin}"
+
+    info "Downloading mkcert..."
+    mkdir -p "$HOME/.local/bin"
+
+    if _download "$mkcert_url" "$mkcert_path" 0 2>/dev/null; then
+        chmod +x "$mkcert_path"
+        success "mkcert installed to $mkcert_path"
+
+        # Install the CA
+        info "Installing local CA for secure browser connections..."
+        if "$mkcert_path" -install 2>/dev/null; then
+            success "Local CA installed"
+            info "Web authentication with app.cloak.today will work automatically."
+        else
+            warn "CA installation may require libnss3-tools."
+            warn "Install with: sudo apt install libnss3-tools"
+            warn "Then run: $mkcert_path -install"
+        fi
+    else
+        warn "Could not download mkcert."
+        warn "Web authentication may require manual browser setup."
+        warn "See README for browser-specific instructions."
+    fi
+}
+
+# ---------------------------------------------------------------------------
 # Download ZK parameters
 # ---------------------------------------------------------------------------
 download_params() {
@@ -666,6 +733,7 @@ main() {
     install_appimage
     install_symlink
     install_desktop_entry
+    install_mkcert
     download_params
     create_uninstall_script
     print_summary

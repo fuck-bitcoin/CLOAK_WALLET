@@ -193,6 +193,67 @@ xattr -cr "/Applications/${APP_NAME}.app" 2>/dev/null || true
 info "App installed to /Applications/${APP_NAME}.app"
 echo ""
 
+# ── Install mkcert for Web Authentication ────────────────────────────────────
+
+echo "Setting up web authentication certificates..."
+
+# Determine mkcert binary name based on architecture
+case "$ARCH" in
+    arm64)
+        MKCERT_BIN="mkcert-v1.4.4-darwin-arm64"
+        ;;
+    x86_64)
+        MKCERT_BIN="mkcert-v1.4.4-darwin-amd64"
+        ;;
+esac
+
+MKCERT_URL="https://github.com/FiloSottile/mkcert/releases/download/v1.4.4/${MKCERT_BIN}"
+MKCERT_PATH="$HOME/.local/bin/mkcert"
+
+# Create directory if needed
+mkdir -p "$HOME/.local/bin"
+
+# Download mkcert if not already installed
+if ! command -v mkcert &>/dev/null && [ ! -f "$MKCERT_PATH" ]; then
+    info "Downloading mkcert..."
+    if curl -fsSL "$MKCERT_URL" -o "$MKCERT_PATH" 2>/dev/null; then
+        chmod +x "$MKCERT_PATH"
+        info "mkcert installed to $MKCERT_PATH"
+
+        # Install the CA (this will prompt for password)
+        echo ""
+        echo "  Installing local CA for secure browser connections..."
+        echo "  (You may be prompted for your password)"
+        echo ""
+        if "$MKCERT_PATH" -install 2>/dev/null; then
+            info "Local CA installed successfully."
+            info "Web authentication with app.cloak.today will work automatically."
+        else
+            echo "  NOTE: CA installation skipped or failed."
+            echo "  You can run '$MKCERT_PATH -install' later to enable"
+            echo "  seamless web authentication."
+        fi
+    else
+        echo "  NOTE: Could not download mkcert."
+        echo "  Web authentication may require manual browser setup."
+        echo "  See README for browser-specific instructions."
+    fi
+else
+    if command -v mkcert &>/dev/null; then
+        info "mkcert already installed (system)."
+    else
+        info "mkcert already installed at $MKCERT_PATH"
+    fi
+    # Ensure CA is installed
+    if [ -f "$MKCERT_PATH" ]; then
+        "$MKCERT_PATH" -install 2>/dev/null || true
+    elif command -v mkcert &>/dev/null; then
+        mkcert -install 2>/dev/null || true
+    fi
+fi
+
+echo ""
+
 # ── Download ZK Parameters ───────────────────────────────────────────────────
 
 if [ "$SKIP_PARAMS" = "1" ]; then
