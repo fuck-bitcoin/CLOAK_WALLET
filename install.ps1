@@ -280,6 +280,55 @@ try {
 Write-Progress -Activity "CLOAK Wallet Installer" -Status "Shortcuts created" -PercentComplete 80
 
 # ---------------------------------------------------------------------------
+# Install mkcert for web authentication
+# ---------------------------------------------------------------------------
+Write-Host ""
+Write-Host "  Setting up web authentication certificates..." -ForegroundColor White
+
+$mkcertDir = "$env:LOCALAPPDATA\mkcert"
+$mkcertPath = "$mkcertDir\mkcert.exe"
+$mkcertUrl = "https://github.com/FiloSottile/mkcert/releases/download/v1.4.4/mkcert-v1.4.4-windows-amd64.exe"
+
+# Check if mkcert already installed
+$mkcertInstalled = $false
+if (Test-Path $mkcertPath) {
+    $mkcertInstalled = $true
+} elseif (Get-Command mkcert -ErrorAction SilentlyContinue) {
+    $mkcertInstalled = $true
+    $mkcertPath = (Get-Command mkcert).Source
+}
+
+if (-not $mkcertInstalled) {
+    Write-Host "  Downloading mkcert..." -ForegroundColor DarkGray
+    New-Item -ItemType Directory -Path $mkcertDir -Force | Out-Null
+
+    try {
+        (New-Object System.Net.WebClient).DownloadFile($mkcertUrl, $mkcertPath)
+        Write-Host "  mkcert installed to $mkcertPath" -ForegroundColor DarkGray
+
+        # Install CA
+        Write-Host "  Installing local CA for secure browser connections..." -ForegroundColor DarkGray
+        $process = Start-Process -FilePath $mkcertPath -ArgumentList "-install" -Wait -PassThru -NoNewWindow
+        if ($process.ExitCode -eq 0) {
+            Write-Host "  Local CA installed. Web auth will work automatically." -ForegroundColor Green
+        } else {
+            Write-Host "  CA installation may require admin privileges." -ForegroundColor Yellow
+            Write-Host "  Run as Administrator: $mkcertPath -install" -ForegroundColor Yellow
+        }
+    } catch {
+        Write-Host "  WARNING: Could not download mkcert." -ForegroundColor Yellow
+        Write-Host "  Web authentication may require manual browser setup." -ForegroundColor Yellow
+        Write-Host "  See README for browser-specific instructions."
+    }
+} else {
+    Write-Host "  mkcert already installed." -ForegroundColor DarkGray
+    # Ensure CA is installed
+    try {
+        Start-Process -FilePath $mkcertPath -ArgumentList "-install" -Wait -NoNewWindow -ErrorAction SilentlyContinue
+    } catch {}
+}
+
+# ---------------------------------------------------------------------------
 # Download ZK parameters (optional)
 # ---------------------------------------------------------------------------
 if ($env:CLOAK_SKIP_PARAMS -ne "1") {
