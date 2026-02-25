@@ -1355,8 +1355,12 @@ Widget _txDataField({
 }
 
 /// Status badge for confirmed/pending states
-Widget _txStatusBadge({required bool confirmed, required int confirmations}) {
-  final isConfirmed = confirmed && confirmations > 0;
+/// If confirmations is null, shows "Confirmed" without count (for CLOAK txs without on-chain data)
+Widget _txStatusBadge({required bool confirmed, int? confirmations}) {
+  final isConfirmed = confirmed && (confirmations == null || confirmations > 0);
+  final statusText = isConfirmed
+      ? (confirmations != null ? 'Confirmed ($confirmations)' : 'Confirmed')
+      : 'Pending';
   return Container(
     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
     decoration: BoxDecoration(
@@ -1380,7 +1384,7 @@ Widget _txStatusBadge({required bool confirmed, required int confirmations}) {
         ),
         const SizedBox(width: 6),
         Text(
-          isConfirmed ? 'Confirmed ($confirmations)' : 'Pending',
+          statusText,
           style: TextStyle(
             fontSize: 12,
             fontWeight: FontWeight.w600,
@@ -1402,7 +1406,10 @@ void _copyToClipboard(BuildContext context, String value, String label) {
 Widget _buildTxDetailsContent(BuildContext context, Tx tx) {
   final s = S.of(context);
   final confirmations = tx.confirmations ?? 0;
-  final isConfirmed = tx.height > 0 && confirmations > 0;
+  // Telos confirms in 1-3 seconds. If we have a timestamp, it's confirmed.
+  // Only show "Pending" if height > 0 but no confirmations (legacy behavior).
+  final hasTxId = tx.fullTxId.isNotEmpty;
+  final isConfirmed = hasTxId ? (tx.height > 0 && confirmations > 0) : true;
 
   return Column(
     crossAxisAlignment: CrossAxisAlignment.start,
@@ -1411,33 +1418,37 @@ Widget _buildTxDetailsContent(BuildContext context, Tx tx) {
       _txSectionLabel('STATUS'),
       _txSectionDescription('Current confirmation state of this transaction'),
       const SizedBox(height: 10),
-      _txStatusBadge(confirmed: isConfirmed, confirmations: confirmations),
+      _txStatusBadge(confirmed: isConfirmed, confirmations: hasTxId ? confirmations : null),
       const SizedBox(height: 24),
 
-      // ── Transaction Hash Section ──
-      _txSectionLabel('TRANSACTION HASH'),
-      _txSectionDescription('Unique identifier for this transaction on the blockchain'),
-      const SizedBox(height: 10),
-      _txDataField(
-        value: tx.fullTxId,
-        mono: true,
-        onCopy: () => _copyToClipboard(context, tx.fullTxId, 'Transaction Hash'),
-      ),
-      const SizedBox(height: 24),
+      // ── Transaction Hash Section (only if available) ──
+      if (hasTxId) ...[
+        _txSectionLabel('TRANSACTION HASH'),
+        _txSectionDescription('Unique identifier for this transaction on the blockchain'),
+        const SizedBox(height: 10),
+        _txDataField(
+          value: tx.fullTxId,
+          mono: true,
+          onCopy: () => _copyToClipboard(context, tx.fullTxId, 'Transaction Hash'),
+        ),
+        const SizedBox(height: 24),
+      ],
 
-      // ── Block Number Section ──
-      _txSectionLabel('BLOCK NUMBER'),
-      _txSectionDescription('The block that contains this transaction'),
-      const SizedBox(height: 10),
-      _txDataField(
-        value: tx.height > 0 ? tx.height.toString() : 'Pending',
-        mono: true,
-      ),
-      const SizedBox(height: 24),
+      // ── Block Number Section (only if available) ──
+      if (tx.height > 0) ...[
+        _txSectionLabel('BLOCK NUMBER'),
+        _txSectionDescription('The block that contains this transaction'),
+        const SizedBox(height: 10),
+        _txDataField(
+          value: tx.height.toString(),
+          mono: true,
+        ),
+        const SizedBox(height: 24),
+      ],
 
-      // ── Block Time Section ──
-      _txSectionLabel('BLOCK TIME'),
-      _txSectionDescription('When this transaction was included in a block'),
+      // ── Transaction Time Section ──
+      _txSectionLabel('TRANSACTION TIME'),
+      _txSectionDescription('When this transaction occurred'),
       const SizedBox(height: 10),
       _txDataField(
         value: _txDetailDateFormat.format(tx.timestamp),
@@ -1510,38 +1521,40 @@ Widget _buildTxDetailsContent(BuildContext context, Tx tx) {
         ],
       )),
 
-      // ── View in Explorer Button ──
-      const SizedBox(height: 8),
-      SizedBox(
-        width: double.infinity,
-        height: 52,
-        child: Material(
-          color: const Color(0xFF2E2C2C),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
-            side: BorderSide(color: Colors.white.withOpacity(0.08)),
-          ),
-          child: InkWell(
-            borderRadius: BorderRadius.circular(14),
-            onTap: () => openTxInExplorer(tx.fullTxId),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(Icons.open_in_new, size: 18, color: Colors.white.withOpacity(0.7)),
-                const SizedBox(width: 10),
-                Text(
-                  s.openInExplorer,
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.white.withOpacity(0.85),
+      // ── View in Explorer Button (only if txId available) ──
+      if (hasTxId) ...[
+        const SizedBox(height: 8),
+        SizedBox(
+          width: double.infinity,
+          height: 52,
+          child: Material(
+            color: const Color(0xFF2E2C2C),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14),
+              side: BorderSide(color: Colors.white.withOpacity(0.08)),
+            ),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(14),
+              onTap: () => openTxInExplorer(tx.fullTxId),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.open_in_new, size: 18, color: Colors.white.withOpacity(0.7)),
+                  const SizedBox(width: 10),
+                  Text(
+                    s.openInExplorer,
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.white.withOpacity(0.85),
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
-      ),
+      ],
     ],
   );
 }
