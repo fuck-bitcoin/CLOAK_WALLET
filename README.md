@@ -54,6 +54,10 @@ Export and import Full Viewing Keys (FVK) or Incoming Viewing Keys (IVK) to moni
 
 Import a viewing key to track your funds from a secondary device. See your full transaction history and balance without the ability to spend. Perfect for monitoring cold storage or shared family accounts.
 
+### Rotating Addresses for Maximum Privacy
+
+Every time you open the Receive screen, a fresh diversified address is generated. This prevents address reuse — a common privacy leak where observers can link multiple payments to the same recipient. All rotating addresses derive from your single seed phrase, so funds sent to any of them appear in the same wallet balance. Use a new address for every transaction without any extra effort.
+
 ### Multi-Asset Support
 
 Send, receive, and manage multiple token types beyond just CLOAK. The wallet parses extended asset formats and displays token symbols, contracts, and precision correctly. Your transaction history shows all assets with proper formatting.
