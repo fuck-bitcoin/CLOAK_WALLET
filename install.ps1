@@ -330,7 +330,7 @@ if (-not $mkcertInstalled) {
 
 # Generate SSL certificates for the wallet's signature provider
 # The MSIX-packaged app may not be able to run external binaries
-$sslDir = "$env:LOCALAPPDATA\cloak-wallet\ssl"
+$sslDir = "$env:LOCALAPPDATA\databases\ssl"
 New-Item -ItemType Directory -Path $sslDir -Force | Out-Null
 
 $certFile = "$sslDir\localhost+2.pem"
