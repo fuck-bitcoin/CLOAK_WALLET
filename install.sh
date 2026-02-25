@@ -633,18 +633,19 @@ UNINSTALL_PATHS
 
     cat >> "$uninstall_path" << 'UNINSTALL_BODY'
 
-printf "This will remove:\n"
-printf "  - AppImage:      $INSTALL_DIR\n"
-printf "  - Symlink:       $BIN_DIR/cloak-wallet\n"
-printf "  - Desktop entry: $DESKTOP_DIR/app.cloak.wallet.desktop\n"
-printf "  - Icon:          $ICON_DIR/cloak-wallet.png\n"
-printf "  - SSL certs:     \${XDG_DATA_HOME:-\$HOME/.local/share}/cloak-wallet/ssl\n"
-printf "  - mkcert:        $BIN_DIR/mkcert + CA files\n"
+DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/cloak-wallet"
+
+printf "This will completely remove CLOAK Wallet including:\n"
+printf "  - AppImage and launcher\n"
+printf "  - Desktop entry and icon\n"
+printf "  - SSL certificates and mkcert CA\n"
+printf "  - ZK parameters\n"
+printf "  - Wallet data (wallet file, database)\n"
 printf "\n"
 
-# Check if stdin is a terminal (can prompt)
+# Confirm before nuking everything
 if [ -t 0 ]; then
-    printf "${YELLOW}Proceed with uninstall? (y/N)${NC} "
+    printf "${RED}${BOLD}This will permanently delete your wallet. Continue? (y/N)${NC} "
     read -r REPLY
     if [[ ! "$REPLY" =~ ^[Yy]$ ]]; then
         printf "Cancelled.\n"
@@ -652,20 +653,27 @@ if [ -t 0 ]; then
     fi
 fi
 
-printf "\nRemoving CLOAK Wallet...\n"
+printf "\nRemoving CLOAK Wallet...\n\n"
 
-# Remove symlink
+# Remove launcher script and uninstall command
 rm -f "$BIN_DIR/cloak-wallet"
 rm -f "$BIN_DIR/cloak-wallet-uninstall"
+printf "  ${GREEN}✓${NC} Launcher removed\n"
 
 # Remove desktop entry
 rm -f "$DESKTOP_DIR/app.cloak.wallet.desktop"
 if command -v update-desktop-database &>/dev/null; then
     update-desktop-database "$DESKTOP_DIR" 2>/dev/null || true
 fi
+printf "  ${GREEN}✓${NC} Desktop entry removed\n"
 
-# Remove icon
+# Remove icon and refresh cache
 rm -f "$ICON_DIR/cloak-wallet.png"
+rm -f "$ICON_DIR/app.cloak.wallet.png"
+if command -v gtk-update-icon-cache &>/dev/null; then
+    gtk-update-icon-cache -f -q "$(dirname "$(dirname "$(dirname "$ICON_DIR")")")" 2>/dev/null || true
+fi
+printf "  ${GREEN}✓${NC} Icon removed\n"
 
 # Remove mkcert and CA
 if [ -f "$BIN_DIR/mkcert" ]; then
@@ -674,61 +682,30 @@ if [ -f "$BIN_DIR/mkcert" ]; then
 fi
 MKCERT_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/mkcert"
 rm -rf "$MKCERT_DIR" 2>/dev/null || true
+printf "  ${GREEN}✓${NC} mkcert and CA removed\n"
 
 # Remove SSL certificates
-SSL_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/cloak-wallet/ssl"
-rm -rf "$SSL_DIR" 2>/dev/null || true
+rm -rf "$DATA_DIR/ssl" 2>/dev/null || true
+printf "  ${GREEN}✓${NC} SSL certificates removed\n"
 
-# Remove AppImage (but preserve params and wallet data for now)
+# Remove ZK parameters
+rm -rf "$PARAMS_DIR" 2>/dev/null || true
+printf "  ${GREEN}✓${NC} ZK parameters removed\n"
+
+# Remove wallet data
+rm -f "$DATA_DIR/cloak.wallet" "$DATA_DIR/cloak.db" 2>/dev/null || true
+printf "  ${GREEN}✓${NC} Wallet data removed\n"
+
+# Remove AppImage and uninstall script
 find "$INSTALL_DIR" -maxdepth 1 -name "*.AppImage" -delete 2>/dev/null || true
 rm -f "$INSTALL_DIR/uninstall.sh"
 
-printf "\n${GREEN}CLOAK Wallet application removed.${NC}\n\n"
+# Clean up install directory
+rm -rf "$INSTALL_DIR" 2>/dev/null || true
+rm -rf "$DATA_DIR" 2>/dev/null || true
+printf "  ${GREEN}✓${NC} Install directory removed\n"
 
-# Ask about ZK params and wallet data
-if [ -d "$PARAMS_DIR" ]; then
-    printf "ZK parameters (~383 MB) remain at:\n"
-    printf "  $PARAMS_DIR\n\n"
-
-    if [ -t 0 ]; then
-        printf "${YELLOW}Also remove ZK parameters? (y/N)${NC} "
-        read -r REPLY
-        if [[ "$REPLY" =~ ^[Yy]$ ]]; then
-            rm -rf "$PARAMS_DIR"
-            printf "${GREEN}ZK parameters removed.${NC}\n"
-        else
-            printf "ZK parameters preserved.\n"
-            printf "To remove later: rm -rf $PARAMS_DIR\n"
-        fi
-    else
-        printf "To remove ZK parameters: rm -rf $PARAMS_DIR\n"
-    fi
-fi
-
-# Check for wallet data
-DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/cloak-wallet"
-if [ -d "$DATA_DIR" ] && [ -n "$(ls -A "$DATA_DIR" 2>/dev/null)" ]; then
-    printf "\n${RED}${BOLD}WARNING:${NC} Wallet data directory still exists:\n"
-    printf "  $DATA_DIR\n\n"
-
-    if [ -t 0 ]; then
-        printf "${RED}Remove ALL wallet data? THIS DELETES YOUR WALLET PERMANENTLY. (y/N)${NC} "
-        read -r REPLY
-        if [[ "$REPLY" =~ ^[Yy]$ ]]; then
-            rm -rf "$DATA_DIR"
-            printf "${GREEN}All wallet data removed.${NC}\n"
-        else
-            printf "Wallet data preserved at: $DATA_DIR\n"
-        fi
-    else
-        printf "To remove wallet data: rm -rf $DATA_DIR\n"
-    fi
-fi
-
-# Clean up install dir if empty
-rmdir "$INSTALL_DIR" 2>/dev/null || true
-
-printf "\nDone.\n"
+printf "\n${GREEN}${BOLD}CLOAK Wallet completely removed.${NC}\n\n"
 UNINSTALL_BODY
 
     chmod +x "$uninstall_path"
