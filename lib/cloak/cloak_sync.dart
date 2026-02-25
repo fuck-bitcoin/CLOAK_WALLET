@@ -420,14 +420,22 @@ class CloakSync {
       onProgress?.call(40, 100);
       final actions = await _client!.getZeosActions();
 
-      // Cache trxIds for transaction details lookup
+      // Cache trxIds for transaction details lookup (only adds new ones)
+      final newTrxIds = <int, String>{};
       for (final action in actions) {
         if (action.trxId.isNotEmpty && action.blockTime.isNotEmpty) {
           try {
             final dt = DateTime.parse(action.blockTime);
-            _cachedTrxIds[dt.millisecondsSinceEpoch] = action.trxId;
+            final ms = dt.millisecondsSinceEpoch;
+            // Only add if not already in cache
+            if (CloakDb.getTxIdByTimestamp(ms) == null) {
+              newTrxIds[ms] = action.trxId;
+            }
           } catch (_) {}
         }
+      }
+      if (newTrxIds.isNotEmpty) {
+        await CloakDb.addTransactionIds(newTrxIds);
       }
 
       // 5. Pass data to Rust wallet for trial decryption
@@ -677,26 +685,14 @@ class CloakSync {
   static ZeosGlobal? _cachedGlobal;
   static List<ZeosMerkleEntry>? _cachedMerkleEntries;
   static List<ZeosNullifier>? _cachedNullifiers;
-  // Cached transaction IDs: maps timestamp (ms) to trxId
-  static Map<int, String> _cachedTrxIds = {};
 
   static ZeosGlobal? get cachedGlobal => _cachedGlobal;
   static List<ZeosMerkleEntry>? get cachedMerkleEntries => _cachedMerkleEntries;
   static List<ZeosNullifier>? get cachedNullifiers => _cachedNullifiers;
 
-  /// Get trxId by timestamp (with 5s tolerance for matching)
+  /// Get trxId by timestamp - delegates to CloakDb which has the persisted cache
   static String? getTrxIdByTimestamp(int timestampMs) {
-    // Direct match first
-    if (_cachedTrxIds.containsKey(timestampMs)) {
-      return _cachedTrxIds[timestampMs];
-    }
-    // Try within 5s tolerance
-    for (final entry in _cachedTrxIds.entries) {
-      if ((timestampMs - entry.key).abs() < 5000) {
-        return entry.value;
-      }
-    }
-    return null;
+    return CloakDb.getTxIdByTimestamp(timestampMs);
   }
 
   /// Close the client
