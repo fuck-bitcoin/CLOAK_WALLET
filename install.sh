@@ -459,10 +459,42 @@ install_mkcert() {
             warn "Install with: sudo apt install libnss3-tools"
             warn "Then run: $mkcert_path -install"
         fi
+
+        # Generate SSL certificates for the wallet
+        # AppImage apps may not be able to run external binaries
+        generate_ssl_certs "$mkcert_path"
     else
         warn "Could not download mkcert."
         warn "Web authentication may require manual browser setup."
         warn "See README for browser-specific instructions."
+    fi
+}
+
+# Generate SSL certificates using mkcert
+generate_ssl_certs() {
+    local mkcert_cmd="$1"
+    local ssl_dir="$HOME/.local/share/cloak-wallet/ssl"
+
+    mkdir -p "$ssl_dir"
+
+    local cert_file="$ssl_dir/localhost+2.pem"
+    local key_file="$ssl_dir/localhost+2-key.pem"
+    local chain_file="$ssl_dir/localhost+2-chain.pem"
+
+    info "Generating SSL certificates for web authentication..."
+    if "$mkcert_cmd" -cert-file "$cert_file" -key-file "$key_file" localhost 127.0.0.1 ::1 2>/dev/null; then
+        # Create chain file (cert + CA)
+        local ca_root
+        ca_root=$("$mkcert_cmd" -CAROOT 2>/dev/null)
+        if [ -n "$ca_root" ] && [ -f "$ca_root/rootCA.pem" ]; then
+            cat "$cert_file" "$ca_root/rootCA.pem" > "$chain_file"
+        else
+            cp "$cert_file" "$chain_file"
+        fi
+        success "SSL certificates generated"
+    else
+        warn "Could not generate SSL certificates."
+        warn "The wallet will generate self-signed certificates on first run."
     fi
 }
 
