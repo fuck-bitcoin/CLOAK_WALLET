@@ -1356,11 +1356,13 @@ Widget _txDataField({
 }
 
 /// Status badge for confirmed/pending states
-/// If confirmations is null, shows "Confirmed" without count (for CLOAK txs without on-chain data)
+/// On Telos, if we have a txId the transaction is confirmed (instant finality)
 Widget _txStatusBadge({required bool confirmed, int? confirmations}) {
-  final isConfirmed = confirmed && (confirmations == null || confirmations > 0);
+  // If confirmed=true (we have a txId), show Confirmed regardless of confirmations count
+  // Telos has instant finality - if a tx is in Hyperion history, it's confirmed
+  final isConfirmed = confirmed;
   final statusText = isConfirmed
-      ? (confirmations != null ? 'Confirmed ($confirmations)' : 'Confirmed')
+      ? (confirmations != null && confirmations > 0 ? 'Confirmed ($confirmations)' : 'Confirmed')
       : 'Pending';
   return Container(
     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
