@@ -11,12 +11,15 @@ import 'package:go_router/go_router.dart';
 import 'package:quick_actions/quick_actions.dart';
 import 'package:sensors_plus/sensors_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:workmanager/workmanager.dart';
 
 import '../../accounts.dart';
 import '../../cloak/cloak_wallet_manager.dart';
 import '../../cloak/cloak_db.dart';
+import '../../cloak/signature_provider_state.dart';
 import 'accounts/send.dart';
+import 'cloak/auth_request_sheet.dart';
 import 'settings.dart';
 import 'utils.dart';
 import 'utils.dart';
@@ -242,12 +245,111 @@ bool setActiveAccountOf(int coin) {
 
 void handleUri(Uri uri) {
   final scheme = uri.scheme;
-  final coinDef = coins.firstWhere((c) => c.currency == scheme);
-  final coin = coinDef.coin;
-  if (setActiveAccountOf(coin)) {
-    SendContext? sc = SendContext.fromPaymentURI(uri.toString());
-    final context = rootNavigatorKey.currentContext!;
-    GoRouter.of(context).go('/account/quick_send', extra: sc);
+  final host = uri.host;
+
+  // Handle authentication deep links from mobile browsers
+  // Format: cloak://auth?origin=app.cloak.today&callback=https://...
+  // Format: cloak://login?origin=app.cloak.today
+  if (scheme == 'cloak' && (host == 'auth' || host == 'login' || uri.path == '/auth' || uri.path == '/login')) {
+    _handleAuthDeepLink(uri);
+    return;
+  }
+
+  // Handle payment URIs (original behavior)
+  try {
+    final coinDef = coins.firstWhere((c) => c.currency == scheme);
+    final coin = coinDef.coin;
+    if (setActiveAccountOf(coin)) {
+      SendContext? sc = SendContext.fromPaymentURI(uri.toString());
+      final context = rootNavigatorKey.currentContext!;
+      GoRouter.of(context).go('/account/quick_send', extra: sc);
+    }
+  } catch (e) {
+    logger.w('Unknown URI scheme: $scheme');
+  }
+}
+
+/// Handle authentication deep links from mobile browsers
+/// This allows app.cloak.today to authenticate via deep link on Android
+void _handleAuthDeepLink(Uri uri) {
+  final origin = uri.queryParameters['origin'] ?? 'Unknown';
+  final callback = uri.queryParameters['callback'];
+  final esr = uri.queryParameters['esr'];
+
+  // Check if wallet is view-only
+  if (CloakWalletManager.isViewOnly) {
+    logger.w('Auth request rejected: view-only wallet');
+    if (callback != null) {
+      _redirectWithError(callback, 'View-only wallet cannot sign');
+    }
+    return;
+  }
+
+  // Create a SignatureRequest for the approval UI
+  final requestId = 'deeplink:${DateTime.now().millisecondsSinceEpoch}';
+  final request = SignatureRequest(
+    id: requestId,
+    type: esr != null ? SignatureRequestType.sign : SignatureRequestType.login,
+    origin: origin,
+    params: {
+      'origin': origin,
+      'callback': callback,
+      'esr': esr,
+      'deeplink': true,
+    },
+    timestamp: DateTime.now(),
+    status: SignatureRequestStatus.pending,
+  );
+
+  // Store callback for after approval
+  _pendingDeepLinkCallbacks[requestId] = callback;
+
+  // Show the auth request sheet
+  final context = rootNavigatorKey.currentContext;
+  if (context != null) {
+    // Navigate to account first if not there
+    GoRouter.of(context).go('/account');
+    // Then show auth sheet after a short delay
+    Future.delayed(const Duration(milliseconds: 300), () {
+      final ctx = rootNavigatorKey.currentContext;
+      if (ctx != null) {
+        showAuthRequestSheet(ctx, request);
+      }
+    });
+  }
+}
+
+/// Pending deep link callbacks, keyed by request ID
+final Map<String, String?> _pendingDeepLinkCallbacks = {};
+
+/// Get and remove a pending callback
+String? getDeepLinkCallback(String requestId) {
+  return _pendingDeepLinkCallbacks.remove(requestId);
+}
+
+/// Redirect to callback URL with error
+void _redirectWithError(String callback, String error) async {
+  final uri = Uri.parse(callback).replace(queryParameters: {
+    ...Uri.parse(callback).queryParameters,
+    'error': error,
+  });
+  try {
+    await launchUrl(uri, mode: LaunchMode.externalApplication);
+  } catch (e) {
+    logger.e('Failed to redirect to callback: $e');
+  }
+}
+
+/// Redirect to callback URL with success result
+Future<void> redirectWithSuccess(String callback, Map<String, String> result) async {
+  final uri = Uri.parse(callback).replace(queryParameters: {
+    ...Uri.parse(callback).queryParameters,
+    ...result,
+  });
+  try {
+    await launchUrl(uri, mode: LaunchMode.externalApplication);
+  } catch (e) {
+    logger.e('Failed to redirect to callback: $e');
   }
 }
 

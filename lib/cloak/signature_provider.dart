@@ -68,11 +68,14 @@ class SignatureProvider {
     }
 
     // Try to find mkcert
+    final home = Platform.environment['HOME'] ?? '';
     final mkcertPaths = [
       '/opt/cloak-gui/mkcert-linux-amd64',  // From official CLOAK GUI
       'mkcert',  // In PATH
       '/usr/local/bin/mkcert',
       '/usr/bin/mkcert',
+      if (home.isNotEmpty) '$home/mkcert',  // User's home directory
+      if (home.isNotEmpty) '$home/.local/bin/mkcert',  // XDG local bin
     ];
 
     String? mkcertPath;
