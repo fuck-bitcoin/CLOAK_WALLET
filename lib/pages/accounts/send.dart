@@ -520,14 +520,14 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
                                       borderRadius: BorderRadius.circular(14),
                                       borderSide: BorderSide(color: Theme.of(context).colorScheme.error, width: 1.2),
                                     ),
-                                    suffixIconConstraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+                                    suffixIconConstraints: const BoxConstraints(minWidth: 0, minHeight: 0),
                                     suffixIcon: (widget.sendContext?.isVaultDeposit == true) ? null : Padding(
-                                      padding: const EdgeInsets.only(right: 6),
+                                      padding: const EdgeInsets.only(right: 8),
                                       child: _SuffixChip(
                                         icon: SvgPicture.string(
                                           _ZASHI_QR_GLYPH,
-                                          width: 22,
-                                          height: 22,
+                                          width: 16,
+                                          height: 16,
                                           colorFilter: ColorFilter.mode(t.colorScheme.onSurface, BlendMode.srcIn),
                                         ),
                                         backgroundColor: chipBgColor,
@@ -1447,7 +1447,7 @@ class _SuffixChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final radius = BorderRadius.circular(8);
+    final radius = BorderRadius.circular(6);
     return Material(
       color: backgroundColor,
       shape: RoundedRectangleBorder(borderRadius: radius, side: BorderSide(color: borderColor)),
@@ -1455,8 +1455,8 @@ class _SuffixChip extends StatelessWidget {
         onTap: onTap,
         borderRadius: radius,
         child: SizedBox(
-          width: 34,
-          height: 34,
+          width: 28,
+          height: 28,
           child: Center(child: icon),
         ),
       ),
