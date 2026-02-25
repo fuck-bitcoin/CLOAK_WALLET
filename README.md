@@ -191,6 +191,26 @@ Send to multiple recipients in a single transaction. The batch asset selection U
 
 Resync transactions from a chosen block height instead of from genesis. The rewind confirmation dialog and localization strings exist. This would let users recover from corrupted state without a full resync, or selectively re-scan a time period where transactions might have been missed.
 
+### Cold Wallet / Air-Gapped Signing
+
+Turn an old phone into a dedicated cold storage device:
+- Keep your spending keys on an offline device that never connects to the internet
+- Generate unsigned transactions on your online wallet
+- Transfer via QR code to the offline device for signing
+- Broadcast the signed transaction from your online device
+
+Your private keys stay air-gapped — immune to remote attacks, malware, and network-based exploits. Perfect for long-term savings or high-value holdings.
+
+### Hardware Wallet Integration
+
+Support for dedicated hardware signing devices:
+- **Keystone** integration for QR-based air-gapped signing
+- Hardware-backed key storage with secure element protection
+- Transaction review and confirmation on the hardware device display
+- Compatible with existing Keystone firmware and workflows
+
+Hardware wallets provide the strongest security model: keys generated and stored in tamper-resistant hardware, never exposed to general-purpose operating systems.
+
 ---
 
 ## How It Works
@@ -347,7 +367,9 @@ Matthias accomplished something remarkable: he brought **true zero-knowledge pri
 
 Before ZEOS, privacy on Telos and other Antelope chains simply didn't exist. Matthias changed that. Every private transaction you make with CLOAK Wallet is a testament to his vision and technical brilliance.
 
-Thank you, Matthias, for giving us the tools to build privacy-preserving applications on chains that needed them most.
+But this work is about more than technology — it's about **preserving the liberty of the individual**. In a world of increasing financial surveillance, the ability to transact privately isn't a luxury; it's a fundamental right. Matthias gave a maturing ecosystem a shot at new life, introducing dynamics that unlock possibilities never before available on these chains. EOSIO and Antelope networks have always excelled at speed, scalability, and governance — but they lacked the one feature that makes truly sovereign money possible: privacy. ZEOS fills that gap, allowing these high-performance chains to finally compete as platforms for financial freedom.
+
+Thank you, Matthias, for giving us the tools to build a more private, more free future.
 
 ---
 
