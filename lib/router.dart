@@ -335,6 +335,47 @@ final router = GoRouter(
         },
       ),
     ),
+    // Transaction details as full-screen overlay (slides from right, covers nav bar)
+    GoRoute(
+      path: '/tx_details',
+      parentNavigatorKey: rootNavigatorKey,
+      pageBuilder: (context, state) {
+        final index = int.parse(state.uri.queryParameters['index'] ?? '0');
+        return CustomTransitionPage(
+          key: state.pageKey,
+          child: TransactionPage(index),
+          transitionDuration: const Duration(milliseconds: 300),
+          reverseTransitionDuration: const Duration(milliseconds: 300),
+          transitionsBuilder: (context, animation, secondaryAnimation, child) {
+            final curved = CurvedAnimation(parent: animation, curve: Curves.easeOutCubic, reverseCurve: Curves.easeInCubic);
+            final offset = Tween<Offset>(begin: const Offset(1.0, 0.0), end: Offset.zero).animate(curved);
+            return RepaintBoundary(child: SlideTransition(position: offset, child: child));
+          },
+        );
+      },
+      routes: [
+        GoRoute(
+          path: 'byid',
+          parentNavigatorKey: rootNavigatorKey,
+          pageBuilder: (context, state) {
+            final txId = int.parse(state.uri.queryParameters['tx'] ?? '0');
+            final from = state.uri.queryParameters['from'];
+            final threadIndex = state.uri.queryParameters['thread']?.let(int.parse);
+            return CustomTransitionPage(
+              key: state.pageKey,
+              child: TransactionByIdPage(txId, from: from, threadIndex: threadIndex),
+              transitionDuration: const Duration(milliseconds: 300),
+              reverseTransitionDuration: const Duration(milliseconds: 300),
+              transitionsBuilder: (context, animation, secondaryAnimation, child) {
+                final curved = CurvedAnimation(parent: animation, curve: Curves.easeOutCubic, reverseCurve: Curves.easeInCubic);
+                final offset = Tween<Offset>(begin: const Offset(1.0, 0.0), end: Offset.zero).animate(curved);
+                return RepaintBoundary(child: SlideTransition(position: offset, child: child));
+              },
+            );
+          },
+        ),
+      ],
+    ),
     StatefulShellRoute.indexedStack(
       pageBuilder: (context, state, shell) => CustomTransitionPage(
         key: state.pageKey,
@@ -483,34 +524,6 @@ final router = GoRouter(
               path: '/messages_anchor',
               builder: (context, state) => BlankPage(),
             ),
-          ],
-        ),
-        StatefulShellBranch(
-          routes: [
-            GoRoute(
-                path: '/blank',
-                builder: (context, state) => BlankPage(),
-                routes: [
-                  GoRoute(
-                    path: 'history',
-                    builder: (context, state) => TxPage(),
-                    routes: [
-                      GoRoute(
-                        path: 'details',
-                        builder: (context, state) => TransactionPage(
-                            int.parse(state.uri.queryParameters["index"]!)),
-                      ),
-                      GoRoute(
-                        path: 'details/byid',
-                        builder: (context, state) => TransactionByIdPage(
-                          int.parse(state.uri.queryParameters["tx"]!),
-                          from: state.uri.queryParameters['from'],
-                          threadIndex: state.uri.queryParameters['thread']?.let(int.parse),
-                        ),
-                      ),
-                    ],
-                  ),
-                ]),
           ],
         ),
         StatefulShellBranch(
