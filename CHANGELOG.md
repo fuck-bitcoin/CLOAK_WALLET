@@ -2,6 +2,20 @@
 
 All notable changes to CLOAK Wallet will be documented in this file.
 
+## [1.0.1] - 2026-02-25
+
+### Fixed
+
+- **Linux installer breaks system desktop icons**: Installing CLOAK Wallet
+  created `~/.local/share/icons/hicolor/256x256/apps/` for the app icon. This
+  triggered auto-generation of a local `index.theme` that only listed
+  `256x256/apps`, shadowing the system hicolor `index.theme` and hiding all
+  GNOME/GTK app icons (they appeared as generic blue diamonds). The installer
+  now removes any auto-generated local `index.theme` and stale icon cache after
+  icon installation to prevent the override.
+
+---
+
 ## [1.0.0] - 2026-02-25
 
 ### Overview
