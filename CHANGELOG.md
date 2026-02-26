@@ -2,6 +2,26 @@
 
 All notable changes to CLOAK Wallet will be documented in this file.
 
+## [1.0.2] - 2026-02-25
+
+### Fixed
+
+- **Incorrect balance after seed restore (all platforms)**: Wallet showed only
+  10 CLOAK instead of 180+ after restoring from seed. The Hyperion action query
+  in `_getZeosActionsHyperion()` had a hard `limit=1000` with no pagination
+  loop. If the protocol had more than 1000 total on-chain actions (mint, spend,
+  publishnotes, authenticate across ALL users), note ciphertexts beyond the
+  1000th action were silently dropped. Without the ciphertext, `add_notes()`
+  could never trial-decrypt those notes, so they were never added to
+  `unspent_notes` and never counted in the balance. Merkle tree leaves and
+  nullifiers were already correctly paginated — only the action/note fetch was
+  broken. Added a pagination loop using the Hyperion `skip` parameter to fetch
+  ALL matching actions, matching the existing pattern used by
+  `getZeosMerkleTree()` and `getZeosNullifiers()`. Affects all platforms
+  (Linux, Android, macOS, Windows) since this is shared Dart code.
+
+---
+
 ## [1.0.1] - 2026-02-25
 
 ### Fixed

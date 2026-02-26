@@ -355,37 +355,48 @@ class EosioClient {
 
   /// Get action history via Hyperion API (more reliable)
   /// [skip] - number of actions to skip (ascending order) for incremental fetch
+  /// Paginates automatically to fetch ALL matching actions.
   Future<List<ZeosActionTrace>> _getZeosActionsHyperion(String account, {int skip = 0}) async {
-    try {
-      // Telos Hyperion endpoints
-      final hyperionEndpoints = [
-        'https://telos.eosusa.io',
-        'https://mainnet.telos.caleos.io',
-      ];
+    // Telos Hyperion endpoints
+    final hyperionEndpoints = [
+      'https://telos.eosusa.io',
+      'https://mainnet.telos.caleos.io',
+    ];
 
-      for (final hyperion in hyperionEndpoints) {
-        try {
-          // Sort ascending so skip works correctly (skip oldest N, get newest)
+    for (final hyperion in hyperionEndpoints) {
+      try {
+        final allActions = <ZeosActionTrace>[];
+        int currentSkip = skip;
+        const pageSize = 1000;
+
+        while (true) {
           var url = '$hyperion/v2/history/get_actions?account=$account'
               '&filter=*:mint,*:spend,*:publishnotes,*:authenticate'
-              '&sort=asc&limit=1000';
-          if (skip > 0) url += '&skip=$skip';
+              '&sort=asc&limit=$pageSize';
+          if (currentSkip > 0) url += '&skip=$currentSkip';
 
           final response = await _client.get(Uri.parse(url)).timeout(_timeout);
 
-          if (response.statusCode == 200) {
-            final json = jsonDecode(response.body);
-            final actions = json['actions'] as List? ?? [];
-            return actions.map((a) => ZeosActionTrace.fromHyperionJson(a)).toList();
-          }
-        } catch (_) {
-        }
-      }
+          if (response.statusCode != 200) break;
 
-      return [];
-    } catch (_) {
-      return [];
+          final json = jsonDecode(response.body);
+          final actions = json['actions'] as List? ?? [];
+          if (actions.isEmpty) break;
+
+          allActions.addAll(actions.map((a) => ZeosActionTrace.fromHyperionJson(a)));
+
+          // If we got fewer than pageSize, we've reached the end
+          if (actions.length < pageSize) break;
+
+          currentSkip += actions.length;
+        }
+
+        if (allActions.isNotEmpty) return allActions;
+      } catch (_) {
+      }
     }
+
+    return [];
   }
 
   /// Get only NEW merkle tree leaf entries (incremental fetch)
