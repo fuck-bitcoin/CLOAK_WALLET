@@ -2,6 +2,22 @@
 
 All notable changes to CLOAK Wallet will be documented in this file.
 
+## [1.0.3] - 2026-02-25
+
+### Fixed
+
+- **Failed sync permanently prevents retry**: When `syncFromTables()` failed
+  (API down, network error, HTTP 500), the sync engine set
+  `_syncedHeight = _latestHeight` and persisted it to the database. This told
+  the wallet it was fully synced when it had fetched zero data. Subsequent sync
+  ticks saw `_syncedHeight >= _latestHeight` and skipped all work — the wallet
+  was permanently stuck until a new on-chain block changed the latest height.
+  Now on failure, `_syncedHeight` is left untouched so the 3-second timer
+  retries automatically. Added exponential backoff (capped at ~30 seconds) via
+  `_consecutiveFailures` counter to avoid hammering a dead API.
+
+---
+
 ## [1.0.2] - 2026-02-25
 
 ### Fixed

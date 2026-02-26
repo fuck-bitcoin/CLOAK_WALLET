@@ -126,6 +126,9 @@ class CloakSync {
   static int _lastLeafCount = -1;
   static int _lastAuthCount = -1;
 
+  // Consecutive sync failures — skip every other tick to avoid hammering a dead API
+  static int _consecutiveFailures = 0;
+
   /// Check if this is a new account that was just created (not restored)
   static bool get isNewAccount => _isNewAccount;
 
@@ -147,6 +150,7 @@ class CloakSync {
     _autoHealAttempted = false;
     _vaultsReimported = false;
     _vaultDiscoveryDone = false;
+    _consecutiveFailures = 0;
   }
 
   /// Full reset of all static sync state. Called when the last account is
@@ -252,6 +256,12 @@ class CloakSync {
     if (_syncing && !force) return false;
     if (!CloakWalletManager.isLoaded) return false;
 
+    // Back off on consecutive failures: skip N ticks (capped at 10 = ~30s)
+    if (_consecutiveFailures > 0) {
+      _consecutiveFailures--;
+      return false;
+    }
+
     _syncing = true;
     bool isFullSync = false;
 
@@ -313,6 +323,7 @@ class CloakSync {
       final result = await syncFromTables();
 
       if (result.success) {
+        _consecutiveFailures = 0;
         final global = result.global!;
         _syncedHeight = global.blockNum;
         _latestHeight = global.blockNum;
@@ -333,14 +344,14 @@ class CloakSync {
         return isFullSync;
       } else {
         print('CloakSync: Table sync failed: ${result.error}');
-        // Fall back to marking as synced to not block the UI
-        _syncedHeight = _latestHeight;
-        await _saveSyncedHeight(_latestHeight);
-        return isFullSync;
+        // Don't mark as synced — let the timer retry after a backoff
+        _consecutiveFailures = (_consecutiveFailures + 2).clamp(0, 10);
+        return false;
       }
 
     } catch (e) {
       print('CloakSync: Sync failed: $e');
+      _consecutiveFailures = (_consecutiveFailures + 2).clamp(0, 10);
       return false;
     } finally {
       _syncing = false;
