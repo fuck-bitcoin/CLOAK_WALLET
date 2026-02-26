@@ -32,6 +32,29 @@ Or download directly from [Releases](https://github.com/fuck-bitcoin/CLOAK_WALLE
 
 <div align="center">
 
+### Update
+
+</div>
+
+Already installed? Run the same one-liner to update to the latest version. Your wallet data, ZK parameters, and settings are preserved.
+
+| Platform | Update Command |
+|:---------|:---------------|
+| **Linux** | `curl -sSL https://raw.githubusercontent.com/fuck-bitcoin/CLOAK_WALLET/main/install.sh \| bash` |
+| **macOS** | `curl -sSL https://raw.githubusercontent.com/fuck-bitcoin/CLOAK_WALLET/main/install-macos.sh \| bash` |
+| **Windows** | `irm https://raw.githubusercontent.com/fuck-bitcoin/CLOAK_WALLET/main/install.ps1 \| iex` |
+| **Android** | [Download latest APK](https://github.com/fuck-bitcoin/CLOAK_WALLET/releases/latest/download/CLOAK_Wallet.apk) and install over the existing app |
+
+> **Android users:** Download the latest APK from the [releases page](https://github.com/fuck-bitcoin/CLOAK_WALLET/releases/latest) and sideload it over your existing install. If the install fails due to a signing key change, back up your seed phrase first, uninstall the old version, install the new APK, and restore from seed.
+
+**What gets preserved on update:**
+- Wallet data (accounts, transaction history, vault state)
+- ZK proving parameters (~383 MB) — no re-download required
+- SSL certificates (mkcert)
+- Desktop shortcuts
+
+<div align="center">
+
 ### Uninstall in One Command
 
 </div>
