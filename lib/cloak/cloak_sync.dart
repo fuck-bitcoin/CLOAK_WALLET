@@ -11,6 +11,7 @@ import 'cloak_wallet_manager.dart';
 import 'cloak_db.dart';
 import 'eosio_client.dart';
 import 'ffi_isolate.dart';
+import 'peer_manager.dart';
 import '../coin/coins.dart';
 
 // ============== Top-level functions for Isolate.run() ==============
@@ -129,6 +130,23 @@ class CloakSync {
   // Consecutive sync failures — skip every other tick to avoid hammering a dead API
   static int _consecutiveFailures = 0;
 
+  // Hyperion failure tracking for block-direct fallback during full syncs.
+  // After 5 consecutive Hyperion failures, switch to fetching individual blocks
+  // from peer API nodes instead.
+  static int _hyperionConsecutiveFailures = 0;
+  static bool _fullSyncSlowMode = false;
+  static void Function(bool isSlowMode)? onSlowModeChanged;
+
+  // Leaf gap callback for catch-up banner (chain leafCount - wallet leafCount)
+  static void Function(int gap)? onLeafGapChanged;
+
+  // Incremental sync fallback: 3 consecutive Hyperion failures in non-full-sync
+  // triggers session slow mode. After 15 sessions with slow mode, permanent mode
+  // (persisted to DB, survives app restarts).
+  static int _incrementalHyperionFailures = 0;
+  static bool _sessionSlowMode = false;
+  static bool _permanentSlowMode = false;
+
   /// Check if this is a new account that was just created (not restored)
   static bool get isNewAccount => _isNewAccount;
 
@@ -142,6 +160,14 @@ class CloakSync {
     _isNewAccount = false;
   }
 
+  /// Reset session-level flags that should be cleared on resync.
+  /// Called from resetChainState() so vault discovery, auto-heal, etc.
+  /// re-run after the user manually resyncs.
+  static void resetSessionFlags() {
+    _initialSyncDone = false;
+    _syncing = false;
+  }
+
   /// Clear cached counters to force full sync on next cycle.
   /// Called during chain state reset to ensure fresh data fetch.
   static void clearCachedCounters() {
@@ -151,6 +177,11 @@ class CloakSync {
     _vaultsReimported = false;
     _vaultDiscoveryDone = false;
     _consecutiveFailures = 0;
+    _hyperionConsecutiveFailures = 0;
+    _fullSyncSlowMode = false;
+    _incrementalHyperionFailures = 0;
+    // Note: _sessionSlowMode and _permanentSlowMode are NOT reset here —
+    // they persist for the entire session / permanently (by design).
   }
 
   /// Full reset of all static sync state. Called when the last account is
@@ -169,6 +200,12 @@ class CloakSync {
     _cachedGlobal = null;
     _cachedMerkleEntries = null;
     _cachedNullifiers = null;
+    _hyperionConsecutiveFailures = 0;
+    _fullSyncSlowMode = false;
+    _incrementalHyperionFailures = 0;
+    _sessionSlowMode = false;
+    // Note: _permanentSlowMode is NOT reset here — it is persisted to DB
+    // and only cleared if the DB property is manually removed.
     initialSyncNotifier.value = false;
     print('[CloakSync] Full reset of all sync state');
   }
@@ -183,6 +220,14 @@ class CloakSync {
 
     // Load persisted synced height from database
     await _loadSyncedHeight();
+
+    // Load persistent slow mode state (survives app restarts)
+    final permSlow = await CloakDb.getProperty('hyperion_permanent_slow');
+    _permanentSlowMode = (permSlow == 'true');
+    if (_permanentSlowMode) {
+      _sessionSlowMode = true;
+      print('[CloakSync] Permanent slow mode active (loaded from DB)');
+    }
   }
 
   /// Get current sync status
@@ -256,7 +301,7 @@ class CloakSync {
     if (_syncing && !force) return false;
     if (!CloakWalletManager.isLoaded) return false;
 
-    // Back off on consecutive failures: skip N ticks (capped at 10 = ~30s)
+    // Back off on consecutive failures: skip N ticks (capped at 15 = ~15s)
     if (_consecutiveFailures > 0) {
       _consecutiveFailures--;
       return false;
@@ -320,38 +365,48 @@ class CloakSync {
       }
 
       // Perform table-based sync
-      final result = await syncFromTables();
+      final result = await syncFromTables(isFullSync: isFullSync);
 
       if (result.success) {
+        // If block-direct was used but processed 0 blocks, the fallback didn't
+        // actually sync any data. Treat this as a failure so:
+        // - Heights stay at step-based values (not ~451M chain values)
+        // - needsFullSync() still returns true (persisted height stays low)
+        // - fullSyncPending stays true in store2.dart (banner stays visible)
+        // - Fast-path cache is invalidated so next sync retries properly
+        final blockDirectFailed = result.usedBlockDirect && result.blockDirectProcessed <= 0;
+        if (blockDirectFailed) {
+          print('CloakSync: Block-direct processed 0 blocks — treating as failure, will retry');
+          _lastLeafCount = -1;
+          _lastAuthCount = -1;
+          _consecutiveFailures = (_consecutiveFailures + 5).clamp(0, 15);
+          return false;
+        }
+
         _consecutiveFailures = 0;
         final global = result.global!;
         _syncedHeight = global.blockNum;
         _latestHeight = global.blockNum;
         await _saveSyncedHeight(global.blockNum);
-        // Don't call onProgress(100, 100) here — it makes isSynced=true which
-        // hides the banner before syncJustCompleted is set. The completion flow
-        // in store2.dart handles the 100% transition via syncJustCompleted.
 
-        // Mark full sync as done so auto-heal and banner don't re-trigger
         if (isFullSync) {
           await CloakDb.setProperty('full_sync_done', 'true');
         }
 
         // Preload ZK params in background so first send is instant
-        // This runs after sync completes, user won't notice the load time
         CloakWalletManager.ensureZkParamsLoaded();
 
         return isFullSync;
       } else {
         print('CloakSync: Table sync failed: ${result.error}');
         // Don't mark as synced — let the timer retry after a backoff
-        _consecutiveFailures = (_consecutiveFailures + 2).clamp(0, 10);
+        _consecutiveFailures = (_consecutiveFailures + 5).clamp(0, 15);
         return false;
       }
 
     } catch (e) {
       print('CloakSync: Sync failed: $e');
-      _consecutiveFailures = (_consecutiveFailures + 2).clamp(0, 10);
+      _consecutiveFailures = (_consecutiveFailures + 5).clamp(0, 15);
       return false;
     } finally {
       _syncing = false;
@@ -379,7 +434,7 @@ class CloakSync {
   /// - Only ~60 merkle tree entries vs 280M+ blocks
   /// - Direct table access vs processing every block
   /// - Returns exactly the data we need
-  static Future<ZeosSyncResult> syncFromTables() async {
+  static Future<ZeosSyncResult> syncFromTables({bool isFullSync = false}) async {
     if (_client == null) await init();
 
     try {
@@ -405,6 +460,14 @@ class CloakSync {
         }
       }
 
+      // Report leaf gap for catch-up banner (how far behind the wallet is)
+      {
+        final wallet = CloakWalletManager.wallet;
+        final walletLeaves = wallet != null ? (CloakApi.getLeafCount(wallet) ?? 0) : 0;
+        final leafGap = global.leafCount - walletLeaves;
+        onLeafGapChanged?.call(leafGap > 0 ? leafGap : 0);
+      }
+
       // FAST PATH: If leafCount and authCount haven't changed, no new data exists.
       // Skip ALL expensive HTTP calls, FFI processing, and disk I/O.
       // This reduces 99% of sync cycles to 1 lightweight HTTP call.
@@ -416,22 +479,85 @@ class CloakSync {
         return ZeosSyncResult(success: true, global: global, merkleEntries: _cachedMerkleEntries, nullifiers: _cachedNullifiers);
       }
 
-      // 2. Get all merkle tree entries (note commitments)
-      onStepChanged?.call('Fetching merkle tree...');
+      // 2-4. Fetch chain data (merkle tree, nullifiers always needed; actions via
+      //       Hyperion OR block-direct depending on slow mode)
+      onStepChanged?.call('Fetching chain data...');
       onProgress?.call(10, 100);
-      final merkleEntries = await _client!.getZeosMerkleTree();
 
-      // 3. Get all nullifiers (spent notes)
-      onStepChanged?.call('Fetching nullifiers...');
-      onProgress?.call(25, 100);
-      final nullifiers = await _client!.getZeosNullifiers();
+      List<ZeosMerkleEntry> merkleEntries;
+      List<ZeosNullifier> nullifiers;
+      List<ZeosActionTrace> actions = [];
+      bool usedBlockDirect = false;
 
-      // 4. Get action history to extract encrypted notes
-      onStepChanged?.call('Fetching transaction history...');
+      // Determine if we should skip Hyperion entirely:
+      // - Full sync slow mode (5 consecutive Hyperion failures during full sync)
+      // - Session/permanent slow mode (3 consecutive incremental failures, or DB-persisted)
+      final skipHyperion = (_fullSyncSlowMode && isFullSync) ||
+                           _sessionSlowMode || _permanentSlowMode;
+
+      if (skipHyperion) {
+        // Slow mode: skip Hyperion entirely, fetch merkle+nullifiers only
+        final tableResults = await Future.wait([
+          _client!.getZeosMerkleTree(),
+          _client!.getZeosNullifiers(),
+        ]);
+        merkleEntries = tableResults[0] as List<ZeosMerkleEntry>;
+        nullifiers = tableResults[1] as List<ZeosNullifier>;
+      } else {
+        // Normal mode: parallel fetch merkle, nullifiers, and Hyperion actions
+        final merkleNullFuture = Future.wait([
+          _client!.getZeosMerkleTree(),
+          _client!.getZeosNullifiers(),
+        ]);
+
+        // Wrap Hyperion call in try/catch for failure tracking
+        List<ZeosActionTrace> fetchedActions = [];
+        try {
+          fetchedActions = await _client!.getZeosActions();
+          _hyperionConsecutiveFailures = 0;
+          _incrementalHyperionFailures = 0;
+        } catch (e) {
+          _hyperionConsecutiveFailures++;
+          _incrementalHyperionFailures++;
+          print('CloakSync: Hyperion getZeosActions failed '
+              '(full=$_hyperionConsecutiveFailures, incr=$_incrementalHyperionFailures): $e');
+
+          // Full sync: 5-strike threshold -> block-direct fallback
+          if (isFullSync && _hyperionConsecutiveFailures >= 5) {
+            _fullSyncSlowMode = true;
+            onSlowModeChanged?.call(true);
+            print('CloakSync: Switching to block-direct slow mode after $_hyperionConsecutiveFailures Hyperion failures');
+          }
+
+          // Incremental sync: 3-strike threshold -> session slow mode
+          if (!isFullSync && _incrementalHyperionFailures >= 3) {
+            _sessionSlowMode = true;
+            onSlowModeChanged?.call(true);
+            print('CloakSync: Session slow mode activated after $_incrementalHyperionFailures incremental Hyperion failures');
+            await _recordSessionFallback();
+          }
+
+          // CRITICAL: If we haven't switched to slow mode (block-direct), we must
+          // NOT continue with empty actions — that would save leaves without notes,
+          // cache _lastLeafCount, and cause fast-path to skip forever. Rethrow so
+          // the entire sync fails and retries on next tick (preserving old behavior).
+          if (!_fullSyncSlowMode && !_sessionSlowMode && !_permanentSlowMode) {
+            // Still need to await merkleNullFuture to avoid unhandled async error
+            await merkleNullFuture.catchError((_) => <Object>[]);
+            rethrow;
+          }
+        }
+        actions = fetchedActions;
+
+        final tableResults = await merkleNullFuture;
+        merkleEntries = tableResults[0] as List<ZeosMerkleEntry>;
+        nullifiers = tableResults[1] as List<ZeosNullifier>;
+      }
+
       onProgress?.call(40, 100);
-      final actions = await _client!.getZeosActions();
 
       // 5. Pass data to Rust wallet for trial decryption
+      int blockDirectSuccessCount = 0;
       var wallet = CloakWalletManager.wallet;
       if (wallet != null) {
         // 5a-pre. Sync auth_count from on-chain global to wallet
@@ -444,18 +570,21 @@ class CloakSync {
           CloakApi.setAuthCount(wallet, chainAuthCount);
         }
 
-        // 5a. Add only NEW merkle tree leaves (skip ones wallet already has)
         final walletLeafCount = CloakApi.getLeafCount(wallet) ?? 0;
         final onChainLeafCount = global.leafCount;
+        final _isViewOnly = CloakApi.isViewOnly(wallet!) ?? false;
 
-        // Pre-serialize merkle entries to maps (once) for background isolate use
+        // 5a. Add ALL merkle tree leaves from table data (ALWAYS runs).
+        // This populates the complete merkle tree — digest_block() needs
+        // leaves already in the tree to match note commitments during
+        // trial decryption (add_notes searches the tree, doesn't add leaves).
         final merkleEntriesMaps = merkleEntries.map((e) => {
           'idx': e.idx,
           'val': e.val.toJson(),
         }).toList();
 
         onStepChanged?.call('Processing merkle leaves...');
-        onProgress?.call(55, 100);
+        onProgress?.call(50, 100);
         if (walletLeafCount < onChainLeafCount) {
           final leavesHex = await compute(
             _convertMerkleEntriesToHexInIsolate,
@@ -465,18 +594,9 @@ class CloakSync {
             await FfiIsolate.addLeaves(wallet: wallet!, leavesHex: leavesHex);
           }
         } else if (walletLeafCount > onChainLeafCount) {
-          // Wallet has more leaves than the chain — this is NORMAL after a send.
-          // The eager wallet update in wallet_transact_packed inserts output
-          // commitment leaves immediately so add_notes() can track change notes.
-          // These extra leaves will match the chain once the TX confirms.
-          // Only auto-repair if the overshoot is large (>20 leaves = real corruption).
           final overshoot = walletLeafCount - onChainLeafCount;
           if (overshoot > 20) {
-            // Skip auto-repair for IVK (view-only) wallets — they can't send
-            // transactions so the "eager wallet update" overshoot can't happen.
-            // Also, recreating from seed without isIvk flag would corrupt the wallet.
-            final _repairViewOnly = CloakApi.isViewOnly(wallet!) ?? false;
-            if (_repairViewOnly) {
+            if (_isViewOnly) {
               print('CloakSync: WARNING — IVK wallet has $overshoot extra leaves, skipping auto-repair (view-only)');
             } else {
               print('CloakSync: Auto-repairing — wallet has $overshoot extra leaves, recreating from seed');
@@ -501,56 +621,64 @@ class CloakSync {
           }
         }
 
-        // 5b. Extract and add encrypted notes from actions (per-action with timestamps)
-        // MUST happen BEFORE nullifier sync so spent notes exist to be marked
-        // All addNotes FFI calls run in a background isolate — no main-thread blocking.
-        int totalNotes = 0;
+        // 5a-block: Block-direct for notes (Hyperion is down).
+        // MUST run AFTER addLeaves — digest_block() searches the pre-populated
+        // merkle tree to find matching commitments during trial decryption.
+        // The blocks table (~310 entries) covers recent activity only.
+        if (_fullSyncSlowMode && isFullSync && !_isViewOnly) {
+          usedBlockDirect = true;
+          onStepChanged?.call('Syncing from blocks...');
+          onProgress?.call(60, 100);
+          blockDirectSuccessCount = await _syncViaBlockDirect(wallet!, global.blockNum);
+        }
+
+        // 5b. Extract and add encrypted notes from Hyperion actions.
+        // Skipped when block-direct was used (digest_block handles notes).
+        // MUST happen BEFORE nullifier sync so spent notes exist to be marked.
         int totalFts = 0;
         int totalNfts = 0;
         int totalAts = 0;
-
-        // Build the batch of note actions
-        final noteActions = <Map<String, dynamic>>[];
-        for (final action in actions) {
-          if (action.noteCiphertexts.isEmpty) continue;
-          totalNotes += action.noteCiphertexts.length;
-          int blockTsMs = 0;
-          if (action.blockTime.isNotEmpty) {
-            // EOSIO/Telos block times are always UTC. Hyperion may omit the
-            // 'Z' suffix, causing DateTime.tryParse to treat it as local time
-            // and shift the timestamp by the user's timezone offset.
-            String ts = action.blockTime;
-            if (!ts.endsWith('Z') && !ts.contains('+') && !RegExp(r'T.+[-]').hasMatch(ts)) {
-              ts += 'Z';
+        int spentCount = 0;
+        if (!usedBlockDirect) {
+          int totalNotes = 0;
+          final noteActions = <Map<String, dynamic>>[];
+          for (final action in actions) {
+            if (action.noteCiphertexts.isEmpty) continue;
+            totalNotes += action.noteCiphertexts.length;
+            int blockTsMs = 0;
+            if (action.blockTime.isNotEmpty) {
+              String ts = action.blockTime;
+              if (!ts.endsWith('Z') && !ts.contains('+') && !RegExp(r'T.+[-]').hasMatch(ts)) {
+                ts += 'Z';
+              }
+              final dt = DateTime.tryParse(ts);
+              if (dt != null) blockTsMs = dt.millisecondsSinceEpoch;
             }
-            final dt = DateTime.tryParse(ts);
-            if (dt != null) blockTsMs = dt.millisecondsSinceEpoch;
+            noteActions.add({
+              'notesJson': jsonEncode(action.noteCiphertexts),
+              'blockNum': action.blockNum,
+              'blockTsMs': blockTsMs,
+            });
           }
-          noteActions.add({
-            'notesJson': jsonEncode(action.noteCiphertexts),
-            'blockNum': action.blockNum,
-            'blockTsMs': blockTsMs,
-          });
+
+          onStepChanged?.call('Decrypting notes...');
+          onProgress?.call(70, 100);
+          if (noteActions.isNotEmpty) {
+            final counts = await FfiIsolate.addNotesAll(
+              wallet: wallet!,
+              noteActions: noteActions,
+            );
+            totalFts = counts['fts'] ?? 0;
+            totalNfts = counts['nfts'] ?? 0;
+            totalAts = counts['ats'] ?? 0;
+          }
         }
 
-        // Run ALL addNotes calls in a background isolate (no main thread blocking)
-        onStepChanged?.call('Decrypting notes...');
-        onProgress?.call(70, 100);
-        if (noteActions.isNotEmpty) {
-          final counts = await FfiIsolate.addNotesAll(
-            wallet: wallet!,
-            noteActions: noteActions,
-          );
-          totalFts = counts['fts'] ?? 0;
-          totalNfts = counts['nfts'] ?? 0;
-          totalAts = counts['ats'] ?? 0;
-        }
-        // 5c. Sync nullifiers — mark spent notes
-        // MUST happen AFTER notes are added so there are notes to mark as spent
-        // On a fresh wallet, if this runs before add_notes, it finds 0 notes → all notes stay unspent
+        // 5c. Sync nullifiers (ALWAYS runs) — marks spent notes.
+        // MUST happen AFTER both addNotes and digest_block so notes exist to be marked.
+        // Table has complete historical nullifier set.
         onStepChanged?.call('Syncing nullifiers...');
         onProgress?.call(85, 100);
-        int spentCount = 0;
         if (nullifiers.isNotEmpty) {
           final nullifierMaps = nullifiers.map((nf) => {'val': nf.val.toJson()}).toList();
           final nullifierHex = await compute(
@@ -559,11 +687,11 @@ class CloakSync {
           );
           spentCount = await FfiIsolate.addNullifiers(wallet: wallet!, nullifiersHex: nullifierHex);
         }
-
-        // 5d. Save wallet state (only if data changed — new leaves, notes, or nullifiers marked spent)
+        // 5d. Save wallet state (only if data changed — new leaves, notes, nullifiers, or block-direct)
         onStepChanged?.call('Saving wallet...');
         onProgress?.call(95, 100);
-        final dataChanged = (totalFts + totalNfts + totalAts) > 0 ||
+        final dataChanged = usedBlockDirect ||
+            (totalFts + totalNfts + totalAts) > 0 ||
             walletLeafCount < onChainLeafCount ||
             walletAuthCount != chainAuthCount ||
             spentCount > 0;
@@ -573,7 +701,6 @@ class CloakSync {
 
         // 5e. Re-import vault auth tokens from DB into Rust wallet (once per session)
         // Skip for IVK (view-only) wallets — they cannot hold auth tokens
-        final _isViewOnly = CloakApi.isViewOnly(wallet!) ?? false;
         if (!_vaultsReimported && !_isViewOnly) {
           await _reimportVaultsFromDb(wallet!);
           _vaultsReimported = true;
@@ -593,19 +720,25 @@ class CloakSync {
         }
 
         // 6. Extract messages from transaction history (only if new notes were added)
-        if ((totalFts + totalNfts + totalAts) > 0) {
+        if (usedBlockDirect || (totalFts + totalNfts + totalAts) > 0) {
           await _extractMessagesFromHistory();
         }
       }
 
       // 7. Update sync state and cached counters
-      _syncedHeight = global.blockNum;
-      _latestHeight = global.blockNum;
-      await _saveSyncedHeight(global.blockNum);
-      _lastLeafCount = global.leafCount;
-      _lastAuthCount = global.authCount;
+      // Skip height/cache update if block-direct was used but processed 0 blocks —
+      // writing chain height (~454M) would make needsFullSync() return false and
+      // caching leaf/auth counts would make the fast-path skip future retries.
+      final blockDirectFailed = usedBlockDirect && blockDirectSuccessCount <= 0;
+      if (!blockDirectFailed) {
+        _syncedHeight = global.blockNum;
+        _latestHeight = global.blockNum;
+        await _saveSyncedHeight(global.blockNum);
+        _lastLeafCount = global.leafCount;
+        _lastAuthCount = global.authCount;
+      }
 
-      // Cache the data
+      // Cache the data (safe even on block-direct failure — just HTTP response data)
       _cachedGlobal = global;
       _cachedMerkleEntries = merkleEntries;
       _cachedNullifiers = nullifiers;
@@ -615,11 +748,84 @@ class CloakSync {
         global: global,
         merkleEntries: merkleEntries,
         nullifiers: nullifiers,
+        usedBlockDirect: usedBlockDirect,
+        blockDirectProcessed: blockDirectSuccessCount,
       );
     } catch (e) {
       print('CloakSync: Table sync failed: $e');
       return ZeosSyncResult(success: false, error: e.toString());
     }
+  }
+
+  /// Record that this session fell back to slow mode.
+  /// After 15 sessions with fallbacks, activate permanent slow mode (persisted to DB).
+  static Future<void> _recordSessionFallback() async {
+    final countStr = await CloakDb.getProperty('hyperion_session_failures');
+    final count = int.tryParse(countStr ?? '0') ?? 0;
+    final newCount = count + 1;
+    await CloakDb.setProperty('hyperion_session_failures', '$newCount');
+    print('[CloakSync] Session fallback recorded ($newCount total)');
+    if (newCount >= 15) {
+      _permanentSlowMode = true;
+      await CloakDb.setProperty('hyperion_permanent_slow', 'true');
+      print('[CloakSync] Permanent slow mode activated after $newCount session fallbacks');
+    }
+  }
+
+  /// Sync via block-direct: fetch individual ZEOS-relevant blocks from peer API
+  /// nodes, then pass each block through Rust's digest_block which handles leaves,
+  /// notes, and nullifiers internally. Used as fallback when Hyperion is down.
+  static Future<int> _syncViaBlockDirect(Pointer<Void> wallet, int chainBlockNum) async {
+    final peerManager = PeerManager();
+    final walletBlockNum = CloakApi.getBlockNum(wallet) ?? 0;
+
+    // Fetch list of block numbers containing ZEOS activity
+    onStepChanged?.call('Fetching ZEOS block list...');
+    final blockNums = await _client!.getZeosBlockNumbers(afterBlockNum: walletBlockNum);
+    if (blockNums.isEmpty) {
+      print('CloakSync: block-direct — no new ZEOS blocks after $walletBlockNum');
+      return 0;
+    }
+    print('CloakSync: block-direct — ${blockNums.length} ZEOS blocks to process');
+
+    int processed = 0;
+    int failed = 0;
+    for (final blockNum in blockNums) {
+      // Progress: 60% to 80% range across all blocks (leaves=50%, blocks=60-80%, nullifiers=85%)
+      final pct = 60 + ((processed / blockNums.length) * 20).round();
+      onStepChanged?.call('Processing block ${processed + 1}/${blockNums.length}...');
+      onProgress?.call(pct, 100);
+
+      // Retry each block up to 3 times with different peers
+      bool blockSuccess = false;
+      for (int attempt = 0; attempt < 3 && !blockSuccess; attempt++) {
+        final peerUrl = peerManager.pickPeer();
+        try {
+          final tempClient = EosioClient(peerUrl);
+          try {
+            final blockData = await tempClient.getBlock(blockNum);
+            final blockJson = jsonEncode(blockData);
+            final digest = await FfiIsolate.digestBlock(wallet: wallet, blockJson: blockJson);
+            if (digest != null) {
+              peerManager.reportSuccess(peerUrl);
+              blockSuccess = true;
+            }
+          } finally {
+            tempClient.close();
+          }
+        } catch (e) {
+          peerManager.reportFailure(peerUrl);
+          if (attempt == 2) {
+            print('CloakSync: block-direct — failed block $blockNum after 3 attempts: $e');
+          }
+        }
+      }
+      if (!blockSuccess) failed++;
+      processed++;
+    }
+
+    print('CloakSync: block-direct complete — $processed processed, $failed failed');
+    return processed - failed;
   }
 
   /// Re-import vault auth tokens from the SQLite vaults table into the Rust wallet.
@@ -800,6 +1006,8 @@ class ZeosSyncResult {
   final ZeosGlobal? global;
   final List<ZeosMerkleEntry>? merkleEntries;
   final List<ZeosNullifier>? nullifiers;
+  final bool usedBlockDirect;
+  final int blockDirectProcessed;
 
   ZeosSyncResult({
     required this.success,
@@ -807,5 +1015,7 @@ class ZeosSyncResult {
     this.global,
     this.merkleEntries,
     this.nullifiers,
+    this.usedBlockDirect = false,
+    this.blockDirectProcessed = 0,
   });
 }

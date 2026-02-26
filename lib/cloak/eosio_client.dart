@@ -506,6 +506,40 @@ class EosioClient {
 
     return nullifiers;
   }
+
+  /// Get block numbers that contain ZEOS activity from zeosprotocol/blocks table.
+  /// [afterBlockNum] - only return block numbers strictly greater than this value
+  /// Returns ascending sorted list of block numbers.
+  Future<List<int>> getZeosBlockNumbers({int afterBlockNum = 0}) async {
+    final blockNums = <int>[];
+    String nextKey = afterBlockNum > 0 ? (afterBlockNum + 1).toString() : '';
+
+    while (true) {
+      final result = await getTableRows(
+        code: 'zeosprotocol',
+        scope: 'zeosprotocol',
+        table: 'blocks',
+        limit: 1000,
+        lowerBound: nextKey,
+      );
+
+      final rows = result['rows'] as List? ?? [];
+      for (final row in rows) {
+        final blockNum = row['num'] as int? ?? row['block_num'] as int? ?? row['key'] as int? ?? 0;
+        if (blockNum > afterBlockNum) {
+          blockNums.add(blockNum);
+        }
+      }
+
+      final more = result['more'] as bool? ?? false;
+      if (!more) break;
+      nextKey = result['next_key']?.toString() ?? '';
+      if (nextKey.isEmpty) break;
+    }
+
+    blockNums.sort();
+    return blockNums;
+  }
 }
 
 // ============== ZEOS Data Structures ==============

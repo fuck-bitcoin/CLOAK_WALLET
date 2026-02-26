@@ -300,9 +300,9 @@ The request flow UI exists for generating QR codes with payment URIs. Thread-bas
 
 Send to multiple recipients in a single transaction. The batch asset selection UI exists for vault withdrawals. Extending this to regular shielded sends would allow splitting payments across many addresses efficiently.
 
-### Rewind / Selective Sync
+### Wallet Birthday Height & Selective Sync
 
-Resync transactions from a chosen block height instead of from genesis. The rewind confirmation dialog and localization strings exist. This would let users recover from corrupted state without a full resync, or selectively re-scan a time period where transactions might have been missed.
+Record the current block height at wallet creation time as a "birthday." On restore, sync starts from the birthday height instead of genesis — skipping millions of blocks that predate the wallet and can't contain relevant transactions. This dramatically reduces restore time for wallets created after the ZEOS contract deployment. The rewind confirmation dialog and localization strings already exist in the codebase for selective re-scanning from an arbitrary height.
 
 ### Cold Wallet / Air-Gapped Signing
 

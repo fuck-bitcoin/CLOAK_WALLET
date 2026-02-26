@@ -138,9 +138,14 @@ class _ResyncWalletState extends State<ResyncWalletPage> with WithLoadingAnimati
           return;
         }
 
-        // 2. Reset sync status so banner knows we're not synced
+        // 2. Reset sync status so banner appears IMMEDIATELY on navigation.
+        // Must set these synchronously before router.go() — sync(true) sets
+        // fullSyncPending asynchronously (after await needsFullSync()), so
+        // without this the banner conditions aren't met on first render.
         syncStatus2.syncedHeight = 0;
+        syncStatus2.latestHeight = 100; // Step-based dummy so isSynced=false
         syncStatus2.isRescan = true;
+        syncStatus2.fullSyncPending = true;
 
         // 3. Trigger full sync immediately (don't defer - prevents losing sync if app locks)
         // The sync runs in background, so navigation happens while sync proceeds.

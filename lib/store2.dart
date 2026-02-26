@@ -72,7 +72,7 @@ Future<void> startAutoSync() async {
     if (aa.id == 0) {
       // No account - skipping initial sync
       // Still set up the timer for when an account is created
-      syncTimer = Timer.periodic(Duration(seconds: 3), (timer) {
+      syncTimer = Timer.periodic(Duration(seconds: 1), (timer) {
         if (aa.id == 0) return; // No account yet
         if (syncStatus2.syncing) {
           return;
@@ -84,7 +84,7 @@ Future<void> startAutoSync() async {
     }
     await syncStatus2.update();
     await syncStatus2.sync(false, auto: true);
-    syncTimer = Timer.periodic(Duration(seconds: 3), (timer) {
+    syncTimer = Timer.periodic(Duration(seconds: 1), (timer) {
       if (aa.id == 0) return; // No account
       // IMPORTANT: Skip FFI calls while sync is in progress to avoid blocking UI
       if (syncStatus2.syncing) {
@@ -104,16 +104,16 @@ void _cancelAutoSyncTimer() {
 void _rescheduleAutoSyncAfter(Duration delay) {
   _cancelAutoSyncTimer();
   // Schedule the next auto-sync tick after the specified delay,
-  // then continue with the normal 5s cadence.
+  // then continue with the normal 1s cadence.
   syncTimer = Timer(delay, () {
     // Skip if sync is in progress
     if (syncStatus2.syncing) {
       // Rescheduled tick skipped - sync in progress
-      _rescheduleAutoSyncAfter(Duration(seconds: 5));
+      _rescheduleAutoSyncAfter(Duration(seconds: 2));
       return;
     }
     syncStatus2.sync(false, auto: true);
-    syncTimer = Timer.periodic(Duration(seconds: 3), (timer) {
+    syncTimer = Timer.periodic(Duration(seconds: 1), (timer) {
       // IMPORTANT: Skip FFI calls while sync is in progress to avoid blocking UI
       if (syncStatus2.syncing) {
         return;
@@ -129,14 +129,14 @@ Future<void> triggerManualSync() async {
   _cancelAutoSyncTimer();
   // If already syncing, just reschedule auto-sync and exit
   if (syncStatus2.syncing) {
-    _rescheduleAutoSyncAfter(Duration(seconds: 5));
+    _rescheduleAutoSyncAfter(Duration(seconds: 2));
     return;
   }
   // Manual action explicitly unpauses sync if it had been auto-paused
   if (syncStatus2.paused) syncStatus2.setPause(false);
   await syncStatus2.sync(false);
-  // Resume auto-sync 5s after manual completes
-  _rescheduleAutoSyncAfter(Duration(seconds: 5));
+  // Resume auto-sync 2s after manual completes
+  _rescheduleAutoSyncAfter(Duration(seconds: 2));
 }
 
 var syncStatus2 = SyncStatus2();
@@ -194,8 +194,26 @@ abstract class _SyncStatus2 with Store {
   @observable
   bool showSyncBanner = false;
 
+  // True when Hyperion has failed 3+ times in incremental sync this session.
+  // Once set, Hyperion is skipped for the rest of the session.
+  @observable
+  bool sessionSlowMode = false;
+
+  // True when the current sync cycle is using block-direct (slow mode active)
+  @observable
+  bool isSlowMode = false;
+
+  // Leaf count gap between chain and wallet — drives catch-up banner
+  @observable
+  int leafGap = 0;
+
+  // True while a full sync (restore) is still pending — keeps banner visible
+  // between retry attempts even when syncing toggles false briefly
+  @observable
+  bool fullSyncPending = false;
+
   @computed
-  int get changed => Object.hashAll([connected, syncedHeight, latestHeight, syncing, paused, syncStep]);
+  int get changed => Object.hashAll([connected, syncedHeight, latestHeight, syncing, paused, syncStep, isSlowMode, leafGap, fullSyncPending]);
 
   bool get isSynced {
     final sh = syncedHeight;
@@ -234,6 +252,7 @@ abstract class _SyncStatus2 with Store {
   void reset() {
     isRescan = false;
     syncJustCompleted = false;
+    fullSyncPending = false;
     syncingCoin = null;
     syncedHeight = 0;
     syncing = false;
@@ -286,14 +305,20 @@ abstract class _SyncStatus2 with Store {
       // Check if this is a full sync (restore) or normal sync
       final needsFullSync = await CloakSync.needsFullSync();
 
+      syncing = true;
+      syncingCoin = aa.coin;
       if (needsFullSync) {
-        syncing = true;
-        syncingCoin = aa.coin;  // Track which coin is syncing
         isRescan = true;
-      } else {
-        syncing = true;
-        syncingCoin = aa.coin;  // Track which coin is syncing
-        isRescan = false;
+        fullSyncPending = true;  // Sticky — only cleared on genuine success
+      }
+
+      // Initialize step-based progress so the banner shows 0% immediately
+      // instead of staying blank until the first onProgress callback fires.
+      // Without this, latestHeight=null fails the condition in sync_status.dart
+      // and _actualProgress stays 0.0.
+      if (latestHeight == null || latestHeight == 0) {
+        syncedHeight = 0;
+        latestHeight = 100;
       }
 
       try {
@@ -305,19 +330,38 @@ abstract class _SyncStatus2 with Store {
         CloakSync.onStepChanged = (step) {
           syncStep = step;
         };
+        CloakSync.onSlowModeChanged = (slow) {
+          runInAction(() {
+            isSlowMode = slow;
+            if (slow) sessionSlowMode = true;
+          });
+        };
+        CloakSync.onLeafGapChanged = (gap) {
+          runInAction(() { leafGap = gap; });
+        };
 
         // Sync returns true if this was a full sync
         final wasFullSync = await CloakSync.sync();
 
-        // Set completion BEFORE updating real heights — prevents banner
-        // disappearing between isSynced=true and syncJustCompleted=true
-        if (wasFullSync) {
-          syncJustCompleted = true;
-        }
+        // Check if full sync is genuinely done (wallet has all the data)
+        final stillPending = await CloakSync.needsFullSync();
 
-        // Now safe to update real heights (banner stays visible via syncJustCompleted)
-        syncedHeight = CloakSync.syncedHeight;
-        latestHeight = CloakSync.latestHeight;
+        if (wasFullSync && !stillPending) {
+          // Full sync genuinely completed — show completion banner
+          syncJustCompleted = true;
+          fullSyncPending = false;
+          isRescan = false;
+          // Only update heights to real values when sync is genuinely done —
+          // otherwise isSynced flips true and the banner blinks hide/show
+          syncedHeight = CloakSync.syncedHeight;
+          latestHeight = CloakSync.latestHeight;
+        } else if (!fullSyncPending) {
+          // Normal incremental sync — safe to update heights
+          syncedHeight = CloakSync.syncedHeight;
+          latestHeight = CloakSync.latestHeight;
+        }
+        // When fullSyncPending: keep heights at progress values so isSynced stays
+        // false and the banner remains visible between retry attempts.
 
         // Always call aa.update() for CLOAK — the FFI call is fast (~1ms) and
         // the eager wallet update after zsign may have added outgoing notes
@@ -333,11 +377,14 @@ abstract class _SyncStatus2 with Store {
         logger.d('[SYNC] CLOAK sync error: $e');
       } finally {
         syncing = false;
-        syncingCoin = null;  // Clear syncing coin
-        isRescan = false;
+        syncingCoin = null;
+        // fullSyncPending and isRescan are only cleared in the success path
+        // above — they stay true here to keep the banner stable between retries
         syncStep = null;
         CloakSync.onProgress = null;
         CloakSync.onStepChanged = null;
+        CloakSync.onSlowModeChanged = null;
+        CloakSync.onLeafGapChanged = null;
       }
       return;
     }

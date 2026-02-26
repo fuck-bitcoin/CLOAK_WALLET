@@ -338,6 +338,39 @@ class FfiIsolate {
     });
   }
 
+  /// Run [wallet_digest_block] in a background isolate.
+  ///
+  /// Processes a single block's JSON for note detection off the main thread.
+  /// Returns the u64-encoded digest on success, or null on failure.
+  static Future<int?> digestBlock({
+    required Pointer<Void> wallet,
+    required String blockJson,
+  }) async {
+    final walletAddr = wallet.address;
+    return await Isolate.run(() {
+      final lib = NativeLibrary(CloakApi.open());
+      final walletPtr = Pointer<Void>.fromAddress(walletAddr);
+      final blockPtr = blockJson.toNativeUtf8().cast<Char>();
+      final outDigest = calloc<Uint64>();
+      try {
+        if (!lib.wallet_digest_block(walletPtr, blockPtr, outDigest)) {
+          final errPtr = lib.wallet_last_error();
+          String errMsg = 'wallet_digest_block failed';
+          if (errPtr != nullptr) {
+            errMsg = errPtr.cast<Utf8>().toDartString();
+            lib.free_string(errPtr);
+          }
+          print('FfiIsolate.digestBlock error: $errMsg');
+          return null;
+        }
+        return outDigest.value;
+      } finally {
+        calloc.free(blockPtr);
+        calloc.free(outDigest);
+      }
+    });
+  }
+
   /// Run [wallet_write] in a background isolate.
   /// Returns the serialized wallet bytes, or null on failure.
   static Future<Uint8List?> writeWallet({

@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' show pi;
 
 import 'package:showcaseview/showcaseview.dart';
 import 'settings.pb.dart';
@@ -916,17 +917,12 @@ class ScaffoldBar extends StatefulWidget {
 }
 
 class _ScaffoldBar extends State<ScaffoldBar> with TickerProviderStateMixin {
-  late final AnimationController _refreshController;
-  late final AnimationController _blinkController;
+  late final AnimationController _pulseController;
 
   @override
   void initState() {
     super.initState();
-    _refreshController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1000),
-    );
-    _blinkController = AnimationController(
+    _pulseController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1500),
     );
@@ -934,8 +930,7 @@ class _ScaffoldBar extends State<ScaffoldBar> with TickerProviderStateMixin {
 
   @override
   void dispose() {
-    _refreshController.dispose();
-    _blinkController.dispose();
+    _pulseController.dispose();
     super.dispose();
   }
   @override
@@ -1020,49 +1015,43 @@ class _ScaffoldBar extends State<ScaffoldBar> with TickerProviderStateMixin {
             }),
             centerTitle: false,
             actions: [
-              // Sync indicator should appear to the left of the eyeball
-              // Shows rotating icon during periodic syncs (not the orange banner)
+              // Sync indicator: pulsing bolt (Hyperion) or dot (slow/block-direct)
               Observer(builder: (context) {
                 try {
-                  // Coin-aware: only show sync icon if the syncing coin matches the active coin
-                  // This prevents Zcash background sync from showing when user is on CLOAK
                   final isSyncingThisCoin = syncStatus2.syncing &&
                       (syncStatus2.syncingCoin == null || syncStatus2.syncingCoin == aa.coin);
 
                   if (isSyncingThisCoin) {
-                    if (!_refreshController.isAnimating) {
-                      _refreshController.repeat();
-                    }
-                    if (!_blinkController.isAnimating) {
-                      _blinkController.repeat(reverse: true);
+                    if (!_pulseController.isAnimating) {
+                      _pulseController.repeat(reverse: true);
                     }
                   } else {
-                    if (_refreshController.isAnimating) {
-                      _refreshController.stop();
+                    if (_pulseController.isAnimating) {
+                      _pulseController.stop();
                     }
-                    _refreshController.value = 0;
-                    if (_blinkController.isAnimating) {
-                      _blinkController.stop();
-                    }
-                    _blinkController.value = 0;
+                    _pulseController.value = 0;
                   }
 
-                  final t = Theme.of(context);
-                  final appBarBg =
-                      t.appBarTheme.backgroundColor ?? t.colorScheme.surface;
-                  final baseGrey = Colors.grey.shade400;
-                  final colorAnim = ColorTween(begin: baseGrey, end: appBarBg)
-                      .animate(CurvedAnimation(
-                          parent: _blinkController, curve: Curves.easeInOut));
-
                   if (!isSyncingThisCoin) return const SizedBox.shrink();
+
+                  final opacityAnim = Tween<double>(begin: 0.4, end: 1.0).animate(
+                    CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
+                  );
+                  final color = Colors.grey.shade400;
+                  final slowMode = syncStatus2.sessionSlowMode;
+
                   return Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 8),
                     child: AnimatedBuilder(
-                      animation: _blinkController,
-                      builder: (context, child) => RotationTransition(
-                        turns: _refreshController,
-                        child: Icon(Icons.sync, color: colorAnim.value),
+                      animation: _pulseController,
+                      builder: (context, child) => Opacity(
+                        opacity: opacityAnim.value,
+                        child: slowMode
+                            ? Icon(Icons.circle, size: 10, color: color)
+                            : Transform.rotate(
+                                angle: pi / 2,
+                                child: Icon(Icons.bolt, size: 16, color: color),
+                              ),
                       ),
                     ),
                   );

@@ -730,8 +730,10 @@ class CloakWalletManager {
       //    (when the burn button was pressed), not chain state. They must
       //    survive resyncs so TX history keeps its "Burn Vault" labels.
 
-      // 6. Clear sync caches
+      // 6. Clear sync caches and reset session flags for full resync
       CloakSync.clearCachedCounters();
+      CloakSync.markAsRestored(); // Ensure not treated as new account
+      CloakSync.resetSessionFlags(); // Reset vault discovery, auto-heal, etc.
 
       // 7. Clear vault token cache
       clearVaultTokensCache();

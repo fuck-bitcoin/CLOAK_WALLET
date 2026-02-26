@@ -98,12 +98,20 @@ class SyncStatusState extends State<SyncStatusWidget> with SingleTickerProviderS
     }
 
     // Determine if banner should be visible
-    // Show ONLY for: rescan/restore in progress, sync just completed, fading out, holding for min display
+    // Show ONLY for: rescan/restore in progress, sync just completed, fading out,
+    // holding for min display, or catching up with significant leaf gap
     // Periodic syncs use the rotating icon in the app bar (router.dart), NOT this banner
+    final catchUpThreshold = syncStatus2.sessionSlowMode ? 5 : 10;
+    // Don't gate on syncing — leafGap persists between sync ticks and the
+    // banner must stay visible until the gap closes, not blink each tick.
+    final isCatchingUp = syncStatus2.leafGap > catchUpThreshold &&
+        !syncStatus2.isRescan;
     final shouldBeVisible = (syncStatus2.isRescan && !syncStatus2.isSynced) ||
+                            syncStatus2.fullSyncPending ||
                             syncStatus2.syncJustCompleted ||
                             _completedAndFading ||
-                            _holdingForMinDisplay;
+                            _holdingForMinDisplay ||
+                            isCatchingUp;
 
     // Handle slide-in animation when banner appears
     if (shouldBeVisible && !_wasVisible) {
@@ -352,16 +360,24 @@ class SyncStatusState extends State<SyncStatusWidget> with SingleTickerProviderS
       final __ = syncStatus2.syncJustCompleted;  // Also observe this for fade trigger
       final ___ = syncStatus2.syncingCoin;  // Observe syncingCoin for coin-aware display
 
-      // Show ONLY during rescan/restore sessions, completion signal, or fade-out animation
-      // Periodic syncs use the rotating icon in the app bar (router.dart), NOT this banner
+      // Show ONLY during rescan/restore sessions, completion signal, fade-out animation,
+      // or catching up with significant leaf gap
+      final catchUpThreshold = syncStatus2.sessionSlowMode ? 5 : 10;
+      final isCatchingUp = syncStatus2.leafGap > catchUpThreshold &&
+          !syncStatus2.isRescan;
       final showPill = (syncStatus2.isRescan && !syncStatus2.isSynced) ||
+                       syncStatus2.fullSyncPending ||
                        syncStatus2.syncJustCompleted ||
                        _completedAndFading ||
-                       _holdingForMinDisplay;
+                       _holdingForMinDisplay ||
+                       isCatchingUp;
       if (!showPill) return const SizedBox.shrink();
 
       final syncedHeight = syncStatus2.syncedHeight;
-      final text = getSyncText(syncedHeight);
+      final text = isCatchingUp
+          ? 'Catching up (${syncStatus2.leafGap} new)...'
+          : getSyncText(syncedHeight);
+      final failoverActive = syncStatus2.isSlowMode;
       
       // Use our smooth animated progress instead of raw actual
       final displayPercent = (_displayedProgress * 100).toStringAsFixed(
@@ -389,8 +405,10 @@ class SyncStatusState extends State<SyncStatusWidget> with SingleTickerProviderS
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Container(
-          height: 56,
+              AnimatedContainer(
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOutCubic,
+          height: failoverActive ? 72 : 56,
           margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
           gradient: LinearGradient(
@@ -466,6 +484,14 @@ class SyncStatusState extends State<SyncStatusWidget> with SingleTickerProviderS
                       ),
                     ),
                   ),
+                  if (failoverActive) ...[
+                    const SizedBox(height: 3),
+                    Text(
+                      'Fast Sync: Failed  |  Slow Sync: Active',
+                      style: syncStyle.copyWith(fontSize: 10, color: Colors.white.withOpacity(0.7)),
+                      textAlign: TextAlign.center,
+                    ),
+                  ],
                 ],
               ),
             ),
