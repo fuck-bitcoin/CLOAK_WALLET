@@ -373,6 +373,17 @@ install_desktop_entry() {
         warn "Could not install icon (non-fatal)"
     fi
 
+    # Refresh icon cache. Remove any auto-generated local index.theme that
+    # shadows the system hicolor index.theme (only lists local dirs, which
+    # hides all system app icons).
+    local hicolor_base="${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor"
+    rm -f "$hicolor_base/index.theme" "$hicolor_base/icon-theme.cache" 2>/dev/null || true
+    if command -v gtk4-update-icon-cache &>/dev/null; then
+        gtk4-update-icon-cache -f /usr/share/icons/hicolor/ 2>/dev/null || true
+    elif command -v gtk-update-icon-cache &>/dev/null; then
+        gtk-update-icon-cache -f /usr/share/icons/hicolor/ 2>/dev/null || true
+    fi
+
     # Detect Wayland for GDK_BACKEND hint
     local exec_line="$INSTALL_DIR/$APPIMAGE_NAME %U"
     if [ -n "${WAYLAND_DISPLAY:-}" ] || [ "${XDG_SESSION_TYPE:-}" = "wayland" ]; then
