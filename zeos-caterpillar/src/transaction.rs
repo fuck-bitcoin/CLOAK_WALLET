@@ -2204,12 +2204,12 @@ mod tests
             Note::from_parts(0, Address::dummy(&mut rng), Name(0), ExtendedAsset::new(Asset::from_string(&"0").unwrap(), Name(9999)), Rseed::new(&mut rng), [0; 512])
         ];
         let new_memo = insert_vars(&memo, &"<default_address>".to_string(), &auth_tokens);
-        println!("{}", new_memo);
+        assert!(!new_memo.is_empty());
 
         let mut m = HashMap::new();
         m.insert(Name::from_string(&"begin").unwrap(), Asset::from_string(&"5.0000 ZEOS").unwrap());
         m.insert(Name::from_string(&"mint").unwrap(), Asset::from_string(&"1.0000 ZEOS").unwrap());
-        println!("{}", serde_json::to_string(&m).unwrap());
+        assert!(serde_json::to_string(&m).is_ok());
     }
 
     #[test]
@@ -2311,15 +2311,10 @@ mod tests
         fees.insert(Name::from_string(&"output").unwrap(), Asset::from_string(&"1.0000 ZEOS").unwrap());
         fees.insert(Name::from_string(&"authenticate").unwrap(), Asset::from_string(&"1.0000 ZEOS").unwrap());
         fees.insert(Name::from_string(&"publishnotes").unwrap(), Asset::from_string(&"1.0000 ZEOS").unwrap());
-        println!("{}", serde_json::to_string_pretty(&fees).unwrap());
 
         let ztx: ZTransaction = serde_json::from_str(&json).unwrap();
         let rztx = resolve_ztransaction(&w, &fee_token_contract, &fees, &ztx);
-        let rztx = match rztx {
-            Err(e) => panic!("Error: {:?}", e),
-            Ok(x) => x
-        };
-        println!("{}", serde_json::to_string_pretty(&rztx).unwrap());
+        assert!(rztx.is_ok());
     }
 
     #[test]
@@ -2451,9 +2446,6 @@ mod tests
             Err(e) => panic!("Error: {:?}", e),
             Ok(x) => x
         };
-        //println!("{}", serde_json::to_string_pretty(&rztx).unwrap());
-
-        println!("read params...");
         let mut params = HashMap::new();
         let f = File::open("params_mint.bin").unwrap();
         params.insert(Name::from_string(&"mint").unwrap(), Parameters::<Bls12>::read(f, false).unwrap());
@@ -2464,15 +2456,11 @@ mod tests
         let f = File::open("params_output.bin").unwrap();
         params.insert(Name::from_string(&"output").unwrap(), Parameters::<Bls12>::read(f, false).unwrap());
 
-        println!("zsign...");
         let tx = zsign_transaction(&w, &rztx, &params);
         let tx = match tx {
             Err(e) => panic!("Error: {:?}", e),
             Ok(x) => x
         };
-        println!("{}", serde_json::to_string_pretty(&tx).unwrap());
-
-        println!("zverify...");
         assert!(zverify_spend_transaction(&tx.0, &params).is_ok());
     }
 
@@ -2489,17 +2477,12 @@ mod tests
             memo_bytes[0..min(512, memo.len())].copy_from_slice(&memo.as_bytes()[0..min(512, memo.len())]);
             memo_bytes
         });
-        println!("{:?}", note.memo());
-
         let mut state = Blake2s7rParams::new().hash_length(32).personal(&[0; 8]).to_state();
         state.update(&note.amount().to_le_bytes());
         state.update(&note.account().raw().to_le_bytes());
         state.update(&note.memo()[0..{let len = note.memo().iter().position(|&c| c == 0); if len.is_none() {512} else {len.unwrap()}}]);
-        println!("{}", String::from_utf8(note.memo().to_vec()).unwrap().len());
-        println!("{}", {let len = note.memo().iter().position(|&c| c == 0); if len.is_none() {512} else {len.unwrap()}});
         let hash: [u8; 32] = state.finalize().as_bytes().try_into().unwrap();
-        //let hash = [u64::from_le_bytes(hash[0..8].try_into().unwrap()), u64::from_le_bytes(hash[8..16].try_into().unwrap()), u64::from_le_bytes(hash[16..24].try_into().unwrap()), u64::from_le_bytes(hash[24..32].try_into().unwrap())];
-        println!("{:?}", hash);
+        assert_eq!(hash.len(), 32);
     }
 
     use super::MintDesc;
@@ -2551,6 +2534,6 @@ mod tests
             &fees,
             &mint_params
         ).unwrap();
-        println!("{}", serde_json::to_string_pretty(&x).unwrap());
+        assert!(serde_json::to_string_pretty(&x).is_ok());
     }
 }

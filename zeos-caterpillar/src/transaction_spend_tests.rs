@@ -11,7 +11,7 @@ mod tests
     #[test]
     fn test_spend()
     {
-        println!("read params...");
+        // Load proving parameters
         let mut params = HashMap::new();
         let f = File::open("params_mint.bin").unwrap();
         params.insert(Name::from_string(&"mint".to_string()).unwrap(), Parameters::<Bls12>::read(f, false).unwrap());
@@ -142,15 +142,11 @@ mod tests
             Err(e) => panic!("Error: {:?}", e),
             Ok(x) => x
         };
-        println!("{}", serde_json::to_string_pretty(&rztx).unwrap());
-        println!("zsign...");
         let tx = zsign_transaction(&w, &rztx, &params);
         let tx = match tx {
             Err(e) => panic!("Error: {:?}", e),
             Ok(x) => x
         };
-        println!("{}", serde_json::to_string_pretty(&tx).unwrap());
-        println!("zverify...");
         assert!(zverify_spend_transaction(&tx.0, &params).is_ok());
 
         let json = r#"{
@@ -222,15 +218,11 @@ mod tests
             Err(e) => panic!("Error: {:?}", e),
             Ok(x) => x
         };
-        println!("{}", serde_json::to_string_pretty(&rztx).unwrap());
-        println!("zsign...");
         let tx = zsign_transaction(&w, &rztx, &params);
         let tx = match tx {
             Err(e) => panic!("Error: {:?}", e),
             Ok(x) => x
         };
-        println!("{}", serde_json::to_string_pretty(&tx).unwrap());
-        println!("zverify...");
         assert!(zverify_spend_transaction(&tx.0, &params).is_ok());
 
         let json = r#"{
@@ -266,15 +258,11 @@ mod tests
             Err(e) => panic!("Error: {:?}", e),
             Ok(x) => x
         };
-        println!("{}", serde_json::to_string_pretty(&rztx).unwrap());
-        println!("zsign...");
         let tx = zsign_transaction(&w, &rztx, &params);
         let tx = match tx {
             Err(e) => panic!("Error: {:?}", e),
             Ok(x) => x
         };
-        println!("{}", serde_json::to_string_pretty(&tx).unwrap());
-        println!("zverify...");
         assert!(zverify_spend_transaction(&tx.0, &params).is_ok());
 
         let json = r#"{
@@ -328,15 +316,11 @@ mod tests
             Err(e) => panic!("Error: {:?}", e),
             Ok(x) => x
         };
-        println!("{}", serde_json::to_string_pretty(&rztx).unwrap());
-        println!("zsign...");
         let tx = zsign_transaction(&w, &rztx, &params);
         let tx = match tx {
             Err(e) => panic!("Error: {:?}", e),
             Ok(x) => x
         };
-        println!("{}", serde_json::to_string_pretty(&tx).unwrap());
-        println!("zverify...");
         assert!(zverify_spend_transaction(&tx.0, &params).is_ok());
     }
 }
