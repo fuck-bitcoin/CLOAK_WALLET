@@ -85,3 +85,7 @@ data/
 *.keystore
 key.properties
 *.pem
+
+# AI/docs (never commit)
+claude.md
+docs/
