@@ -1709,13 +1709,8 @@ pub extern "C" fn wallet_add_nullifiers(
         })
         .collect();
 
-    log(&format!("wallet_add_nullifiers: processing {} nullifiers against {} unspent notes",
-        nullifiers.len(), wallet.unspent_notes().len()));
-
     let count = wallet.mark_notes_spent(&nullifiers);
     *out_count = count as u64;
-
-    log(&format!("wallet_add_nullifiers: marked {} notes as spent", count));
     true
 }
 
@@ -1757,7 +1752,7 @@ pub extern "C" fn wallet_add_notes(
     let nfts = (result >> 8) & 0xFF;
     let ats = (result >> 16) & 0xFF;
     if fts > 0 || nfts > 0 || ats > 0 {
-        log(&format!("wallet_add_notes: block_num={} block_ts={} → decrypted fts={} nfts={} ats={}", block_num, block_ts, fts, nfts, ats));
+        log("wallet_add_notes: notes decrypted successfully");
     }
     result
 }

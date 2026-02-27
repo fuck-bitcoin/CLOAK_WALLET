@@ -462,7 +462,7 @@ class CloakApi {
     final outSeed = calloc<Pointer<Char>>();
     try {
       if (!cloak_api_lib.wallet_seed_hex(wallet, outSeed)) {
-        print('wallet_seed_hex failed: ${_getLastError()}');
+        print('wallet_seed_hex failed');
         return null;
       }
       return _fromNative(outSeed.value);
@@ -477,7 +477,7 @@ class CloakApi {
     final outIvk = calloc<Pointer<Char>>();
     try {
       if (!cloak_api_lib.wallet_ivk_bech32m(wallet, outIvk)) {
-        print('wallet_ivk_bech32m failed: ${_getLastError()}');
+        print('wallet_ivk_bech32m failed');
         return null;
       }
       return _fromNative(outIvk.value);
@@ -492,7 +492,7 @@ class CloakApi {
     final outFvk = calloc<Pointer<Char>>();
     try {
       if (!cloak_api_lib.wallet_fvk_bech32m(wallet, outFvk)) {
-        print('wallet_fvk_bech32m failed: ${_getLastError()}');
+        print('wallet_fvk_bech32m failed');
         return null;
       }
       return _fromNative(outFvk.value);
@@ -507,7 +507,7 @@ class CloakApi {
     final outOvk = calloc<Pointer<Char>>();
     try {
       if (!cloak_api_lib.wallet_ovk_bech32m(wallet, outOvk)) {
-        print('wallet_ovk_bech32m failed: ${_getLastError()}');
+        print('wallet_ovk_bech32m failed');
         return null;
       }
       return _fromNative(outOvk.value);
@@ -857,7 +857,7 @@ class CloakApi {
     final outHex = calloc<Pointer<Char>>();
     try {
       if (!cloak_api_lib.wallet_derive_vault_seed(wallet, index, outHex)) {
-        print('wallet_derive_vault_seed failed: ${_getLastError()}');
+        print('wallet_derive_vault_seed failed');
         return null;
       }
       return _fromNative(outHex.value);
@@ -878,7 +878,7 @@ class CloakApi {
     final outJson = calloc<Pointer<Char>>();
     try {
       if (!cloak_api_lib.wallet_create_deterministic_vault(wallet, contract, vaultIndex, outJson)) {
-        print('wallet_create_deterministic_vault failed: ${_getLastError()}');
+        print('wallet_create_deterministic_vault failed');
         return null;
       }
       return _fromNative(outJson.value);

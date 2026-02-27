@@ -473,7 +473,7 @@ impl Wallet
 
         if let Some(i) = idx {
             let burned = self.unspent_notes.remove(i);
-            log(&format!("[EAGER] Auth token burned: cm={}, moving to spent+outgoing", cm_hex));
+            log("[EAGER] Auth token burned, moving to spent+outgoing");
 
             // Create synthetic outgoing entry (mirrors digest_block wallet.rs:1188-1195)
             let burn_ex = NoteEx::from_parts(0, block_ts, block_ts, 0, burned.note().clone());
@@ -484,7 +484,7 @@ impl Wallet
 
             true
         } else {
-            log(&format!("[EAGER] Auth token cm={} not found in unspent (may already be spent)", cm_hex));
+            log("[EAGER] Auth token not found in unspent (may already be spent)");
             false
         }
     }
@@ -822,7 +822,7 @@ impl Wallet
                         let cm_bytes = cm.to_bytes();
                         let idx = self.merkle_tree.iter().find_map(|(key, val)| if val.0 == cm_bytes { Some(key) } else { None });
                         if idx.is_none() {
-                            log(&format!("[ADD_NOTES] WARNING: commitment NOT FOUND in merkle tree! Skipping note. tree_size={}", self.merkle_tree.len()));
+                            log("[ADD_NOTES] WARNING: commitment not found in merkle tree, skipping note");
                             continue;
                         }
                         // verbose: eprintln!("[ADD_NOTES] commitment found in merkle tree at idx={}", idx.unwrap());

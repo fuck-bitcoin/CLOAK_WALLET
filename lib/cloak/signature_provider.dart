@@ -412,7 +412,7 @@ class SignatureProvider {
           _sendError(clientId, id, -32601, 'Method not found: $method');
       }
     } catch (e) {
-      print('[SignatureProvider] Error parsing message: $e');
+      print('[SignatureProvider] Error parsing message');
     }
   }
 
@@ -590,7 +590,7 @@ class SignatureProvider {
             }
           }
         } catch (e) {
-          print('[SignatureProvider] Error parsing FT balances: $e');
+          print('[SignatureProvider] Error parsing FT balances');
         }
       }
     }
@@ -631,7 +631,7 @@ class SignatureProvider {
             }
           }
         } catch (e) {
-          print('[SignatureProvider] Error parsing auth tokens: $e');
+          print('[SignatureProvider] Error parsing auth tokens');
         }
       }
 
@@ -653,7 +653,7 @@ class SignatureProvider {
             }
           }
         } catch (e) {
-          print('[SignatureProvider] Error parsing spent auth tokens: $e');
+          print('[SignatureProvider] Error parsing spent auth tokens');
         }
       }
 

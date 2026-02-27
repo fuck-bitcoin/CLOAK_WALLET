@@ -225,7 +225,7 @@ class CloakWalletManager {
           return true;
         }
       } catch (e) {
-        print('CloakWalletManager: Error parsing auth tokens: $e');
+        print('CloakWalletManager: Error parsing auth tokens');
       }
     }
 
@@ -1013,7 +1013,7 @@ class CloakWalletManager {
         }
       }
     } catch (e) {
-      print('[CloakWalletManager] Error parsing vault notes: $e');
+      print('[CloakWalletManager] Error parsing vault notes');
     }
 
     // Add the unpublished notes to wallet regardless

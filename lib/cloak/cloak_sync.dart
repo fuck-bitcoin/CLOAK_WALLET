@@ -521,14 +521,14 @@ class CloakSync {
           leafGap > 0 &&
           leafGap <= _incrementalBlockDirectThreshold;
 
-      print('CloakSync: routing decision — isFullSync=$isFullSync isViewOnly=$isViewOnly0 leafGap=$leafGap useIncrementalBlockDirect=$useIncrementalBlockDirect');
+      print('CloakSync: sync routing selected');
 
       if (useIncrementalBlockDirect) {
         // INCREMENTAL BLOCK-DIRECT PATH
         // Fetch ONLY the new merkle entries (not the full table) — digest_block()
         // needs commitments in the tree for trial decryption but doesn't add leaves.
         // Then digest_block() handles notes, nullifiers, and auth tokens atomically.
-        print('CloakSync: INCREMENTAL BLOCK-DIRECT — leafGap=$leafGap, fetching $leafGap new merkle entries');
+        print('CloakSync: incremental block-direct sync');
         onStepChanged?.call('Syncing new blocks...');
         usedBlockDirect = true;
 
@@ -548,7 +548,7 @@ class CloakSync {
         for (final row in deltaRows) {
           merkleEntries.add(ZeosMerkleEntry.fromJson(row));
         }
-        print('CloakSync: incremental merkle delta — fetched ${merkleEntries.length} entries (leafOffset=$leafOffset, startIdx=$startIdx)');
+        print('CloakSync: incremental merkle delta processed');
       } else {
         // EXISTING PATHS (Hyperion bulk or slow-mode table-only)
         final skipHyperion = (_fullSyncSlowMode && isFullSync) ||
@@ -626,7 +626,7 @@ class CloakSync {
         final walletAuthCount = CloakApi.getAuthCount(wallet) ?? 0;
         final chainAuthCount = global.authCount;
         if (walletAuthCount != chainAuthCount) {
-          print('CloakSync: auth_count mismatch! wallet=$walletAuthCount chain=$chainAuthCount — updating wallet');
+          print('CloakSync: auth_count mismatch, updating wallet');
           CloakApi.setAuthCount(wallet, chainAuthCount);
         }
 
@@ -662,9 +662,9 @@ class CloakSync {
           final overshoot = walletLeafCount - onChainLeafCount;
           if (overshoot > 20) {
             if (_isViewOnly) {
-              print('CloakSync: WARNING — IVK wallet has $overshoot extra leaves, skipping auto-repair (view-only)');
+              print('CloakSync: view-only wallet has extra leaves, skipping auto-repair');
             } else {
-              print('CloakSync: Auto-repairing — wallet has $overshoot extra leaves, recreating from seed');
+              print('CloakSync: auto-repairing wallet state');
               final account = await CloakDb.getFirstAccount();
               if (account != null && account['seed'] != null) {
                 final seed = account['seed'] as String;
