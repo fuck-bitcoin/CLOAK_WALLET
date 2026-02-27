@@ -128,6 +128,7 @@ class _CloakSubmitState extends State<CloakSubmitPage>
               tokenSymbol: sc.tokenSymbol ?? 'CLOAK',
               tokenContract: sc.tokenContract ?? 'thezeostoken',
               memo: sc.memo?.memo ?? '',
+              drain: sc.isDrainSend,
               onStatus: (status) {
                 if (mounted) setState(() => _statusMessage = status);
               },

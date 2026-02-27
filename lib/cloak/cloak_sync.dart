@@ -98,6 +98,12 @@ class CloakSync {
   static void lockWallet() { _walletLocked = true; print('[CloakSync] Wallet LOCKED for transaction'); }
   static void unlockWallet() { _walletLocked = false; print('[CloakSync] Wallet UNLOCKED'); }
 
+  /// Cache of TX details extracted from block-direct synced blocks.
+  /// Keyed by block timestamp (ms since epoch) → list of TransactionDetails.
+  /// Populated during _syncViaBlockDirect(), consumed by TX detail page.
+  /// Avoids Hyperion round-trip for recently synced transactions.
+  static final Map<int, List<TransactionDetails>> txDetailsCache = {};
+
   /// Notifier for the initial sync after app startup.
   /// Value is true while the first syncFromTables() call is running,
   /// false once it completes (or on error). Subsequent periodic syncs
@@ -109,6 +115,11 @@ class CloakSync {
   // This is the earliest block where ZEOS transactions can exist
   // TODO: Get actual deployment block from ZEOS team
   static const int ZEOS_GENESIS_BLOCK = 170000000; // ~Jan 2024 estimate
+
+  // Leaf gap threshold for incremental block-direct sync.
+  // Below this: block-direct is faster (data too recent for Hyperion indexing).
+  // Above this: Hyperion bulk query is more efficient than N sequential get_block calls.
+  static const int _incrementalBlockDirectThreshold = 20;
 
   // Progress callback for UI updates (step-based: current/total where total=100)
   static void Function(int current, int total)? onProgress;
@@ -180,8 +191,22 @@ class CloakSync {
     _hyperionConsecutiveFailures = 0;
     _fullSyncSlowMode = false;
     _incrementalHyperionFailures = 0;
-    // Note: _sessionSlowMode and _permanentSlowMode are NOT reset here —
-    // they persist for the entire session / permanently (by design).
+    // Reset slow mode flags so resync starts fresh with Hyperion.
+    // Without this, a previous session's Hyperion failures would cause
+    // resync to skip Hyperion entirely and fall back to block-direct.
+    _sessionSlowMode = false;
+    _permanentSlowMode = false;
+  }
+
+  /// Clear the persisted permanent slow mode flag from DB.
+  /// Called during resync so upgrading from an older build that poisoned
+  /// the DB with hyperion_permanent_slow=true doesn't stick forever.
+  static Future<void> clearPermanentSlowMode() async {
+    await CloakDb.setProperty('hyperion_permanent_slow', '');
+    await CloakDb.setProperty('hyperion_session_failures', '0');
+    _permanentSlowMode = false;
+    _sessionSlowMode = false;
+    print('[CloakSync] Cleared permanent slow mode and session failure history');
   }
 
   /// Full reset of all static sync state. Called when the last account is
@@ -460,13 +485,11 @@ class CloakSync {
         }
       }
 
-      // Report leaf gap for catch-up banner (how far behind the wallet is)
-      {
-        final wallet = CloakWalletManager.wallet;
-        final walletLeaves = wallet != null ? (CloakApi.getLeafCount(wallet) ?? 0) : 0;
-        final leafGap = global.leafCount - walletLeaves;
-        onLeafGapChanged?.call(leafGap > 0 ? leafGap : 0);
-      }
+      // Report leaf gap for catch-up banner AND use for sync routing decision
+      final wallet0 = CloakWalletManager.wallet;
+      final walletLeaves0 = wallet0 != null ? (CloakApi.getLeafCount(wallet0) ?? 0) : 0;
+      final leafGap = global.leafCount - walletLeaves0;
+      onLeafGapChanged?.call(leafGap > 0 ? leafGap : 0);
 
       // FAST PATH: If leafCount and authCount haven't changed, no new data exists.
       // Skip ALL expensive HTTP calls, FFI processing, and disk I/O.
@@ -480,78 +503,115 @@ class CloakSync {
       }
 
       // 2-4. Fetch chain data (merkle tree, nullifiers always needed; actions via
-      //       Hyperion OR block-direct depending on slow mode)
+      //       Hyperion OR block-direct depending on sync mode and leaf gap)
       onStepChanged?.call('Fetching chain data...');
       onProgress?.call(10, 100);
 
-      List<ZeosMerkleEntry> merkleEntries;
-      List<ZeosNullifier> nullifiers;
+      List<ZeosMerkleEntry> merkleEntries = [];
+      List<ZeosNullifier> nullifiers = [];
       List<ZeosActionTrace> actions = [];
       bool usedBlockDirect = false;
 
-      // Determine if we should skip Hyperion entirely:
-      // - Full sync slow mode (5 consecutive Hyperion failures during full sync)
-      // - Session/permanent slow mode (3 consecutive incremental failures, or DB-persisted)
-      final skipHyperion = (_fullSyncSlowMode && isFullSync) ||
-                           _sessionSlowMode || _permanentSlowMode;
+      // NEW: Check if this is a small incremental sync that block-direct can handle
+      // faster than Hyperion (zero indexing lag vs 2-60s Hyperion pipeline lag).
+      // View-only wallets excluded: digest_block() derives keys from seed.
+      final isViewOnly0 = CloakWalletManager.isViewOnly;
+      final useIncrementalBlockDirect = !isFullSync &&
+          !isViewOnly0 &&
+          leafGap > 0 &&
+          leafGap <= _incrementalBlockDirectThreshold;
 
-      if (skipHyperion) {
-        // Slow mode: skip Hyperion entirely, fetch merkle+nullifiers only
-        final tableResults = await Future.wait([
-          _client!.getZeosMerkleTree(),
-          _client!.getZeosNullifiers(),
-        ]);
-        merkleEntries = tableResults[0] as List<ZeosMerkleEntry>;
-        nullifiers = tableResults[1] as List<ZeosNullifier>;
-      } else {
-        // Normal mode: parallel fetch merkle, nullifiers, and Hyperion actions
-        final merkleNullFuture = Future.wait([
-          _client!.getZeosMerkleTree(),
-          _client!.getZeosNullifiers(),
-        ]);
+      print('CloakSync: routing decision — isFullSync=$isFullSync isViewOnly=$isViewOnly0 leafGap=$leafGap useIncrementalBlockDirect=$useIncrementalBlockDirect');
 
-        // Wrap Hyperion call in try/catch for failure tracking
-        List<ZeosActionTrace> fetchedActions = [];
-        try {
-          fetchedActions = await _client!.getZeosActions();
-          _hyperionConsecutiveFailures = 0;
-          _incrementalHyperionFailures = 0;
-        } catch (e) {
-          _hyperionConsecutiveFailures++;
-          _incrementalHyperionFailures++;
-          print('CloakSync: Hyperion getZeosActions failed '
-              '(full=$_hyperionConsecutiveFailures, incr=$_incrementalHyperionFailures): $e');
+      if (useIncrementalBlockDirect) {
+        // INCREMENTAL BLOCK-DIRECT PATH
+        // Fetch ONLY the new merkle entries (not the full table) — digest_block()
+        // needs commitments in the tree for trial decryption but doesn't add leaves.
+        // Then digest_block() handles notes, nullifiers, and auth tokens atomically.
+        print('CloakSync: INCREMENTAL BLOCK-DIRECT — leafGap=$leafGap, fetching $leafGap new merkle entries');
+        onStepChanged?.call('Syncing new blocks...');
+        usedBlockDirect = true;
 
-          // Full sync: 5-strike threshold -> block-direct fallback
-          if (isFullSync && _hyperionConsecutiveFailures >= 5) {
-            _fullSyncSlowMode = true;
-            onSlowModeChanged?.call(true);
-            print('CloakSync: Switching to block-direct slow mode after $_hyperionConsecutiveFailures Hyperion failures');
-          }
-
-          // Incremental sync: 3-strike threshold -> session slow mode
-          if (!isFullSync && _incrementalHyperionFailures >= 3) {
-            _sessionSlowMode = true;
-            onSlowModeChanged?.call(true);
-            print('CloakSync: Session slow mode activated after $_incrementalHyperionFailures incremental Hyperion failures');
-            await _recordSessionFallback();
-          }
-
-          // CRITICAL: If we haven't switched to slow mode (block-direct), we must
-          // NOT continue with empty actions — that would save leaves without notes,
-          // cache _lastLeafCount, and cause fast-path to skip forever. Rethrow so
-          // the entire sync fails and retries on next tick (preserving old behavior).
-          if (!_fullSyncSlowMode && !_sessionSlowMode && !_permanentSlowMode) {
-            // Still need to await merkleNullFuture to avoid unhandled async error
-            await merkleNullFuture.catchError((_) => <Object>[]);
-            rethrow;
-          }
+        // Fetch only the delta: merkle leaf entries from walletLeaves0 onwards.
+        // Merkle table idx = leafOffset + leafIndex, where leafOffset = 2^treeDepth - 1.
+        final treeDepth = global.treeDepth;
+        final leafOffset = (1 << treeDepth) - 1; // e.g., 1048575 for depth 20
+        final startIdx = leafOffset + walletLeaves0;
+        final deltaResult = await _client!.getTableRows(
+          code: 'zeosprotocol',
+          scope: 'zeosprotocol',
+          table: 'merkletree',
+          limit: leafGap + 5, // small margin
+          lowerBound: startIdx.toString(),
+        );
+        final deltaRows = deltaResult['rows'] as List? ?? [];
+        for (final row in deltaRows) {
+          merkleEntries.add(ZeosMerkleEntry.fromJson(row));
         }
-        actions = fetchedActions;
+        print('CloakSync: incremental merkle delta — fetched ${merkleEntries.length} entries (leafOffset=$leafOffset, startIdx=$startIdx)');
+      } else {
+        // EXISTING PATHS (Hyperion bulk or slow-mode table-only)
+        final skipHyperion = (_fullSyncSlowMode && isFullSync) ||
+                             _sessionSlowMode || _permanentSlowMode;
 
-        final tableResults = await merkleNullFuture;
-        merkleEntries = tableResults[0] as List<ZeosMerkleEntry>;
-        nullifiers = tableResults[1] as List<ZeosNullifier>;
+        if (skipHyperion) {
+          // Slow mode: skip Hyperion entirely, fetch merkle+nullifiers only
+          final tableResults = await Future.wait([
+            _client!.getZeosMerkleTree(),
+            _client!.getZeosNullifiers(),
+          ]);
+          merkleEntries = tableResults[0] as List<ZeosMerkleEntry>;
+          nullifiers = tableResults[1] as List<ZeosNullifier>;
+        } else {
+          // Normal mode: parallel fetch merkle, nullifiers, and Hyperion actions
+          final merkleNullFuture = Future.wait([
+            _client!.getZeosMerkleTree(),
+            _client!.getZeosNullifiers(),
+          ]);
+
+          // Wrap Hyperion call in try/catch for failure tracking
+          List<ZeosActionTrace> fetchedActions = [];
+          try {
+            fetchedActions = await _client!.getZeosActions();
+            _hyperionConsecutiveFailures = 0;
+            _incrementalHyperionFailures = 0;
+          } catch (e) {
+            _hyperionConsecutiveFailures++;
+            _incrementalHyperionFailures++;
+            print('CloakSync: Hyperion getZeosActions failed '
+                '(full=$_hyperionConsecutiveFailures, incr=$_incrementalHyperionFailures): $e');
+
+            // Full sync: 5-strike threshold -> block-direct fallback
+            if (isFullSync && _hyperionConsecutiveFailures >= 5) {
+              _fullSyncSlowMode = true;
+              onSlowModeChanged?.call(true);
+              print('CloakSync: Switching to block-direct slow mode after $_hyperionConsecutiveFailures Hyperion failures');
+            }
+
+            // Incremental sync: 3-strike threshold -> session slow mode
+            if (!isFullSync && _incrementalHyperionFailures >= 3) {
+              _sessionSlowMode = true;
+              onSlowModeChanged?.call(true);
+              print('CloakSync: Session slow mode activated after $_incrementalHyperionFailures incremental Hyperion failures');
+              await _recordSessionFallback();
+            }
+
+            // CRITICAL: If we haven't switched to slow mode (block-direct), we must
+            // NOT continue with empty actions — that would save leaves without notes,
+            // cache _lastLeafCount, and cause fast-path to skip forever. Rethrow so
+            // the entire sync fails and retries on next tick (preserving old behavior).
+            if (!_fullSyncSlowMode && !_sessionSlowMode && !_permanentSlowMode) {
+              // Still need to await merkleNullFuture to avoid unhandled async error
+              await merkleNullFuture.catchError((_) => <Object>[]);
+              rethrow;
+            }
+          }
+          actions = fetchedActions;
+
+          final tableResults = await merkleNullFuture;
+          merkleEntries = tableResults[0] as List<ZeosMerkleEntry>;
+          nullifiers = tableResults[1] as List<ZeosNullifier>;
+        }
       }
 
       onProgress?.call(40, 100);
@@ -586,9 +646,14 @@ class CloakSync {
         onStepChanged?.call('Processing merkle leaves...');
         onProgress?.call(50, 100);
         if (walletLeafCount < onChainLeafCount) {
+          // For incremental block-direct, merkleEntries already contains only
+          // the delta (new leaves fetched with lowerBound). skip=0 because
+          // there are no old leaves to skip. For full table fetches, skip
+          // the first walletLeafCount leaves (already in the tree).
+          final skipCount = useIncrementalBlockDirect ? 0 : walletLeafCount;
           final leavesHex = await compute(
             _convertMerkleEntriesToHexInIsolate,
-            _MerkleHexParams(merkleEntriesMaps, global.treeDepth, walletLeafCount),
+            _MerkleHexParams(merkleEntriesMaps, global.treeDepth, skipCount),
           );
           if (leavesHex.isNotEmpty) {
             await FfiIsolate.addLeaves(wallet: wallet!, leavesHex: leavesHex);
@@ -621,15 +686,21 @@ class CloakSync {
           }
         }
 
-        // 5a-block: Block-direct for notes (Hyperion is down).
+        // 5a-block: Block-direct for notes (Hyperion fallback OR incremental).
+        // For incremental: zero indexing lag vs 2-60s Hyperion pipeline lag.
+        // For full sync fallback: Hyperion down, process blocks directly.
         // MUST run AFTER addLeaves — digest_block() searches the pre-populated
         // merkle tree to find matching commitments during trial decryption.
-        // The blocks table (~310 entries) covers recent activity only.
-        if (_fullSyncSlowMode && isFullSync && !_isViewOnly) {
+        if (((_fullSyncSlowMode && isFullSync) || useIncrementalBlockDirect) && !_isViewOnly) {
           usedBlockDirect = true;
           onStepChanged?.call('Syncing from blocks...');
           onProgress?.call(60, 100);
-          blockDirectSuccessCount = await _syncViaBlockDirect(wallet!, global.blockNum);
+          // For incremental: use persisted sync height (table sync doesn't update wallet.block_num).
+          // For full sync fallback: use wallet.block_num (set by prior digest_block calls).
+          blockDirectSuccessCount = await _syncViaBlockDirect(
+            wallet!, global.blockNum,
+            afterBlock: useIncrementalBlockDirect ? _syncedHeight : null,
+          );
         }
 
         // 5b. Extract and add encrypted notes from Hyperion actions.
@@ -775,13 +846,16 @@ class CloakSync {
   /// Sync via block-direct: fetch individual ZEOS-relevant blocks from peer API
   /// nodes, then pass each block through Rust's digest_block which handles leaves,
   /// notes, and nullifiers internally. Used as fallback when Hyperion is down.
-  static Future<int> _syncViaBlockDirect(Pointer<Void> wallet, int chainBlockNum) async {
+  static Future<int> _syncViaBlockDirect(Pointer<Void> wallet, int chainBlockNum, {int? afterBlock}) async {
+    final sw = Stopwatch()..start();
     final peerManager = PeerManager();
-    final walletBlockNum = CloakApi.getBlockNum(wallet) ?? 0;
+    final walletBlockNum = afterBlock ?? (CloakApi.getBlockNum(wallet) ?? 0);
+    print('CloakSync: block-direct START — afterBlock=$walletBlockNum chainBlock=$chainBlockNum (wallet.block_num=${CloakApi.getBlockNum(wallet) ?? 0}, override=${afterBlock != null})');
 
     // Fetch list of block numbers containing ZEOS activity
     onStepChanged?.call('Fetching ZEOS block list...');
     final blockNums = await _client!.getZeosBlockNumbers(afterBlockNum: walletBlockNum);
+    print('CloakSync: block-direct — getZeosBlockNumbers took ${sw.elapsedMilliseconds}ms');
     if (blockNums.isEmpty) {
       print('CloakSync: block-direct — no new ZEOS blocks after $walletBlockNum');
       return 0;
@@ -809,6 +883,9 @@ class CloakSync {
             if (digest != null) {
               peerManager.reportSuccess(peerUrl);
               blockSuccess = true;
+              // Cache TX details from this block for instant detail page loads.
+              // Extract trx_id for every transaction containing ZEOS actions.
+              _cacheBlockTxDetails(blockData);
             }
           } finally {
             tempClient.close();
@@ -824,8 +901,79 @@ class CloakSync {
       processed++;
     }
 
-    print('CloakSync: block-direct complete — $processed processed, $failed failed');
+    print('CloakSync: block-direct complete — $processed processed, $failed failed, total ${sw.elapsedMilliseconds}ms');
     return processed - failed;
+  }
+
+  /// Extract ZEOS transaction details from a raw block and cache them.
+  /// Maps block timestamp (ms) → TransactionDetails for instant detail page loads.
+  static void _cacheBlockTxDetails(Map<String, dynamic> blockData) {
+    try {
+      final blockNum = blockData['block_num'] as int? ?? 0;
+      final tsStr = blockData['timestamp'] as String? ?? '';
+      if (tsStr.isEmpty) return;
+
+      // Parse block timestamp (EOSIO format: 2024-01-15T12:00:00.000)
+      String ts = tsStr;
+      if (!ts.endsWith('Z') && !ts.contains('+')) ts += 'Z';
+      final blockDt = DateTime.tryParse(ts);
+      if (blockDt == null) return;
+      final blockTsMs = blockDt.millisecondsSinceEpoch;
+
+      final transactions = blockData['transactions'] as List? ?? [];
+      for (final tx in transactions) {
+        final trxId = tx['trx']?['id'] as String? ?? '';
+        if (trxId.isEmpty) continue;
+
+        // Check if this transaction contains ZEOS actions
+        final actions = tx['trx']?['transaction']?['actions'] as List? ?? [];
+        bool hasZeosAction = false;
+        String actionName = '';
+        for (final action in actions) {
+          final account = action['account'] as String? ?? '';
+          final name = action['name'] as String? ?? '';
+          if (account == 'thezeosalias' &&
+              (name == 'mint' || name == 'spend' || name == 'publishnotes' || name == 'authenticate')) {
+            hasZeosAction = true;
+            if (actionName.isEmpty) actionName = name;
+          }
+        }
+        if (!hasZeosAction) continue;
+
+        final details = TransactionDetails(
+          trxId: trxId,
+          blockNum: blockNum,
+          blockTime: tsStr,
+          actionName: actionName,
+        );
+
+        txDetailsCache.putIfAbsent(blockTsMs, () => []);
+        txDetailsCache[blockTsMs]!.add(details);
+      }
+    } catch (e) {
+      // Non-critical — detail page falls back to Hyperion
+      print('CloakSync: _cacheBlockTxDetails error: $e');
+    }
+  }
+
+  /// Look up cached TX details from block-direct sync.
+  /// Returns the best match within ±5s of the given timestamp, or null.
+  static TransactionDetails? getCachedTxDetails(int timestampMs) {
+    // Exact match first
+    final exact = txDetailsCache[timestampMs];
+    if (exact != null && exact.isNotEmpty) return exact.first;
+
+    // Search within ±5s window (same tolerance as Hyperion lookup)
+    TransactionDetails? best;
+    int bestDiff = 5001; // just outside window
+    for (final entry in txDetailsCache.entries) {
+      final diff = (entry.key - timestampMs).abs();
+      if (diff < bestDiff) {
+        bestDiff = diff;
+        best = entry.value.first;
+      }
+    }
+    return best;
   }
 
   /// Re-import vault auth tokens from the SQLite vaults table into the Rust wallet.

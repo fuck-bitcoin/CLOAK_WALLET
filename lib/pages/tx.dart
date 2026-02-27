@@ -11,6 +11,7 @@ import 'package:intl/intl.dart';
 import '../accounts.dart';
 import '../cloak/cloak_db.dart';
 import '../cloak/cloak_wallet_manager.dart';
+import '../cloak/cloak_sync.dart' show CloakSync;
 import '../cloak/eosio_client.dart' show fetchTransactionDetails, TransactionDetails;
 import '../generated/intl/messages.dart';
 import '../appsettings.dart';
@@ -1593,7 +1594,13 @@ class TransactionState extends State<TransactionPage> {
     // Only fetch for CLOAK transactions (have timestamp but may lack trxId)
     if (CloakWalletManager.isCloak(aa.coin)) {
       final timestampMs = tx.timestamp.millisecondsSinceEpoch;
-      final details = await fetchTransactionDetails(timestampMs);
+
+      // Check block-direct cache first (instant, no network)
+      var details = CloakSync.getCachedTxDetails(timestampMs);
+
+      // Fall back to Hyperion if not cached
+      details ??= await fetchTransactionDetails(timestampMs);
+
       if (mounted) {
         setState(() {
           _details = details;

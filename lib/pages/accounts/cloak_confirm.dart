@@ -61,6 +61,19 @@ class _CloakConfirmState extends State<CloakConfirmPage> {
       return;
     }
 
+    // Use precomputed fee from Send Max if available.
+    // estimate_send_fee(balance) returns the correct fee for ALL notes,
+    // but re-estimating for the lower max amount would use fewer notes → wrong fee.
+    if (sc?.precomputedFeeUnits != null) {
+      if (mounted) {
+        setState(() {
+          _feeUnits = sc!.precomputedFeeUnits!;
+          _feeLoaded = true;
+        });
+      }
+      return;
+    }
+
     final bool isVaultWithdraw = sc?.vaultHash != null && sc!.vaultHash!.isNotEmpty;
     final bool isVaultDeposit = sc?.isVaultDeposit == true;
 

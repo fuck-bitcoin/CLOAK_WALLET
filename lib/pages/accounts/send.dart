@@ -86,7 +86,11 @@ class SendContext {
   final List<BatchAsset>? batchAssets;  // FTs and NFTs to withdraw
   // Quick Deposit from vault: send flow uses wallet balance, title says "Deposit"
   final bool isVaultDeposit;
-  SendContext(this.address, this.pools, this.amount, this.memo, [this.fx, this.display, this.fromThread = false, this.threadIndex, this.threadCid, this.tokenSymbol, this.tokenContract, this.tokenPrecision, this.vaultHash, this.nftId, this.nftContract, this.nftImageUrl, this.nftName, this.isBatchWithdraw = false, this.batchAssets, this.isVaultDeposit = false]);
+  // Precomputed fee from Send Max (avoids confirm page re-estimating with wrong note count)
+  final int? precomputedFeeUnits;
+  // Drain mode: Rust select_ft_notes consumes ALL notes (Send Max, zero dust)
+  final bool isDrainSend;
+  SendContext(this.address, this.pools, this.amount, this.memo, [this.fx, this.display, this.fromThread = false, this.threadIndex, this.threadCid, this.tokenSymbol, this.tokenContract, this.tokenPrecision, this.vaultHash, this.nftId, this.nftContract, this.nftImageUrl, this.nftName, this.isBatchWithdraw = false, this.batchAssets, this.isVaultDeposit = false, this.precomputedFeeUnits, this.isDrainSend = false]);
   static SendContext? fromPaymentURI(String puri) {
     // CLOAK doesn't use Zcash-style payment URIs
     throw S.of(navigatorKey.currentContext!).invalidPaymentURI;
@@ -339,6 +343,8 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
   String _address = '';
   int _pools = 7;
   Amount _amount = Amount(0, false);
+  int? _sendMaxFeeUnits; // Precomputed fee from Send Max (passed to confirm page)
+  bool _isDrainSend = false; // Drain mode: Rust selects ALL notes for send max
   MemoData _memo =
       MemoData(appSettings.includeReplyTo != 0, '', '');
   String? _contactReplyToUA;
@@ -698,6 +704,8 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
                                   onAmountChanged: (int value) {
                                     setState(() {
                                       _amount = Amount(value, _amount.deductFee);
+                                      _sendMaxFeeUnits = null; // Clear precomputed fee on manual edit
+                                      _isDrainSend = false;
                                       if (value > 0 && (_address.isEmpty)) {
                                         _addressError = CloakWalletManager.isCloak(aa.coin) ? 'Enter address, account, or vault hash' : 'Enter Zcash Address';
                                       } else if (value == 0 && _address.isEmpty) {
@@ -705,6 +713,18 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
                                       }
                                     });
                                   },
+                                  onSendMax: _isCloakSelected ? () async {
+                                    final result = await CloakWalletManager.getMaxSendable(
+                                      recipientAddress: _address.isNotEmpty ? _address : null,
+                                    );
+                                    if (mounted) {
+                                      setState(() {
+                                        _amount = Amount(result.max, _amount.deductFee);
+                                        _sendMaxFeeUnits = result.fee;
+                                        _isDrainSend = true;
+                                      });
+                                    }
+                                  } : null,
                                 ),
                                 ],
                               ],
@@ -879,6 +899,8 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
         prev?.isBatchWithdraw ?? false,
         prev?.batchAssets,
         prev?.isVaultDeposit ?? false,
+        _sendMaxFeeUnits,
+        _isDrainSend,
       );
       SendContext.instance = sc;
       // Prepare memo with potential hidden header before assembling recipient
@@ -934,6 +956,8 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
             prev?.isBatchWithdraw ?? false,
             prev?.batchAssets,
             prev?.isVaultDeposit ?? false,
+            _sendMaxFeeUnits,
+            _isDrainSend,
           );
           // Invalidate fee cache so confirm page fetches fresh from chain
           CloakWalletManager.invalidateShieldFeeCache();
@@ -1571,8 +1595,9 @@ class ZashiAmountRow extends StatefulWidget {
   final String tokenSymbol;   // e.g. 'CLOAK', 'USDT' — drives hint text
   final bool showFiat;        // false hides fiat column entirely
   final int tokenPrecision;   // decimal places for the token
+  final VoidCallback? onSendMax; // "Send Max" button tap handler
 
-  const ZashiAmountRow({super.key, required this.initialAmount, required this.fiatCode, required this.availableZatoshis, required this.onAmountChanged, this.tokenSymbol = 'CLOAK', this.showFiat = true, this.tokenPrecision = 4});
+  const ZashiAmountRow({super.key, required this.initialAmount, required this.fiatCode, required this.availableZatoshis, required this.onAmountChanged, this.tokenSymbol = 'CLOAK', this.showFiat = true, this.tokenPrecision = 4, this.onSendMax});
 
   @override
   State<ZashiAmountRow> createState() => _ZashiAmountRowState();
@@ -1823,12 +1848,43 @@ class _ZashiAmountRowState extends State<ZashiAmountRow> {
       ),
     );
 
+    // "Send Max" pill button — small, placed below the amount field
+    final sendMaxButton = widget.onSendMax != null
+        ? Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: GestureDetector(
+              onTap: widget.onSendMax,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: addressFillColor,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: balanceTextColor.withOpacity(0.18),
+                    width: 0.5,
+                  ),
+                ),
+                child: Text(
+                  'Send Max',
+                  style: (t.textTheme.bodySmall ?? const TextStyle()).copyWith(
+                    fontFamily: balanceFontFamily,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w500,
+                    color: balanceTextColor.withOpacity(0.7),
+                  ),
+                ),
+              ),
+            ),
+          )
+        : const SizedBox.shrink();
+
     // When fiat is hidden, just show the crypto field full-width
     if (!widget.showFiat) {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           cryptoField,
+          sendMaxButton,
         ],
       );
     }
@@ -1949,6 +2005,7 @@ class _ZashiAmountRowState extends State<ZashiAmountRow> {
             ),
           ],
         ),
+        sendMaxButton,
       ],
     );
   }

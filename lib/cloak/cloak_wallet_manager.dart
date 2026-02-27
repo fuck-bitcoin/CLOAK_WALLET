@@ -732,6 +732,7 @@ class CloakWalletManager {
 
       // 6. Clear sync caches and reset session flags for full resync
       CloakSync.clearCachedCounters();
+      await CloakSync.clearPermanentSlowMode(); // Clear DB-persisted Hyperion fallback
       CloakSync.markAsRestored(); // Ensure not treated as new account
       CloakSync.resetSessionFlags(); // Reset vault discovery, auto-heal, etc.
 
@@ -2260,6 +2261,7 @@ class CloakWalletManager {
     required List<Map<String, dynamic>> recipients,
     required String feeTokenContract,
     required String feeAmount,
+    bool drain = false,
     void Function(String)? onStatus,
   }) async {
     if (_cloakWallet == null) {
@@ -2331,6 +2333,7 @@ class CloakWalletManager {
             'change_to': '\$SELF',
             'publish_change_note': true,
             'to': spendTo,
+            if (drain) 'drain': true,
           }
         }
       ],
@@ -2448,6 +2451,7 @@ class CloakWalletManager {
     String memo = '',  // 512-byte encrypted memo for messages
     String feeTokenContract = 'thezeostoken',
     String feeAmount = '0.4000 CLOAK',
+    bool drain = false,
     void Function(String)? onStatus,
   }) async {
     // Build transaction (throws on failure with specific error)
@@ -2464,6 +2468,7 @@ class CloakWalletManager {
       ],
       feeTokenContract: feeTokenContract,
       feeAmount: feeAmount,
+      drain: drain,
       onStatus: onStatus,
     );
 
@@ -3601,6 +3606,59 @@ class CloakWalletManager {
 
     _cachedSendFee = '0.4000 CLOAK';
     return _cachedSendFee!;
+  }
+
+  /// Returns the maximum sendable amount and exact fee in units.
+  /// Uses estimate_send_fee(balance) which returns the fee for ALL unspent notes
+  /// (since balance + fee > balance, the estimator's loop exhausts all notes).
+  /// This matches what resolve_ztransaction actually charges when all notes are
+  /// consumed: phase 1 selects notes for the amount, phase 2 uses the change
+  /// (= fee) to cover fees — no additional notes needed.
+  ///
+  /// DO NOT iterate/re-estimate for the lower amount — that causes oscillation
+  /// because estimate_send_fee is single-pass while resolve_ztransaction is two-pass.
+  static Future<({int max, int fee})> getMaxSendable({String? recipientAddress}) async {
+    if (_cloakWallet == null) return (max: 0, fee: 0);
+    final balJson = getBalancesJson();
+    if (balJson == null) return (max: 0, fee: 0);
+    // Parse CLOAK balance from balances JSON
+    int balanceUnits = 0;
+    try {
+      final List<dynamic> parsed = jsonDecode(balJson);
+      for (final entry in parsed) {
+        final str = entry.toString();
+        if (str.contains('CLOAK@thezeostoken')) {
+          final spaceIdx = str.indexOf(' ');
+          if (spaceIdx > 0) {
+            final amt = double.tryParse(str.substring(0, spaceIdx)) ?? 0.0;
+            balanceUnits = (amt * 10000).round();
+          }
+          break;
+        }
+      }
+    } catch (_) {
+      return (max: 0, fee: 0);
+    }
+    if (balanceUnits <= 0) return (max: 0, fee: 0);
+
+    try {
+      final feesJson = await _getFeesJson();
+      // estimate_send_fee(balance) exhausts all notes (balance + fee > balance,
+      // so the loop never finds a match) and returns the fee for ALL notes.
+      // With Rust drain mode, resolve_ztransaction will also consume all notes,
+      // so the fee matches exactly: amount + fee = balance, zero dust.
+      final feeUnits = CloakApi.estimateSendFee(
+        _cloakWallet!, balanceUnits, feesJson,
+        recipientAddress: recipientAddress,
+      ) ?? 4000;
+      final maxSendable = balanceUnits - feeUnits;
+      return (max: maxSendable > 0 ? maxSendable : 0, fee: feeUnits);
+    } catch (_) {}
+
+    // Fallback: balance minus default 0.4 CLOAK fee
+    const fallbackFee = 4000;
+    final max = balanceUnits - fallbackFee;
+    return (max: max > 0 ? max : 0, fee: fallbackFee);
   }
 
   /// Get the fee for a vault deposit (unshielded send to thezeosvault).

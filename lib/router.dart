@@ -1015,7 +1015,7 @@ class _ScaffoldBar extends State<ScaffoldBar> with TickerProviderStateMixin {
             }),
             centerTitle: false,
             actions: [
-              // Sync indicator: pulsing bolt (Hyperion) or dot (slow/block-direct)
+              // Sync indicator: pulsing bolt (normal/incremental) or dot (restore fallback)
               Observer(builder: (context) {
                 try {
                   final isSyncingThisCoin = syncStatus2.syncing &&
@@ -1038,7 +1038,7 @@ class _ScaffoldBar extends State<ScaffoldBar> with TickerProviderStateMixin {
                     CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
                   );
                   final color = Colors.grey.shade400;
-                  final slowMode = syncStatus2.sessionSlowMode;
+                  final slowMode = syncStatus2.isRescan && syncStatus2.isSlowMode;
 
                   return Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 8),

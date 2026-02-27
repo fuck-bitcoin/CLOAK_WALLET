@@ -190,7 +190,11 @@ pub struct SpendSequenceDesc
     pub contract: Name,
     pub change_to: String,
     pub publish_change_note: bool,
-    pub to: Vec<SpendRecipientDesc>
+    pub to: Vec<SpendRecipientDesc>,
+    /// When true, select ALL matching unspent notes (drain mode for "send max").
+    /// This ensures zero remaining balance by consuming every note.
+    #[serde(default)]
+    pub drain: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -273,7 +277,8 @@ fn select_nft_note(unspent_notes: &mut Vec<NoteEx>, asset: &Asset) -> Option<Not
 /// Very simple note selection algorithm: walk through all notes and pick notes of the demanded type until the sum
 /// is equal or greater than the requested 'amount'. Returns tuple of vector of notes to be spent and the change that
 /// is left over from the last note. Returns 'None' if there are not enough notes to reach 'amount'.
-fn select_ft_notes(unspent_notes: &mut Vec<NoteEx>, asset: &Asset, contract: &Name) -> Option<(Vec<NoteEx>, u64)>
+/// When `drain` is true, selects ALL matching notes regardless of whether a subset covers the amount.
+fn select_ft_notes(unspent_notes: &mut Vec<NoteEx>, asset: &Asset, contract: &Name, drain: bool) -> Option<(Vec<NoteEx>, u64)>
 {
     // sort 'notes' by note amount, ascending order and walk backwards through them in order to be able to safely remove elements
     unspent_notes.sort_by(|a, b| a.note().amount().cmp(&b.note().amount()));
@@ -287,12 +292,16 @@ fn select_ft_notes(unspent_notes: &mut Vec<NoteEx>, asset: &Asset, contract: &Na
         {
             sum += unspent_notes[i].note().amount() as u64;
             res.push(unspent_notes.remove(i));
-            if sum >= asset.amount() as u64
+            if !drain && sum >= asset.amount() as u64
             {
                 // collected enough fungible notes, return notes & change amount
                 return Some((res, sum - asset.amount() as u64));
             }
         }
+    }
+    // In drain mode, return all collected notes if they cover the amount
+    if drain && sum >= asset.amount() as u64 {
+        return Some((res, sum - asset.amount() as u64));
     }
     // Not enough notes! Move picked notes in 'res' back to 'notes' and return 'None'.
     unspent_notes.append(&mut res);
@@ -606,7 +615,7 @@ pub fn resolve_ztransaction(wallet: &Wallet, fee_token_contract: &Name, fees: &H
                             }
 
                             // select notes to spend
-                            let notes_to_spend = select_ft_notes(&mut unspent_notes, &Asset::new(total_amount_out as i64, symbol.clone()).unwrap(), &desc.contract);
+                            let notes_to_spend = select_ft_notes(&mut unspent_notes, &Asset::new(total_amount_out as i64, symbol.clone()).unwrap(), &desc.contract, desc.drain);
                             if notes_to_spend.is_none() { Err(TransactionError::InsufficientFunds)? }
                             let (notes_to_spend, change_amount) = notes_to_spend.unwrap();
 
