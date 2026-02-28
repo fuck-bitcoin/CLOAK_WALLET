@@ -215,7 +215,15 @@ Future<void> showSnackBar(String msg) async {
 
 void openTxInExplorer(String txId) {
   final url = 'https://explorer.telos.net/transaction/$txId';
-  launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+  if (Platform.isLinux) {
+    Process.run('xdg-open', [url]);
+  } else if (Platform.isMacOS) {
+    Process.run('open', [url]);
+  } else if (Platform.isWindows) {
+    Process.run('cmd', ['/c', 'start', url]);
+  } else {
+    launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+  }
 }
 
 String? addressValidator(String? v) {
