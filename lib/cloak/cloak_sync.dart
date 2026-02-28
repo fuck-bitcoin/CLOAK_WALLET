@@ -273,13 +273,19 @@ class CloakSync {
     await CloakDb.setProperty('synced_height', height.toString());
   }
 
-  /// Update the latest block height from the chain
+  /// Update the latest block height from the chain.
+  /// S33 fix: Uses getZeosGlobal().blockNum (HEAD-derived) instead of
+  /// getInfo().lastIrreversibleBlockNum (LIB). LIB lags HEAD by ~335 blocks
+  /// (~168s/2.8min) on Telos, causing sync blackouts when compared against
+  /// HEAD-derived values. See zettelkasten [[0789]] and [[0790]].
   static Future<void> updateLatestHeight() async {
     if (_client == null) await init();
 
     try {
-      final info = await _client!.getInfo();
-      _latestHeight = info.lastIrreversibleBlockNum;
+      final global = await _client!.getZeosGlobal();
+      if (global != null) {
+        _latestHeight = global.blockNum;
+      }
     } catch (e) {
     }
   }
@@ -306,12 +312,29 @@ class CloakSync {
     return height < ZEOS_GENESIS_BLOCK;
   }
 
-  /// Set initial sync height for new accounts (skip to latest)
+  /// Set initial sync height for new accounts (skip to latest).
+  /// S33 fix: Uses getZeosGlobal().blockNum (HEAD) instead of LIB.
+  /// Prevents _syncedHeight from being contaminated with a LIB value
+  /// that could cause block-direct queries to miss recent blocks.
   static Future<void> setInitialHeightForNewAccount() async {
     await init();
-    await updateLatestHeight();
-    _syncedHeight = _latestHeight;
-    await _saveSyncedHeight(_latestHeight);
+    try {
+      final global = await _client!.getZeosGlobal();
+      if (global != null) {
+        _syncedHeight = global.blockNum;
+        _latestHeight = global.blockNum;
+        await _saveSyncedHeight(global.blockNum);
+      } else {
+        // Fallback: use updateLatestHeight (now also HEAD-based)
+        await updateLatestHeight();
+        _syncedHeight = _latestHeight;
+        await _saveSyncedHeight(_latestHeight);
+      }
+    } catch (e) {
+      await updateLatestHeight();
+      _syncedHeight = _latestHeight;
+      await _saveSyncedHeight(_latestHeight);
+    }
     _isNewAccount = true;
   }
   
@@ -334,6 +357,7 @@ class CloakSync {
 
     _syncing = true;
     bool isFullSync = false;
+    final syncSw = Stopwatch()..start();
 
     try {
       if (_client == null) await init();
@@ -341,6 +365,8 @@ class CloakSync {
       // Get persisted synced height from database (survives app restarts)
       final persistedHeight = await getPersistedHeight();
       _syncedHeight = persistedHeight;
+      print('CloakSync: sync START — syncedHeight=$_syncedHeight latestHeight=$_latestHeight '
+          'failures=$_consecutiveFailures walletBlockNum=${getWalletBlockNum()}');
 
       // Auto-heal: detect wallets stuck with high synced_height but never
       // actually synced. This happens when restoreWallet() called createWallet()
@@ -415,16 +441,28 @@ class CloakSync {
           await _saveSyncedHeight(global.blockNum);
 
           if (isFullSync) {
-            await CloakDb.setProperty('full_sync_done', 'true');
+            // S33 fix: Validate wallet actually has data before marking done.
+            // Without this, Hyperion silent failure → 0 notes → full_sync_done=true
+            // → needsFullSync() returns false forever → wallet permanently empty.
+            final walletLeavesAfter = CloakWalletManager.wallet != null
+                ? (CloakApi.getLeafCount(CloakWalletManager.wallet!) ?? 0) : 0;
+            if (walletLeavesAfter > 0) {
+              await CloakDb.setProperty('full_sync_done', 'true');
+              print('CloakSync: full_sync_done=true — wallet has $walletLeavesAfter leaves');
+            } else {
+              print('CloakSync: NOT setting full_sync_done — wallet still has 0 leaves');
+            }
           }
 
           // Preload ZK params in background so first send is instant
           CloakWalletManager.ensureZkParamsLoaded();
         }
 
+        print('CloakSync: sync DONE in ${syncSw.elapsedMilliseconds}ms — '
+            'syncedHeight=$_syncedHeight blockDirectFailed=$blockDirectFailed');
         return blockDirectFailed ? false : isFullSync;
       } else {
-        print('CloakSync: Table sync failed: ${result.error}');
+        print('CloakSync: Table sync failed in ${syncSw.elapsedMilliseconds}ms: ${result.error}');
         // Don't mark as synced — let the timer retry after a backoff
         _consecutiveFailures = (_consecutiveFailures + 5).clamp(0, 15);
         return false;
@@ -471,37 +509,37 @@ class CloakSync {
         print('CloakSync: Failed to get ZEOS global state');
         return ZeosSyncResult(success: false, error: 'Failed to get global state');
       }
-      // Seed the fast-path cache from the wallet on first sync after launch.
-      // Without this, _lastLeafCount starts at -1 and the first sync always
-      // does a full table fetch even when nothing changed on-chain.
-      if (_lastLeafCount < 0) {
-        final wallet = CloakWalletManager.wallet;
-        if (wallet != null) {
-          final walletLeaves = CloakApi.getLeafCount(wallet) ?? 0;
-          final walletAuth = CloakApi.getAuthCount(wallet) ?? 0;
-          if (walletLeaves > 0) {
-            _lastLeafCount = walletLeaves;
-            _lastAuthCount = walletAuth;
-          }
-        }
-      }
-
-      // Report leaf gap for catch-up banner AND use for sync routing decision
+      // S33: Get wallet's actual leaf/auth counts from Rust FFI (authoritative).
+      // Used for fast-path check and leaf gap routing, replacing the Dart-side
+      // _lastLeafCount cache which could diverge from wallet state.
+      // Matches Matthias's Qt wallet approach: w_lc == g_lc → skip.
       final wallet0 = CloakWalletManager.wallet;
       final walletLeaves0 = wallet0 != null ? (CloakApi.getLeafCount(wallet0) ?? 0) : 0;
+      final walletAuth0 = wallet0 != null ? (CloakApi.getAuthCount(wallet0) ?? 0) : 0;
+
+      // Report leaf gap for catch-up banner AND use for sync routing decision
       final leafGap = global.leafCount - walletLeaves0;
       onLeafGapChanged?.call(leafGap > 0 ? leafGap : 0);
 
-      // FAST PATH: If leafCount and authCount haven't changed, no new data exists.
-      // Skip ALL expensive HTTP calls, FFI processing, and disk I/O.
-      // This reduces 99% of sync cycles to 1 lightweight HTTP call.
-      if (_lastLeafCount == global.leafCount && _lastAuthCount == global.authCount && _lastLeafCount >= 0) {
+      // FAST PATH: If wallet already has all on-chain leaves and auth tokens,
+      // no new data exists. Skip ALL expensive HTTP calls, FFI, and disk I/O.
+      // S33 fix: Uses wallet's actual Rust-side counts (set by addLeaves/digestBlock)
+      // instead of Dart-side _lastLeafCount cache. This ensures the check is always
+      // "does the chain have more data than my wallet?" — can never be stale.
+      if (walletLeaves0 == global.leafCount && walletAuth0 == global.authCount && walletLeaves0 > 0) {
         // Update block height but skip everything else
         _syncedHeight = global.blockNum;
         _latestHeight = global.blockNum;
+        _lastLeafCount = global.leafCount;  // Keep Dart cache in sync
+        _lastAuthCount = global.authCount;
         _cachedGlobal = global;
         return ZeosSyncResult(success: true, global: global, merkleEntries: _cachedMerkleEntries, nullifiers: _cachedNullifiers);
       }
+
+      // Fast-path missed — new data on chain
+      print('CloakSync: fast-path MISS — wallet leaves=$walletLeaves0 chain=${global.leafCount} '
+          'wallet auth=$walletAuth0 chain=${global.authCount} '
+          'leafGap=$leafGap blockNum=${global.blockNum}');
 
       // 2-4. Fetch chain data (merkle tree, nullifiers always needed; actions via
       //       Hyperion OR block-direct depending on sync mode and leaf gap)
@@ -565,16 +603,20 @@ class CloakSync {
 
         if (skipHyperion) {
           // Slow mode: skip Hyperion entirely, fetch merkle+nullifiers only
+          // S33 fix: Use getZeosMerkleLeaves (leaves only, ~6 requests) instead of
+          // getZeosMerkleTree (ALL nodes including internal, ~70 requests / 113s).
           final tableResults = await Future.wait([
-            _client!.getZeosMerkleTree(),
+            _client!.getZeosMerkleLeaves(treeDepth: global.treeDepth, startLeafIdx: walletLeaves0),
             _client!.getZeosNullifiers(),
           ]);
           merkleEntries = tableResults[0] as List<ZeosMerkleEntry>;
           nullifiers = tableResults[1] as List<ZeosNullifier>;
         } else {
           // Normal mode: parallel fetch merkle, nullifiers, and Hyperion actions
+          // S33 fix: Use getZeosMerkleLeaves (leaves only) instead of getZeosMerkleTree
+          // (all nodes). Reduces HTTP requests from ~70 to ~1 and time from ~113s to ~2s.
           final merkleNullFuture = Future.wait([
-            _client!.getZeosMerkleTree(),
+            _client!.getZeosMerkleLeaves(treeDepth: global.treeDepth, startLeafIdx: walletLeaves0),
             _client!.getZeosNullifiers(),
           ]);
 
@@ -655,17 +697,21 @@ class CloakSync {
         onStepChanged?.call('Processing merkle leaves...');
         onProgress?.call(50, 100);
         if (walletLeafCount < onChainLeafCount) {
-          // For incremental block-direct, merkleEntries already contains only
-          // the delta (new leaves fetched with lowerBound). skip=0 because
-          // there are no old leaves to skip. For full table fetches, skip
-          // the first walletLeafCount leaves (already in the tree).
-          final skipCount = useIncrementalBlockDirect ? 0 : walletLeafCount;
+          // S33: All paths now use getZeosMerkleLeaves(startLeafIdx: walletLeaves0)
+          // which returns only new entries. No need to skip any — they're all delta.
+          final skipCount = 0;
           final leavesHex = await compute(
             _convertMerkleEntriesToHexInIsolate,
             _MerkleHexParams(merkleEntriesMaps, global.treeDepth, skipCount),
           );
           if (leavesHex.isNotEmpty) {
             await FfiIsolate.addLeaves(wallet: wallet!, leavesHex: leavesHex);
+            // S33 fix: Update leafGap immediately after addLeaves so the UI
+            // reflects progress during the sync, not only on the next tick.
+            final updatedLeaves = CloakApi.getLeafCount(wallet!) ?? 0;
+            final updatedGap = global.leafCount - updatedLeaves;
+            onLeafGapChanged?.call(updatedGap > 0 ? updatedGap : 0);
+            print('CloakSync: addLeaves done — wallet now has $updatedLeaves leaves (gap: $updatedGap)');
           }
         } else if (walletLeafCount > onChainLeafCount) {
           final overshoot = walletLeafCount - onChainLeafCount;
@@ -704,11 +750,20 @@ class CloakSync {
           usedBlockDirect = true;
           onStepChanged?.call('Syncing from blocks...');
           onProgress?.call(60, 100);
-          // For incremental: use persisted sync height (table sync doesn't update wallet.block_num).
-          // For full sync fallback: use wallet.block_num (set by prior digest_block calls).
+          // S33 fix: Use max(syncedHeight, wallet.block_num) for incremental.
+          // _syncedHeight tracks the last global.blockNum we processed (HEAD-based).
+          // wallet.block_num tracks the last block digest_block() processed.
+          // Using max() provides safety: if either is stale (e.g., wallet.block_num=0
+          // after Hyperion sync, or _syncedHeight lagging), the other compensates.
+          // For full sync fallback: null → uses wallet.block_num directly.
+          final walletBn = CloakApi.getBlockNum(wallet!) ?? 0;
+          final afterBlock = useIncrementalBlockDirect
+              ? (walletBn > _syncedHeight ? walletBn : _syncedHeight)
+              : null;
+          print('CloakSync: block-direct routing — _syncedHeight=$_syncedHeight wallet.block_num=$walletBn afterBlock=$afterBlock');
           blockDirectSuccessCount = await _syncViaBlockDirect(
             wallet!, global.blockNum,
-            afterBlock: useIncrementalBlockDirect ? _syncedHeight : null,
+            afterBlock: afterBlock,
           );
         }
 

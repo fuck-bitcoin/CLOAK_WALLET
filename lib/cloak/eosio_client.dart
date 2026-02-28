@@ -392,11 +392,15 @@ class EosioClient {
         }
 
         if (allActions.isNotEmpty) return allActions;
-      } catch (_) {
+      } catch (e) {
+        print('EosioClient: Hyperion endpoint $hyperion failed: $e');
       }
     }
 
-    return [];
+    // S33 fix: Throw instead of returning [] when all endpoints fail.
+    // Returning [] silently was indistinguishable from "no actions exist",
+    // which prevented the 5-strike block-direct fallback from ever activating.
+    throw Exception('All Hyperion endpoints failed for $account');
   }
 
   /// Get only NEW merkle tree leaf entries (incremental fetch)
@@ -416,7 +420,7 @@ class EosioClient {
         code: 'zeosprotocol',
         scope: 'zeosprotocol',
         table: 'merkletree',
-        limit: 100,
+        limit: 1000, // S33: 10× fewer HTTP requests (was 100)
         lowerBound: nextKey,
       );
 

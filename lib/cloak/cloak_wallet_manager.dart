@@ -274,6 +274,13 @@ class CloakWalletManager {
     await CloakDb.setProperty('synced_height', '0');
     await CloakDb.setProperty('full_sync_done', 'false');
 
+    // S33 fix: Clear slow mode flags so restore sync starts fresh with Hyperion.
+    // Without this, stale _sessionSlowMode/_permanentSlowMode from the previous
+    // session could cause the restore to skip Hyperion entirely, falling back to
+    // block-direct which may return 0 blocks and leave the wallet empty.
+    CloakSync.clearCachedCounters();
+    await CloakSync.clearPermanentSlowMode();
+
     return accountId;
   }
   
