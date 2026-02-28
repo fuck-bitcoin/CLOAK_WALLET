@@ -381,14 +381,6 @@ class CloakSync {
         return false;
       }
 
-      // Get latest block from chain
-      await updateLatestHeight();
-
-      if (_syncedHeight >= _latestHeight) {
-        _syncing = false;
-        return false;
-      }
-
       // Perform table-based sync
       final result = await syncFromTables(isFullSync: isFullSync);
 
