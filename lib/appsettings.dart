@@ -21,14 +21,12 @@ final hideBottomNav = ValueNotifier<bool>(false);
 final alwaysOnTop = ValueNotifier<bool>(false);
 
 /// Call once at startup after SharedPreferences is available.
+/// NOTE: Do NOT call windowManager here — it is not yet initialised.
+/// The persisted always-on-top state is applied later in restoreWindow().
 Future<void> initUiPrefs() async {
   final prefs = await SharedPreferences.getInstance();
   hideBottomNav.value = prefs.getBool('hide_bottom_nav') ?? false;
   alwaysOnTop.value = prefs.getBool('always_on_top') ?? false;
-  // Apply persisted always-on-top state
-  if (!(Platform.isAndroid || Platform.isIOS) && alwaysOnTop.value) {
-    try { await windowManager.setAlwaysOnTop(true); } catch (_) {}
-  }
 }
 
 Future<void> toggleBottomNav() async {
