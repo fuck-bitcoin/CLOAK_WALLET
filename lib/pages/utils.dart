@@ -216,7 +216,11 @@ Future<void> showSnackBar(String msg) async {
 void openTxInExplorer(String txId) {
   final url = 'https://explorer.telos.net/transaction/$txId';
   if (Platform.isLinux) {
-    Process.run('xdg-open', [url]);
+    // Clear AppImage env so the spawned browser uses system libs
+    final env = Map<String, String>.from(Platform.environment);
+    env.remove('LD_LIBRARY_PATH');
+    env.remove('GDK_BACKEND');
+    Process.run('xdg-open', [url], environment: env);
   } else if (Platform.isMacOS) {
     Process.run('open', [url]);
   } else if (Platform.isWindows) {
