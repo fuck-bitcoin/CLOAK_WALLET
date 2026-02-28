@@ -27,7 +27,10 @@ Future<void> initUiPrefs() async {
   alwaysOnTop.value = prefs.getBool('always_on_top') ?? false;
   // Apply persisted always-on-top state
   if (!(Platform.isAndroid || Platform.isIOS) && alwaysOnTop.value) {
-    try { await windowManager.setAlwaysOnTop(true); } catch (_) {}
+    try {
+      await windowManager.ensureInitialized();
+      await windowManager.setAlwaysOnTop(true);
+    } catch (_) {}
   }
 }
 
