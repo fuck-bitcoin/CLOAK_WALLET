@@ -521,25 +521,42 @@ class CloakSync {
       final leafGap = global.leafCount - walletLeaves0;
       onLeafGapChanged?.call(leafGap > 0 ? leafGap : 0);
 
-      // FAST PATH: If wallet already has all on-chain leaves and auth tokens,
-      // no new data exists. Skip ALL expensive HTTP calls, FFI, and disk I/O.
+      // FAST PATH: If wallet already has all on-chain leaves and auth tokens
+      // (or is temporarily AHEAD due to eager wallet update after send),
+      // no new data exists on chain. Skip ALL expensive HTTP calls, FFI, and disk I/O.
+      //
       // S33 fix: Uses wallet's actual Rust-side counts (set by addLeaves/digestBlock)
-      // instead of Dart-side _lastLeafCount cache. This ensures the check is always
-      // "does the chain have more data than my wallet?" — can never be stale.
-      if (walletLeaves0 == global.leafCount && walletAuth0 == global.authCount && walletLeaves0 > 0) {
+      // instead of Dart-side _lastLeafCount cache.
+      //
+      // S34 fix: Changed == to >= to handle eager wallet update overshoot.
+      // After a send, wallet_transact_packed() adds output commitments to the local
+      // merkle tree BEFORE the on-chain TX confirms (lib.rs:2886-2888). This makes
+      // walletLeaves temporarily > chainLeaves. With ==, this caused a fast-path MISS
+      // that fell through to the Hyperion path — fetching ALL historical actions
+      // (potentially thousands of pages) while syncing=true blocked all auto-sync ticks.
+      // With >=, the wallet correctly recognizes "I'm at or ahead of the chain, nothing
+      // new to process." The overshoot cap (<=10) prevents masking genuine corruption
+      // that should trigger the auto-repair path (overshoot >20 at step 5a).
+      final leafOvershoot = walletLeaves0 - global.leafCount;
+      final authOvershoot = walletAuth0 - global.authCount;
+      if (walletLeaves0 >= global.leafCount && walletAuth0 >= global.authCount && walletLeaves0 > 0 && leafOvershoot <= 10) {
+        if (leafOvershoot > 0 || authOvershoot > 0) {
+          print('CloakSync: fast-path HIT (eager overshoot) — wallet leaves=$walletLeaves0 chain=${global.leafCount} '
+              'overshoot=$leafOvershoot auth_overshoot=$authOvershoot');
+        }
         // Update block height but skip everything else
         _syncedHeight = global.blockNum;
         _latestHeight = global.blockNum;
-        _lastLeafCount = global.leafCount;  // Keep Dart cache in sync
+        _lastLeafCount = global.leafCount;  // Keep Dart cache in sync with CHAIN value
         _lastAuthCount = global.authCount;
         _cachedGlobal = global;
         return ZeosSyncResult(success: true, global: global, merkleEntries: _cachedMerkleEntries, nullifiers: _cachedNullifiers);
       }
 
-      // Fast-path missed — new data on chain
+      // Fast-path missed — chain has data the wallet doesn't have yet
       print('CloakSync: fast-path MISS — wallet leaves=$walletLeaves0 chain=${global.leafCount} '
           'wallet auth=$walletAuth0 chain=${global.authCount} '
-          'leafGap=$leafGap blockNum=${global.blockNum}');
+          'leafGap=$leafGap leafOvershoot=$leafOvershoot blockNum=${global.blockNum}');
 
       // 2-4. Fetch chain data (merkle tree, nullifiers always needed; actions via
       //       Hyperion OR block-direct depending on sync mode and leaf gap)
@@ -748,7 +765,7 @@ class CloakSync {
         // merkle tree to find matching commitments during trial decryption.
         if (((_fullSyncSlowMode && isFullSync) || useIncrementalBlockDirect) && !_isViewOnly) {
           usedBlockDirect = true;
-          onStepChanged?.call('Syncing from blocks...');
+          onStepChanged?.call('Decrypting notes from blocks...');
           onProgress?.call(60, 100);
           // S33 fix: Use max(syncedHeight, wallet.block_num) for incremental.
           // _syncedHeight tracks the last global.blockNum we processed (HEAD-based).
@@ -812,7 +829,7 @@ class CloakSync {
         // 5c. Sync nullifiers (ALWAYS runs) — marks spent notes.
         // MUST happen AFTER both addNotes and digest_block so notes exist to be marked.
         // Table has complete historical nullifier set.
-        onStepChanged?.call('Syncing nullifiers...');
+        onStepChanged?.call('Marking spent notes...');
         onProgress?.call(85, 100);
         if (nullifiers.isNotEmpty) {
           final nullifierMaps = nullifiers.map((nf) => {'val': nf.val.toJson()}).toList();
@@ -931,7 +948,7 @@ class CloakSync {
     for (final blockNum in blockNums) {
       // Progress: 60% to 80% range across all blocks (leaves=50%, blocks=60-80%, nullifiers=85%)
       final pct = 60 + ((processed / blockNums.length) * 20).round();
-      onStepChanged?.call('Processing block ${processed + 1}/${blockNums.length}...');
+      onStepChanged?.call('Decrypting block ${processed + 1}/${blockNums.length}...');
       onProgress?.call(pct, 100);
 
       // Retry each block up to 3 times with different peers

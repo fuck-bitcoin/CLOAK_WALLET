@@ -63,6 +63,7 @@ class BalanceState extends State<BalanceWidget> {
       aa.poolBalances; // Watch pool balances directly
       appStore.flat;
       appStore.hideBalances;
+      syncStatus2.fullSyncPending; // Suppress balance during full sync (restore/resync)
       // pendingMigrations removed (Zcash-only feature)
 
       // Only obey manual eyeball toggle; ignore tilt-to-hide (disabled)
@@ -98,7 +99,9 @@ class BalanceState extends State<BalanceWidget> {
       final txtFiat = fiat?.let(_formatFiat);
       final txtBalFiat = balFiat?.let(_formatFiat);
 
-      final shouldHide = appStore.hideBalances;
+      // Hide balance during full sync — intermediate values are misleading
+      // (notes added before nullifiers = inflated balance that settles later)
+      final shouldHide = appStore.hideBalances || syncStatus2.fullSyncPending;
       final balanceWidget = shouldHide
           ? RichText(
               textAlign: TextAlign.center,
