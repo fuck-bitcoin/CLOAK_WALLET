@@ -385,35 +385,44 @@ class CloakSync {
       final result = await syncFromTables(isFullSync: isFullSync);
 
       if (result.success) {
-        // If block-direct was used but processed 0 blocks, the fallback didn't
-        // actually sync any data. Treat this as a failure so:
-        // - Heights stay at step-based values (not ~451M chain values)
-        // - needsFullSync() still returns true (persisted height stays low)
-        // - fullSyncPending stays true in store2.dart (banner stays visible)
-        // - Fast-path cache is invalidated so next sync retries properly
+        // S32: If block-direct processed 0 blocks, invalidate the fast-path
+        // cache so next tick retries. Heights/full_sync_done are only written
+        // when !blockDirectFailed (below). No consecutive failure penalty —
+        // 0 blocks is normal during API propagation lag.
         final blockDirectFailed = result.usedBlockDirect && result.blockDirectProcessed <= 0;
         if (blockDirectFailed) {
-          print('CloakSync: Block-direct processed 0 blocks — treating as failure, will retry');
+          // S32 fix: 0 blocks can happen normally (API propagation lag, blocks
+          // table not yet indexed). Don't penalize with consecutive failure
+          // backoff — just invalidate cache and retry on next 1s tick.
+          // Heights and full_sync_done are guarded below (!blockDirectFailed).
+          // Nullifiers were still synced (S32 nullifier fix), so spent notes
+          // are properly marked even when 0 blocks processed.
+          print('CloakSync: Block-direct processed 0 blocks — no penalty, will retry next tick');
           _lastLeafCount = -1;
           _lastAuthCount = -1;
-          _consecutiveFailures = (_consecutiveFailures + 5).clamp(0, 15);
-          return false;
         }
 
         _consecutiveFailures = 0;
         final global = result.global!;
-        _syncedHeight = global.blockNum;
-        _latestHeight = global.blockNum;
-        await _saveSyncedHeight(global.blockNum);
 
-        if (isFullSync) {
-          await CloakDb.setProperty('full_sync_done', 'true');
+        // Only update persisted heights and mark full_sync_done when
+        // block-direct actually processed blocks (or wasn't used at all).
+        // When 0 blocks processed, syncFromTables() already skipped its
+        // internal height/cache update — mirror that here.
+        if (!blockDirectFailed) {
+          _syncedHeight = global.blockNum;
+          _latestHeight = global.blockNum;
+          await _saveSyncedHeight(global.blockNum);
+
+          if (isFullSync) {
+            await CloakDb.setProperty('full_sync_done', 'true');
+          }
+
+          // Preload ZK params in background so first send is instant
+          CloakWalletManager.ensureZkParamsLoaded();
         }
 
-        // Preload ZK params in background so first send is instant
-        CloakWalletManager.ensureZkParamsLoaded();
-
-        return isFullSync;
+        return blockDirectFailed ? false : isFullSync;
       } else {
         print('CloakSync: Table sync failed: ${result.error}');
         // Don't mark as synced — let the timer retry after a backoff
@@ -541,6 +550,14 @@ class CloakSync {
           merkleEntries.add(ZeosMerkleEntry.fromJson(row));
         }
         print('CloakSync: incremental merkle delta processed');
+
+        // Fetch full nullifier table for reconciliation.
+        // digest_block() handles per-block nullifiers, but if the wallet
+        // was offline or fast-path skipped cycles, historical nullifiers
+        // from other users' spends affecting our notes won't be caught.
+        // The full table fetch ensures mark_notes_spent() runs at Step 5c.
+        nullifiers = await _client!.getZeosNullifiers();
+        print('CloakSync: incremental nullifiers fetched: ${nullifiers.length}');
       } else {
         // EXISTING PATHS (Hyperion bulk or slow-mode table-only)
         final skipHyperion = (_fullSyncSlowMode && isFullSync) ||
