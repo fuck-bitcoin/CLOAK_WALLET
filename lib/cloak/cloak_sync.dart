@@ -540,10 +540,6 @@ class CloakSync {
       final leafOvershoot = walletLeaves0 - global.leafCount;
       final authOvershoot = walletAuth0 - global.authCount;
       if (walletLeaves0 >= global.leafCount && walletAuth0 >= global.authCount && walletLeaves0 > 0 && leafOvershoot <= 10) {
-        if (leafOvershoot > 0 || authOvershoot > 0) {
-          print('CloakSync: fast-path HIT (eager overshoot) — wallet leaves=$walletLeaves0 chain=${global.leafCount} '
-              'overshoot=$leafOvershoot auth_overshoot=$authOvershoot');
-        }
         // Update block height but skip everything else
         _syncedHeight = global.blockNum;
         _latestHeight = global.blockNum;
@@ -556,7 +552,7 @@ class CloakSync {
       // Fast-path missed — chain has data the wallet doesn't have yet
       print('CloakSync: fast-path MISS — wallet leaves=$walletLeaves0 chain=${global.leafCount} '
           'wallet auth=$walletAuth0 chain=${global.authCount} '
-          'leafGap=$leafGap leafOvershoot=$leafOvershoot blockNum=${global.blockNum}');
+          'leafGap=$leafGap blockNum=${global.blockNum}');
 
       // 2-4. Fetch chain data (merkle tree, nullifiers always needed; actions via
       //       Hyperion OR block-direct depending on sync mode and leaf gap)
