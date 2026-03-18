@@ -187,11 +187,17 @@ class EsrService {
   ///
   /// This avoids the multi-auth confusion where Anchor shows 5 actions
   /// but can only sign 2 of them. Uses flags=1 so Anchor broadcasts directly.
+  ///
+  /// [callbackUrl] - Optional callback URL for Anchor to POST results to.
+  ///   When set, uses flags=3 (broadcast + background POST) so Anchor POSTs
+  ///   the CallbackPayload JSON to this URL after broadcasting.
+  ///   Use with Buoy relay: `https://cb.anchor.link/{uuid}`
   static Future<String> createTransferOnlyEsr({
     required String tokenContract,
     required String quantity,
     required String userAccount,
     String feeQuantity = '0.3000 CLOAK',
+    String? callbackUrl,
   }) async {
     const memo = 'ZEOS transfer & mint';
 
@@ -226,7 +232,7 @@ class EsrService {
       },
     ];
 
-    // Build ESR with variant 1 (action list) and flags=1 (Anchor broadcasts)
+    // Build ESR with variant 1 (action list)
     final buffer = EsrBuffer();
 
     // Chain ID variant 0 = chain_alias
@@ -242,11 +248,15 @@ class EsrService {
       _serializeActionToEsr(buffer, action);
     }
 
-    // Flags = 1 (Anchor broadcasts the transaction itself)
-    buffer.pushUint8(1);
+    // Flags:
+    // - 0x01 = broadcast (Anchor broadcasts after signing)
+    // - 0x02 = background (Anchor POSTs callback instead of redirect)
+    // With callback: flags=3 (broadcast + background POST to buoy relay)
+    // Without callback: flags=1 (broadcast + foreground, no callback)
+    buffer.pushUint8(callbackUrl != null ? 3 : 1);
 
-    // Callback
-    buffer.pushString('');
+    // Callback URL (with template variables Anchor substitutes)
+    buffer.pushString(callbackUrl ?? '');
 
     // Info pairs
     buffer.pushVarint32(0);

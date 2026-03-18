@@ -75,6 +75,18 @@ class _EsrDisplayDialogState extends State<EsrDisplayDialog> {
   bool _showManualEntry = false;
   final _signatureController = TextEditingController();
   bool _isProcessing = false;
+  /// On Android, the ESR is regenerated with a Buoy callback URL
+  /// once the WebSocket channel is ready.
+  String? _androidEsrUrl;
+
+  /// Whether this is an Android two-step flow
+  bool get _isAndroidTwoStep =>
+      Platform.isAndroid &&
+      widget.shieldData != null &&
+      widget.shieldData!['isAndroidTwoStep'] == true;
+
+  /// The effective ESR URL (Android may override with callback-enabled version)
+  String get _effectiveEsrUrl => _androidEsrUrl ?? widget.esrUrl;
 
   @override
   void initState() {
@@ -161,15 +173,32 @@ class _EsrDisplayDialogState extends State<EsrDisplayDialog> {
     // Connect first to get channel ID for QR code
     final connected = await _anchorLink!.connect();
     if (connected && mounted) {
-      // Send the ESR to the relay channel so Anchor can fetch it
-      _anchorLink!.sendRequest(widget.esrUrl);
-      // Force rebuild so QR code includes channel ID
+      if (_isAndroidTwoStep) {
+        // Android two-step flow:
+        // Generate a transfer-only ESR with Buoy callback URL.
+        // Anchor broadcasts the transfers, POSTs the result to Buoy,
+        // we receive it on the WebSocket, then broadcast begin/mint/end.
+        final channelId = _anchorLink!.channelId!;
+        final callbackUrl = 'https://cb.anchor.link/$channelId';
+        final sd = widget.shieldData!;
+        _androidEsrUrl = await EsrService.createTransferOnlyEsr(
+          tokenContract: sd['tokenContract'] as String,
+          quantity: sd['quantity'] as String,
+          userAccount: sd['telosAccount'] as String,
+          feeQuantity: sd['feeQuantity'] as String? ?? '0.3000 CLOAK',
+          callbackUrl: callbackUrl,
+        );
+      } else {
+        // Desktop: send ESR to relay for QR-scan / Anchor Link flow
+        _anchorLink!.sendRequest(widget.esrUrl);
+      }
+      // Force rebuild so QR code includes channel ID / new ESR
       setState(() {});
       // Start listening for response in background
       _waitForResponseInBackground();
     }
 
-    // Auto-launch Anchor Desktop with the ESR, then start watching for TX
+    // Auto-launch Anchor with the ESR
     await _launchAnchorDesktop();
     // Snapshot AFTER Anchor launch — avoids capturing stale values from before
     _startTransactionPolling();
@@ -177,12 +206,12 @@ class _EsrDisplayDialogState extends State<EsrDisplayDialog> {
 
   /// Wait for Anchor to respond after signing
   ///
-  /// With flags=0 (current implementation), Anchor signs but does NOT broadcast.
-  /// The response contains the signed transaction (serializedTransaction + signatures).
-  /// Flutter then adds thezeosalias signature and broadcasts itself.
+  /// Desktop (flags=0): Anchor returns signed transaction via WebSocket relay.
+  /// Flutter adds thezeosalias signature and broadcasts.
   ///
-  /// With flags=1 (legacy/broken), Anchor would try to broadcast directly,
-  /// but anchor-link rejects the cosig info pair format.
+  /// Android two-step (flags=3): Anchor broadcasts user's transfers, POSTs
+  /// CallbackPayload to Buoy relay. Flutter receives it on WebSocket, then
+  /// broadcasts begin/mint/end via broadcastMintOnly().
   Future<void> _waitForResponseInBackground() async {
     try {
       final response = await _anchorLink?.waitForResponse(
@@ -198,52 +227,65 @@ class _EsrDisplayDialogState extends State<EsrDisplayDialog> {
         try {
           String? txId;
 
-          // Primary flow: flags=0 - Anchor returns signed transaction for us to broadcast
-          // Check for serializedTransaction or signatures (the flags=0 response format)
-          if (response.containsKey('serializedTransaction') ||
-              response.containsKey('packed_trx') ||
-              response.containsKey('signatures')) {
+          if (_isAndroidTwoStep) {
+            // Android two-step: Anchor already broadcast the 2 user transfers.
+            // The response is a Buoy-relayed CallbackPayload with keys like:
+            // sig, tx, bn, sa, sp, rbn, rid, ex, cid, req
+            // OR it could be the raw POST body as a JSON string.
+            final transferTxId = response['tx']?.toString() ??
+                response['transaction_id']?.toString() ??
+                response['txid']?.toString();
+            print('[EsrDisplayDialog] Android callback received. Transfer TX: $transferTxId');
+
+            // Step 2: Broadcast begin/mint/end with thezeosalias key
             setState(() {
-              _statusMessage = 'Adding protocol signature and broadcasting...';
+              _statusMessage = 'Completing shield (ZK proof)...';
             });
-            txId = await EsrService.addSignatureAndBroadcast(response);
-          } else if (response.containsKey('transaction_id')) {
-            // Fallback: Anchor already broadcast (shouldn't happen with flags=0, but handle it)
-            txId = response['transaction_id']?.toString();
-          } else if (response.containsKey('processed')) {
-            // Some Anchor versions return processed.id
-            final processed = response['processed'];
-            if (processed is Map) {
-              txId = processed['id']?.toString();
-            }
-          } else if (response.containsKey('transaction')) {
-            // Anchor may wrap the signed tx in a 'transaction' key
-            setState(() {
-              _statusMessage = 'Adding protocol signature and broadcasting...';
-            });
-            txId = await EsrService.addSignatureAndBroadcast(response);
+
+            final sd = widget.shieldData!;
+            final mintProof = sd['mintProof'] as Map<String, dynamic>;
+            txId = await EsrService.broadcastMintOnly(
+              mintProof: mintProof,
+              feeQuantity: sd['feeQuantity'] as String? ?? '0.3000 CLOAK',
+            );
           } else {
-            // Check for error indicators in the response
-            final errorMsg = response['error']?.toString() ??
-                             response['message']?.toString();
-            if (errorMsg != null) {
-              throw Exception('Anchor returned error: $errorMsg');
-            }
-
-            // Check for rejection/cancellation
-            final status = response['status']?.toString();
-            if (status == 'rejected' || status == 'cancelled' || status == 'expired') {
-              throw Exception('Transaction was $status by user');
-            }
-
-            // Try to extract any transaction ID we can find
-            txId = response['txid']?.toString() ??
-                   response['trx_id']?.toString() ??
-                   response['id']?.toString();
-            if (txId == null) {
-              // No transaction ID and no known success format
-              // Try broadcasting with whatever we have, but do NOT silently assume success on failure
+            // Desktop flow: flags=0 - Anchor returns signed transaction
+            if (response.containsKey('serializedTransaction') ||
+                response.containsKey('packed_trx') ||
+                response.containsKey('signatures')) {
+              setState(() {
+                _statusMessage = 'Adding protocol signature and broadcasting...';
+              });
               txId = await EsrService.addSignatureAndBroadcast(response);
+            } else if (response.containsKey('transaction_id')) {
+              txId = response['transaction_id']?.toString();
+            } else if (response.containsKey('processed')) {
+              final processed = response['processed'];
+              if (processed is Map) {
+                txId = processed['id']?.toString();
+              }
+            } else if (response.containsKey('transaction')) {
+              setState(() {
+                _statusMessage = 'Adding protocol signature and broadcasting...';
+              });
+              txId = await EsrService.addSignatureAndBroadcast(response);
+            } else {
+              final errorMsg = response['error']?.toString() ??
+                               response['message']?.toString();
+              if (errorMsg != null) {
+                throw Exception('Anchor returned error: $errorMsg');
+              }
+              final status = response['status']?.toString();
+              if (status == 'rejected' || status == 'cancelled' || status == 'expired') {
+                throw Exception('Transaction was $status by user');
+              }
+              txId = response['txid']?.toString() ??
+                     response['trx_id']?.toString() ??
+                     response['tx']?.toString() ??
+                     response['id']?.toString();
+              if (txId == null) {
+                txId = await EsrService.addSignatureAndBroadcast(response);
+              }
             }
           }
 
@@ -255,7 +297,6 @@ class _EsrDisplayDialogState extends State<EsrDisplayDialog> {
             });
           }
 
-          // Show success and close dialog after a short delay
           showSnackBar('Transaction broadcast successfully!');
           await Future.delayed(const Duration(seconds: 2));
           if (mounted) {
@@ -288,13 +329,13 @@ class _EsrDisplayDialogState extends State<EsrDisplayDialog> {
   String get _qrData {
     if (_anchorLink != null && _anchorLink!.status != AnchorLinkStatus.disconnected) {
       // Include channel ID for automatic response via WebSocket
-      return AnchorLinkClient.generateQrData(widget.esrUrl, _anchorLink!.channelId ?? '');
+      return AnchorLinkClient.generateQrData(_effectiveEsrUrl, _anchorLink!.channelId ?? '');
     }
-    return widget.esrUrl;
+    return _effectiveEsrUrl;
   }
 
   void _copyToClipboard() {
-    Clipboard.setData(ClipboardData(text: widget.esrUrl));
+    Clipboard.setData(ClipboardData(text: _effectiveEsrUrl));
     setState(() => _copied = true);
     showSnackBar('ESR URL copied to clipboard');
 
@@ -306,7 +347,7 @@ class _EsrDisplayDialogState extends State<EsrDisplayDialog> {
 
   Future<void> _openInBrowser() async {
     // Open via eosio.to web resolver
-    final webUrl = Uri.parse('https://eosio.to/${widget.esrUrl}');
+    final webUrl = Uri.parse('https://eosio.to/${_effectiveEsrUrl}');
     try {
       await launchUrl(webUrl, mode: LaunchMode.externalApplication);
     } catch (e) {
@@ -321,7 +362,7 @@ class _EsrDisplayDialogState extends State<EsrDisplayDialog> {
     try {
       // Use the raw ESR URL — Anchor Desktop handles esr:// protocol directly
       // Don't append callback channel (corrupts the base64 payload)
-      final launched = await EsrService.launchAnchor(widget.esrUrl);
+      final launched = await EsrService.launchAnchor(_effectiveEsrUrl);
       if (launched) {
       } else {
       }
