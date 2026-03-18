@@ -904,6 +904,20 @@ class EsrService {
       } catch (_) {}
     }
 
+    // On Android, launch the esr:// URI directly to open Anchor wallet.
+    // We skip canLaunchUrl here because Android 11+ package visibility
+    // restrictions can cause it to return false even when Anchor is installed
+    // (the <queries> declaration helps but launchUrl is more reliable).
+    if (Platform.isAndroid) {
+      try {
+        final esrUri = Uri.parse(esrUrl);
+        final launched = await launchUrl(esrUri, mode: LaunchMode.externalApplication);
+        if (launched) {
+          return true;
+        }
+      } catch (_) {}
+    }
+
     // Try the ESR URL directly (works on macOS/Windows)
     final esrUri = Uri.parse(esrUrl);
 

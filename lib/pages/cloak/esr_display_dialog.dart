@@ -5,6 +5,7 @@
 // Also integrates with Anchor Link WebSocket protocol for automatic response detection.
 
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
