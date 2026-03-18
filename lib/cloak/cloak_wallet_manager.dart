@@ -4061,13 +4061,9 @@ class CloakWalletManager {
     );
 
     // 3. Create ESR with pre-signed thezeosalias signature and flags=0
-    // Flow:
-    //   a. Build the full 5-action transaction, serialize it, compute digest
-    //   b. Sign digest with thezeosalias@public key, store in _lastPresignature
-    //   c. Store serialized transaction bytes in _lastTxBytes
-    //   d. Create ESR variant 2 (full transaction) with flags=0
-    //   e. Anchor signs the same full transaction, returns user signature via WebSocket
-    //   f. Flutter combines both signatures and broadcasts via push_transaction
+    // This sends all 5 actions to Anchor in one signing request (same as web app)
+    // Anchor signs the full transaction, returns it via WebSocket
+    // Flutter adds the thezeosalias@public signature and broadcasts
     final esrUrl = await EsrService.createSigningRequestWithPresig(actions: actions);
 
     return {

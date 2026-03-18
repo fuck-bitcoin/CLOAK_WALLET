@@ -86,6 +86,15 @@ String? _getTokenLogoFromCache(String contract, String symbol) {
   return _cachedTokenLogos?['$contract:$symbol'];
 }
 
+/// Public: get token logo URL (cache + well-known fallback)
+String? getTokenLogoUrl(String symbol, String contract) {
+  // Check well-known first (local assets take priority)
+  final wellKnown = _wellKnownTokenLogos['$contract:$symbol'];
+  if (wellKnown != null) return wellKnown;
+  // Check cached token list from Telos API
+  return _getTokenLogoFromCache(contract, symbol);
+}
+
 /// Well-known Telos Zero (native EOSIO) token logos (fallback if token list fetch fails)
 /// Use 'asset:' prefix for local Flutter assets
 const Map<String, String> _wellKnownTokenLogos = {
@@ -357,11 +366,8 @@ class EosioClient {
   /// [skip] - number of actions to skip (ascending order) for incremental fetch
   /// Paginates automatically to fetch ALL matching actions.
   Future<List<ZeosActionTrace>> _getZeosActionsHyperion(String account, {int skip = 0}) async {
-    // Telos Hyperion endpoints
-    final hyperionEndpoints = [
-      'https://telos.eosusa.io',
-      'https://mainnet.telos.caleos.io',
-    ];
+    // Use the shared Hyperion endpoints
+    final hyperionEndpoints = _hyperionEndpoints;
 
     for (final hyperion in hyperionEndpoints) {
       try {
@@ -704,8 +710,9 @@ class ZeosActionTrace {
 
 /// Hyperion endpoints for token queries (multiple for reliability)
 const List<String> _hyperionEndpoints = [
+  'https://mainnet.telos.net',
   'https://telos.eosusa.io',
-  'https://mainnet.telos.caleos.io',
+  'https://telos.api.eosnation.io',
   'https://telos.caleos.io',
 ];
 

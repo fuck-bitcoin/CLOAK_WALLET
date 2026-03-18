@@ -16,6 +16,7 @@ import '../../accounts.dart';
 import '../../coin/coins.dart';
 import '../../cloak/cloak_db.dart';
 import '../../cloak/cloak_wallet_manager.dart';
+import '../../cloak/eosio_client.dart' show getTokenLogoUrl, fetchTelosTokenList;
 import '../../cloak/atomic_assets_service.dart';
 import '../../widgets/nft_image_widget.dart';
 import '../cloak/nft_lightbox.dart';
@@ -1175,11 +1176,8 @@ class _SegmentedToggle extends StatelessWidget {
 // ─── Token helpers ───────────────────────────────────────────────
 
 String? _getTokenLogoUrl(String symbol, String contract) {
-  const wellKnown = {
-    'thezeostoken:CLOAK': 'asset:assets/cloak_logo.png',
-    'eosio.token:TLOS': 'https://raw.githubusercontent.com/AnyswapIN/nftlist/main/telos.png',
-  };
-  return wellKnown['$contract:$symbol'];
+  // Use the shared token logo lookup (well-known + cached Telos token list)
+  return getTokenLogoUrl(symbol, contract);
 }
 
 Color _getHomeTokenColor(String symbol) {
@@ -1239,7 +1237,9 @@ class _HomeTokenIconState extends State<_HomeTokenIcon> {
         width: widget.size,
         height: widget.size,
         decoration: BoxDecoration(
-          color: _hasImage ? Colors.transparent : widget.fallbackColor,
+          color: _hasImage
+              ? (widget.symbol == 'CLOAK' ? Colors.transparent : Colors.white)
+              : widget.fallbackColor,
           shape: BoxShape.circle,
         ),
         clipBehavior: Clip.antiAlias,
@@ -1423,6 +1423,16 @@ class _TokensTabContent extends StatelessWidget {
         }
       } catch (_) {}
     }
+
+    // Sort: CLOAK first, then alphabetically by symbol
+    fts.sort((a, b) {
+      if (a.symbol == 'CLOAK') return -1;
+      if (b.symbol == 'CLOAK') return 1;
+      return a.symbol.compareTo(b.symbol);
+    });
+
+    // Ensure token logos are fetched
+    fetchTelosTokenList();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,

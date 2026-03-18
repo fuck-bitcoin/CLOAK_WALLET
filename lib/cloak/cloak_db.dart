@@ -115,7 +115,7 @@ class CloakDb {
     _db = await databaseFactory.openDatabase(
       _dbPath!,
       options: OpenDatabaseOptions(
-        version: 8, // v8 was sent_transactions (removed - now on-demand)
+        version: 9, // v9 adds telos_accounts table
         onConfigure: (db) async {
           // Enable SQLCipher encryption if password provided
           if (_password.isNotEmpty && _sqlCipherAvailable) {
@@ -171,6 +171,9 @@ class CloakDb {
 
           // Initialize next_vault_index property (v7)
           await db.insert('properties', {'name': 'next_vault_index', 'value': '0'});
+
+          // Telos accounts table (v9)
+          await _createTelosAccountsTable(db);
         },
         onUpgrade: (db, oldVersion, newVersion) async {
           print('CloakDb: Upgrading from v$oldVersion to v$newVersion');
@@ -208,6 +211,10 @@ class CloakDb {
             print('CloakDb: v7 migration — added vault_index column + next_vault_index property');
           }
           // v8 migration removed - transaction details now fetched on-demand
+          if (oldVersion < 9) {
+            // v9: Add telos_accounts table for saved Telos accounts
+            await _createTelosAccountsTable(db);
+          }
           await db.update('schema_version', {'version': newVersion}, where: 'id = 1');
         },
       ),
@@ -452,6 +459,17 @@ class CloakDb {
         id INTEGER PRIMARY KEY,
         vault_hash TEXT NOT NULL,
         timestamp_ms INTEGER NOT NULL
+      )
+    ''');
+  }
+
+  static Future<void> _createTelosAccountsTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS telos_accounts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        account_name TEXT NOT NULL UNIQUE,
+        label TEXT NOT NULL DEFAULT '',
+        created_at INTEGER NOT NULL
       )
     ''');
   }
@@ -777,5 +795,43 @@ class CloakDb {
       where: "status IN ('funded', 'active')",
     );
     return results.map((r) => r['commitment_hash'] as String).toSet();
+  }
+
+  // ============== Telos Accounts CRUD ==============
+
+  /// Add a saved Telos account. Returns the row id.
+  static Future<int> addTelosAccount(String accountName, {String label = ''}) async {
+    await init();
+    final id = await _db!.insert('telos_accounts', {
+      'account_name': accountName,
+      'label': label,
+      'created_at': DateTime.now().millisecondsSinceEpoch,
+    });
+    return id;
+  }
+
+  /// Get all saved Telos accounts, newest first.
+  static Future<List<Map<String, dynamic>>> getTelosAccounts() async {
+    await init();
+    return await _db!.query('telos_accounts', orderBy: 'created_at DESC');
+  }
+
+  /// Update the label of a saved Telos account.
+  static Future<void> updateTelosAccountLabel(int id, String label) async {
+    await init();
+    await _db!.update('telos_accounts', {'label': label}, where: 'id = ?', whereArgs: [id]);
+  }
+
+  /// Delete a saved Telos account.
+  static Future<void> deleteTelosAccount(int id) async {
+    await init();
+    await _db!.delete('telos_accounts', where: 'id = ?', whereArgs: [id]);
+  }
+
+  /// Check whether a Telos account name is already saved.
+  static Future<bool> telosAccountExists(String accountName) async {
+    await init();
+    final results = await _db!.query('telos_accounts', where: 'account_name = ?', whereArgs: [accountName]);
+    return results.isNotEmpty;
   }
 }

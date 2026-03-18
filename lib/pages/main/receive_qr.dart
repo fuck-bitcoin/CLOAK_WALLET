@@ -121,6 +121,8 @@ class _ReceiveAddressPanelsState extends State<ReceiveAddressPanels> {
               onRequest: () => _requestShielded(context),
               containerColor: t.colorScheme.surfaceVariant,
             ),
+            const Gap(12),
+            _TelosReceiveCard(),
           ],
         );
       }
@@ -854,6 +856,261 @@ class _CenteredGlyphState extends State<_CenteredGlyph> {
     return Center(child: Transform.translate(offset: widget.initialOffset, child: widget.child));
   }
 }
+
+class _TelosReceiveCard extends StatelessWidget {
+  const _TelosReceiveCard();
+
+  @override
+  Widget build(BuildContext context) {
+    final t = Theme.of(context);
+    final zashi = t.extension<ZashiThemeExt>();
+    final balanceFontFamily = t.textTheme.displaySmall?.fontFamily;
+
+    // Telos brand gradient: cyan → blue → purple/magenta
+    const telosCyan = Color(0xFF5CE1E6);
+    const telosBlue = Color(0xFF38A1DB);
+    const telosPurple = Color(0xFFCB6CE6);
+
+    final panelRadius = BorderRadius.circular(16);
+    return Material(
+      color: Colors.transparent,
+      shape: RoundedRectangleBorder(borderRadius: panelRadius),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: () => GoRouter.of(context).push('/shield'),
+        borderRadius: panelRadius,
+        customBorder: RoundedRectangleBorder(borderRadius: panelRadius),
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                Color.lerp(telosCyan, Colors.black, 0.35)!,
+                Color.lerp(telosBlue, Colors.black, 0.35)!,
+                Color.lerp(telosPurple, Colors.black, 0.35)!,
+              ],
+              stops: const [0.0, 0.5, 1.0],
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  // Telos ring icon with white glow
+                  Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.white.withOpacity(0.45),
+                          blurRadius: 12,
+                          spreadRadius: 1,
+                        ),
+                      ],
+                    ),
+                    child: Center(
+                      child: SvgPicture.asset(
+                        'assets/icons/telos_ring.svg',
+                        width: 34,
+                        height: 34,
+                        colorFilter: const ColorFilter.mode(Colors.white, BlendMode.srcIn),
+                      ),
+                    ),
+                  ),
+                  const Gap(12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Receive from Telos',
+                          style: (t.textTheme.titleMedium ?? const TextStyle()).copyWith(
+                            fontFamily: balanceFontFamily,
+                            color: Colors.white,
+                          ),
+                        ),
+                        const Gap(4),
+                        Text(
+                          'Transfer tokens from your Telos account',
+                          style: (t.textTheme.bodySmall ?? const TextStyle()).copyWith(
+                            fontFamily: balanceFontFamily,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Container(
+                    width: 32,
+                    height: 32,
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.12),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Material(
+                      color: Colors.transparent,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      clipBehavior: Clip.antiAlias,
+                      child: InkWell(
+                        onTap: () => _showTelosInfo(context),
+                        borderRadius: BorderRadius.circular(8),
+                        child: Center(
+                          child: SvgPicture.string(
+                            _INFO_THIN_GLYPH,
+                            width: 16,
+                            height: 16,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const Gap(12),
+              Row(
+                children: [
+                  Expanded(
+                    child: _SquareActionButton(
+                      onPressed: () => GoRouter.of(context).push('/shield'),
+                      iconWidget: Icon(Icons.shield, size: 20, color: Colors.white),
+                      label: 'Shield',
+                      labelStyle: (t.textTheme.bodySmall ?? const TextStyle()).copyWith(
+                        fontFamily: balanceFontFamily, color: Colors.white,
+                      ),
+                      fillColor: Colors.white.withOpacity(0.10),
+                      hoverFillColor: Colors.white.withOpacity(0.18),
+                      verticalPadding: 6, spacing: 0,
+                      iconTopPadding: 0, labelBottomPadding: 0,
+                      iconHeightFactor: 1.0, labelOffsetY: -6,
+                    ),
+                  ),
+                  const Gap(8),
+                  Expanded(
+                    child: _SquareActionButton(
+                      onPressed: () => GoRouter.of(context).push('/telos_accounts'),
+                      iconWidget: Icon(Icons.people_outline, size: 24, color: Colors.white),
+                      label: 'Accounts',
+                      labelStyle: (t.textTheme.bodySmall ?? const TextStyle()).copyWith(
+                        fontFamily: balanceFontFamily, color: Colors.white,
+                      ),
+                      fillColor: Colors.white.withOpacity(0.10),
+                      hoverFillColor: Colors.white.withOpacity(0.18),
+                      verticalPadding: 6, spacing: 0,
+                      iconTopPadding: 0, labelBottomPadding: 0,
+                      iconHeightFactor: 1.0, labelOffsetY: -6,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showTelosInfo(BuildContext context) {
+    final t = Theme.of(context);
+    final zashi = t.extension<ZashiThemeExt>();
+    final balanceTextColor = zashi?.balanceAmountColor ?? const Color(0xFFBDBDBD);
+    final balanceFontFamily = t.textTheme.displaySmall?.fontFamily;
+    final titleStyle = (t.textTheme.titleLarge ?? const TextStyle()).copyWith(
+      color: balanceTextColor,
+      fontFamily: balanceFontFamily,
+      fontWeight: FontWeight.w400,
+    );
+    final bodyStyle = (t.textTheme.bodyMedium ?? const TextStyle()).copyWith(
+      color: balanceTextColor,
+      fontFamily: balanceFontFamily,
+      fontWeight: FontWeight.w400,
+    );
+
+    final bullets = [
+      'Transfer tokens from your Telos account into your CLOAK shielded wallet.',
+      'The shield process uses zero-knowledge proofs to privately move your tokens on-chain.',
+      'You will need the Anchor wallet to sign the Telos transaction.',
+      'All Telos assets are supported.',
+    ];
+
+    Widget buildBullet(String text) => Padding(
+          padding: const EdgeInsets.only(bottom: 10),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('\u2022', style: bodyStyle),
+              const SizedBox(width: 8),
+              Expanded(child: Text(text, style: bodyStyle)),
+            ],
+          ),
+        );
+
+    final Widget leadingIcon = const SizedBox.shrink();
+
+    final BorderRadius radius = BorderRadius.circular(14);
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        titlePadding: const EdgeInsets.fromLTRB(24, 20, 24, 0),
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            leadingIcon,
+            const SizedBox(height: 8),
+            Text('Receive from Telos', style: titleStyle),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            for (final b in bullets) buildBullet(b),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              height: 48,
+              child: Material(
+                color: balanceTextColor,
+                shape: RoundedRectangleBorder(borderRadius: radius),
+                child: InkWell(
+                  borderRadius: radius,
+                  onTap: () => Navigator.of(context).pop(true),
+                  child: Center(
+                    child: Text(
+                      S.of(context).ok,
+                      style: (t.textTheme.titleSmall ?? const TextStyle()).copyWith(
+                        fontFamily: balanceFontFamily,
+                        fontWeight: FontWeight.w600,
+                        color: t.colorScheme.background,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+        actions: const [],
+      ),
+    );
+  }
+}
+
+// Shield icon glyph for the Telos card (simplified shield with arrow)
+const String _TELOS_SHIELD_GLYPH =
+    '<svg width="36" height="36" viewBox="0 0 36 36" xmlns="http://www.w3.org/2000/svg">\n'
+    '  <g transform="translate(6,5)">\n'
+    '    <path d="M12 1L2 5V11C2 16.52 6.28 21.74 12 23C17.72 21.74 22 16.52 22 11V5L12 1ZM12 11.99H20C19.47 16.11 16.17 19.78 12 20.93V12H4V6.3L12 3.19V11.99Z" fill="#231F20"/>\n'
+    '  </g>\n'
+    '</svg>';
 
 // Exact Zashi QR glyph used in SEND page chips
 const String _ZASHI_QR_GLYPH =

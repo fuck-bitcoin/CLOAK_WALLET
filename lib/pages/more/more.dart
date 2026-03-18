@@ -95,6 +95,17 @@ class _MorePageState extends State<MorePage> {
               onTap: () => _onNav(MoreTile(url: '/more/resync', icon: const SizedBox.shrink(), text: '')),
             ),
 
+            if (CloakWalletManager.isCloak(aa.coin))
+              const SizedBox(height: 10),
+            if (CloakWalletManager.isCloak(aa.coin))
+              _MenuCard(
+                icon: Icons.trip_origin,
+                iconColor: Colors.white,
+                title: 'Telos Accounts',
+                subtitle: 'Manage accounts for receiving from Telos',
+                onTap: () => _onNav(MoreTile(url: '/telos_accounts', icon: const SizedBox.shrink(), text: '')),
+              ),
+
             // Display section (desktop only)
             if (isDesktop) ...[
               const SizedBox(height: 24),

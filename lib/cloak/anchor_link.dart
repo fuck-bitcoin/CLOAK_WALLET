@@ -255,9 +255,19 @@ class AnchorLinkClient {
   /// and Anchor responds on that same channel). The QR code should contain
   /// only the pure ESR URL.
   static String generateQrData(String esrUrl, String channelId) {
-    // Return the ESR URL as-is - channel communication happens via WebSocket relay
-    // The channelId parameter is kept for API compatibility but not appended
+    // Return the ESR URL as-is — appending &cb= corrupts the base64 payload
+    // Channel communication happens via the WebSocket relay separately
     return esrUrl;
+  }
+
+  /// Send the ESR payload to the relay channel so Anchor can fetch it
+  void sendRequest(String esrUrl) {
+    if (_channel == null) return;
+    // Send the ESR as a JSON message to the relay
+    _channel!.sink.add(jsonEncode({
+      'type': 'request',
+      'request': esrUrl,
+    }));
   }
 }
 

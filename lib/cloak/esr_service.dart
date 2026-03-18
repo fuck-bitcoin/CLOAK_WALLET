@@ -118,30 +118,34 @@ class EsrService {
     // Push the exact same bytes we signed - DO NOT re-serialize!
     buffer.pushRaw(txBytes);
 
-    // FIX #2: Changed flags from 1 to 0 (2026-02-05)
-    // Flags = 0 (Anchor signs but does NOT broadcast)
-    // With flags=0, Anchor will:
-    // 1. Add user's signature to the transaction
-    // 2. Return the signed transaction via WebSocket (not broadcast it)
-    //
-    // Then Flutter will:
-    // 1. Receive the signed transaction with user's signature
-    // 2. Add the pre-computed thezeosalias signature (_lastPresignature)
-    // 3. Broadcast the fully-signed transaction via push_transaction API
-    //
-    // This avoids the anchor-link cosig rejection issue:
-    // - anchor-link rejects flags=1 with cosig info pairs
-    // - flags=0 lets us handle signature assembly ourselves
-    buffer.pushUint8(0);
+    // Flags = 1 (Anchor signs AND broadcasts)
+    // The thezeosalias@public signature is embedded as a cosig info pair
+    // so Anchor has both signatures and can broadcast directly.
+    // This matches how app.cloak.today / wharfkit handles multi-auth transactions.
+    buffer.pushUint8(1);
 
     // Callback
     buffer.pushString(callback ?? '');
 
-    // Info pairs - with flags=0, we don't need cosig in ESR
-    // The thezeosalias signature is stored in _lastPresignature and will be
-    // added by Flutter after Anchor returns the user-signed transaction.
-    // No info pairs needed.
-    buffer.pushVarint32(0); // 0 info pairs
+    // Info pairs: 1 pair — cosig with pre-computed thezeosalias signature
+    buffer.pushVarint32(1); // 1 info pair
+
+    // Key: "cosig" (variable-length string)
+    buffer.pushString('cosig');
+
+    // Value: ABI-encoded signature[] (array of EOSIO signatures)
+    // Each EOSIO signature in ABI wire format is: uint8 variant (0=K1) + 65 bytes data
+    // The SIG_K1_ string is decoded: strip "SIG_K1_" prefix, base58 decode with "K1" checksum
+    // Decode SIG_K1_xxx → strip "SIG_K1_" → base58 decode with "K1" checksum → 65 raw bytes
+    final sigRawBytes = _decodeSigK1(sigString);
+    // Build the cosig value: varuint32(1) + uint8(0) + 65 bytes
+    final cosigValue = EsrBuffer();
+    cosigValue.pushVarint32(1); // 1 signature in the array
+    cosigValue.pushUint8(0);    // variant 0 = K1 curve
+    cosigValue.pushRaw(sigRawBytes); // 65 bytes of signature data
+    final cosigBytes = cosigValue.asUint8List();
+    buffer.pushVarint32(cosigBytes.length);
+    buffer.pushRaw(cosigBytes);
 
     // Store the pre-computed signature for potential manual fallback
     _lastPresignature = sigString;
@@ -167,6 +171,225 @@ class EsrService {
   // _signatureToAbiBytes and _bigIntToBytes32 were removed:
   // No longer needed since flags=0 flow doesn't embed cosig in ESR info pairs.
   // Signatures are now combined at broadcast time, not encoded in the ESR payload.
+
+  /// Create an ESR with ONLY the user's transfer actions (2-step shield flow)
+  ///
+  /// Step 1: Anchor signs and broadcasts just the 2 transfers (this method)
+  /// Step 2: Wallet broadcasts begin/mint/end separately (broadcastMintOnly)
+  ///
+  /// This avoids the multi-auth confusion where Anchor shows 5 actions
+  /// but can only sign 2 of them. Uses flags=1 so Anchor broadcasts directly.
+  static Future<String> createTransferOnlyEsr({
+    required String tokenContract,
+    required String quantity,
+    required String userAccount,
+    String feeQuantity = '0.3000 CLOAK',
+  }) async {
+    const memo = 'ZEOS transfer & mint';
+
+    final actions = [
+      // Transfer tokens to zeosprotocol
+      {
+        'account': tokenContract,
+        'name': 'transfer',
+        'authorization': [
+          {'actor': actorPlaceholder, 'permission': permissionPlaceholder}
+        ],
+        'data': {
+          'from': actorPlaceholder,
+          'to': 'zeosprotocol',
+          'quantity': quantity,
+          'memo': memo,
+        },
+      },
+      // Transfer fee to thezeosalias
+      {
+        'account': 'thezeostoken',
+        'name': 'transfer',
+        'authorization': [
+          {'actor': actorPlaceholder, 'permission': permissionPlaceholder}
+        ],
+        'data': {
+          'from': actorPlaceholder,
+          'to': 'thezeosalias',
+          'quantity': feeQuantity,
+          'memo': 'tx fee',
+        },
+      },
+    ];
+
+    // Build ESR with variant 1 (action list) and flags=1 (Anchor broadcasts)
+    final buffer = EsrBuffer();
+
+    // Chain ID variant 0 = chain_alias
+    buffer.pushVarint32(0);
+    buffer.pushUint8(2); // Telos
+
+    // Request variant 1 = action list (not a full transaction)
+    buffer.pushVarint32(1);
+    // Push action count
+    buffer.pushVarint32(actions.length);
+    // Serialize each action
+    for (final action in actions) {
+      _serializeActionToEsr(buffer, action);
+    }
+
+    // Flags = 1 (Anchor broadcasts the transaction itself)
+    buffer.pushUint8(1);
+
+    // Callback
+    buffer.pushString('');
+
+    // Info pairs
+    buffer.pushVarint32(0);
+
+    // Encode
+    final payload = buffer.asUint8List();
+    final header = ESR_VERSION | 0x80;
+    final codec = ZLibCodec(level: 9, raw: true);
+    final compressed = codec.encode(payload);
+    final result = Uint8List(1 + compressed.length);
+    result[0] = header;
+    result.setRange(1, result.length, compressed);
+    final encoded = base64Url.encode(result).replaceAll('=', '');
+    return 'esr://$encoded';
+  }
+
+  /// Serialize an action into the ESR buffer (for variant 1 action list)
+  static void _serializeActionToEsr(EsrBuffer buffer, Map<String, dynamic> action) {
+    // account (name)
+    buffer.pushName(action['account'] as String);
+    // action name
+    buffer.pushName(action['name'] as String);
+    // authorization array
+    final auth = action['authorization'] as List;
+    buffer.pushVarint32(auth.length);
+    for (final a in auth) {
+      final m = a as Map<String, dynamic>;
+      buffer.pushName(m['actor'] as String);
+      buffer.pushName(m['permission'] as String);
+    }
+    // data - for ESR variant 1, we push the data as JSON string bytes
+    // Anchor will ABI-serialize it
+    final dataJson = jsonEncode(action['data']);
+    final dataBytes = utf8.encode(dataJson);
+    buffer.pushVarint32(dataBytes.length);
+    buffer.pushRaw(Uint8List.fromList(dataBytes));
+  }
+
+  /// Build and broadcast the begin/mint/end transaction (step 2 of 2-step flow)
+  ///
+  /// After the user's transfers are confirmed on-chain, this builds a
+  /// transaction with only begin/mint/end actions, signs it with
+  /// thezeosalias@public, and broadcasts directly. No Anchor needed.
+  static Future<String> broadcastMintOnly({
+    required Map<String, dynamic> mintProof,
+    String feeQuantity = '0.3000 CLOAK',
+  }) async {
+    final chainInfo = await _fetchChainInfo();
+    if (chainInfo == null) throw Exception('Failed to fetch chain info');
+
+    final headBlockId = chainInfo['head_block_id'] as String;
+    final refBlockNum = int.parse(headBlockId.substring(0, 8), radix: 16) & 0xFFFF;
+    final refBlockPrefix = _reverseHex(headBlockId.substring(16, 24));
+    final expiration = DateTime.now().add(const Duration(minutes: 10));
+
+    final actions = [
+      // begin
+      {
+        'account': 'thezeosalias',
+        'name': 'begin',
+        'authorization': [
+          {'actor': 'thezeosalias', 'permission': 'public'}
+        ],
+        'data': {},
+      },
+      // mint (ZK proof)
+      {
+        'account': 'thezeosalias',
+        'name': 'mint',
+        'authorization': [
+          {'actor': 'thezeosalias', 'permission': 'public'}
+        ],
+        'data': mintProof,
+      },
+      // end
+      {
+        'account': 'thezeosalias',
+        'name': 'end',
+        'authorization': [
+          {'actor': 'thezeosalias', 'permission': 'public'}
+        ],
+        'data': {},
+      },
+    ];
+
+    final transaction = {
+      'expiration': '${expiration.toUtc().toIso8601String().split('.')[0]}Z',
+      'ref_block_num': refBlockNum,
+      'ref_block_prefix': refBlockPrefix,
+      'max_net_usage_words': 0,
+      'max_cpu_usage_ms': 0,
+      'delay_sec': 0,
+      'context_free_actions': <Map<String, dynamic>>[],
+      'actions': actions,
+      'transaction_extensions': <dynamic>[],
+    };
+
+    // Sign with thezeosalias@public key only
+    final signatures = await EsrTransactionHelper.signWithAliasKey(
+      transaction: transaction,
+      existingSignatures: [],
+    );
+
+    // Broadcast
+    final result = await EsrTransactionHelper.broadcastTransaction(
+      transaction: transaction,
+      signatures: signatures,
+    );
+
+    return result['transaction_id'] as String? ?? 'unknown';
+  }
+
+  /// Decode a SIG_K1_ string to its raw 65-byte binary representation
+  static Uint8List _decodeSigK1(String sigString) {
+    // Strip the "SIG_K1_" prefix
+    if (!sigString.startsWith('SIG_K1_')) {
+      throw Exception('Expected SIG_K1_ prefix');
+    }
+    final encoded = sigString.substring(7);
+    // Base58 decode with RIPEMD160 checksum using "K1" suffix
+    // Same logic as eosdart_ecc's EOSKey.decodeKey(encoded, 'K1')
+    final buffer = base58Decode(encoded);
+    // Last 4 bytes are checksum, rest is the key data (65 bytes)
+    return buffer.sublist(0, buffer.length - 4);
+  }
+
+  /// Base58 decode (same alphabet as Bitcoin/EOSIO)
+  static Uint8List base58Decode(String input) {
+    const _alphabet = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+    BigInt result = BigInt.zero;
+    for (int i = 0; i < input.length; i++) {
+      final idx = _alphabet.indexOf(input[i]);
+      if (idx < 0) throw Exception('Invalid base58 character: ${input[i]}');
+      result = result * BigInt.from(58) + BigInt.from(idx);
+    }
+    // Convert BigInt to bytes
+    final hex = result.toRadixString(16).padLeft(2, '0');
+    final paddedHex = hex.length.isOdd ? '0$hex' : hex;
+    final bytes = <int>[];
+    for (int i = 0; i < paddedHex.length; i += 2) {
+      bytes.add(int.parse(paddedHex.substring(i, i + 2), radix: 16));
+    }
+    // Count leading '1's in input (leading zeros in base58)
+    int leadingZeros = 0;
+    for (int i = 0; i < input.length && input[i] == '1'; i++) {
+      leadingZeros++;
+    }
+    final result2 = Uint8List(leadingZeros + bytes.length);
+    result2.setRange(leadingZeros, result2.length, bytes);
+    return result2;
+  }
 
   /// Fetch chain info from Telos
   static Future<Map<String, dynamic>?> _fetchChainInfo() async {
@@ -981,8 +1204,12 @@ class EsrService {
     ];
   }
 
+  // NOTE: buildUserTransferActions and the second createTransferOnlyEsr were
+  // removed — duplicated by the methods at lines 178-340. Use those instead.
+  //
   /// Build ONLY the user transfer actions for ESR (simple actions Anchor can handle)
   /// The begin/mint/end actions will be added later and signed with thezeosalias key
+  /// @deprecated Use createTransferOnlyEsr at line 178 instead
   static List<Map<String, dynamic>> buildUserTransferActions({
     required String tokenContract,
     required String quantity,
@@ -1027,60 +1254,7 @@ class EsrService {
     ];
   }
 
-  /// Create a simple ESR for just the user's transfer actions
-  /// Returns ESR URL that Anchor can easily decode and sign
-  static Future<String> createTransferOnlyEsr({
-    required String tokenContract,
-    required String quantity,
-    required String userAccount,
-    String feeQuantity = '0.3000 CLOAK',
-  }) async {
-    final actions = buildUserTransferActions(
-      tokenContract: tokenContract,
-      quantity: quantity,
-      userAccount: userAccount,
-      feeQuantity: feeQuantity,
-    );
-
-    // Use simple ESR (variant 1 = action array) with broadcast=false
-    // so we get the signed transaction back to combine with our signatures
-    final buffer = EsrBuffer();
-
-    // Chain ID variant 0 = chain_alias, Telos = 2
-    buffer.pushVarint32(0);
-    buffer.pushUint8(2);
-
-    // Request variant 1 = action[]
-    buffer.pushVarint32(1);
-    buffer.pushVarint32(actions.length);
-    for (final action in actions) {
-      _serializeAction(buffer, action);
-    }
-
-    // Flags = 0 (DO NOT broadcast - return signed tx to us)
-    buffer.pushUint8(0);
-
-    // Callback - empty (we'll use Anchor Link WebSocket)
-    buffer.pushString('');
-
-    // Info pairs - empty
-    buffer.pushVarint32(0);
-
-    // Encode
-    final payload = buffer.asUint8List();
-    final header = ESR_VERSION | 0x80;
-    final codec = ZLibCodec(level: 9, raw: true);
-    final compressed = codec.encode(payload);
-
-    final result = Uint8List(1 + compressed.length);
-    result[0] = header;
-    result.setRange(1, result.length, compressed);
-
-    final encoded = base64Url.encode(result).replaceAll('=', '');
-    final esrUrl = 'esr://$encoded';
-
-    return esrUrl;
-  }
+  // Duplicate createTransferOnlyEsr removed — use the one at line 178 instead
 
   /// Build and broadcast the complete shield transaction
   ///

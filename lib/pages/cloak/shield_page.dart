@@ -4,16 +4,20 @@
 // directly within the CLOAK wallet app. Uses ESR protocol to open Anchor
 // for transaction signing - private keys never touch this app.
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_mobx/flutter_mobx.dart';
 import 'package:gap/gap.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../cloak/cloak_db.dart';
 import '../../cloak/cloak_wallet_manager.dart';
 import '../../cloak/eosio_client.dart';
 import '../../cloak/esr_service.dart';
 import '../../cloak/shield_state.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import '../../theme/zashi_tokens.dart';
 import 'esr_display_dialog.dart';
 
@@ -29,6 +33,7 @@ class _ShieldPageState extends State<ShieldPage> {
   final _accountController = TextEditingController();
   final _amountController = TextEditingController();
   final _amountFocus = FocusNode();
+  Timer? _debounceTimer;
 
   // UI constants matching Send flow exactly
   static const _addressFillColor = Color(0xFF2E2C2C);
@@ -39,6 +44,9 @@ class _ShieldPageState extends State<ShieldPage> {
   bool _isPublishing = false;
   String _shieldFeeDisplay = '0.3000 CLOAK';
 
+  /// Saved Telos accounts from the database
+  List<Map<String, dynamic>> _savedAccounts = [];
+
   @override
   void initState() {
     super.initState();
@@ -46,6 +54,13 @@ class _ShieldPageState extends State<ShieldPage> {
     shieldStore.clear();
     // Load vault hash
     _loadVaultHash();
+    // Load saved Telos accounts
+    _loadSavedAccounts();
+  }
+
+  Future<void> _loadSavedAccounts() async {
+    final accounts = await CloakDb.getTelosAccounts();
+    if (mounted) setState(() => _savedAccounts = accounts);
   }
 
   Future<void> _loadVaultHash() async {
@@ -84,6 +99,7 @@ class _ShieldPageState extends State<ShieldPage> {
   void dispose() {
     // Clear the store when navigating away
     shieldStore.clear();
+    _debounceTimer?.cancel();
     _accountController.dispose();
     _amountController.dispose();
     _amountFocus.dispose();
@@ -117,19 +133,7 @@ class _ShieldPageState extends State<ShieldPage> {
           return Text('SHIELD ASSETS', style: reduced);
         }),
         centerTitle: true,
-        actions: [
-          // DEBUG: Test simple transfer ESR
-          IconButton(
-            icon: const Icon(Icons.bug_report),
-            onPressed: _testSimpleEsr,
-            tooltip: 'Test ESR (debug)',
-          ),
-          IconButton(
-            icon: const Icon(Icons.help_outline),
-            onPressed: _showHelpDialog,
-            tooltip: 'How shielding works',
-          ),
-        ],
+        actions: const [],
       ),
       body: SafeArea(
         child: SingleChildScrollView(
@@ -138,23 +142,6 @@ class _ShieldPageState extends State<ShieldPage> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               const Gap(8),
-
-              // Section 0: Vault Deposit Info (NEW - simpler method)
-              _buildVaultSection(context, t, balanceFontFamily, balanceTextColor),
-              const Gap(16),
-
-              // Divider with "OR" text
-              Row(
-                children: [
-                  Expanded(child: Divider(color: balanceTextColor.withOpacity(0.3))),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: Text('OR USE ESR', style: TextStyle(color: balanceTextColor.withOpacity(0.5), fontSize: 12)),
-                  ),
-                  Expanded(child: Divider(color: balanceTextColor.withOpacity(0.3))),
-                ],
-              ),
-              const Gap(16),
 
               // Section 1: Telos Account Input
               Align(
@@ -303,7 +290,7 @@ class _ShieldPageState extends State<ShieldPage> {
     );
   }
 
-  /// Account input field with verify button (matches send.dart TextField styling)
+  /// Account input with saved accounts dropdown
   Widget _buildAccountInput(
     BuildContext context,
     ThemeData t,
@@ -312,66 +299,127 @@ class _ShieldPageState extends State<ShieldPage> {
     Color chipBorderColor,
     Color balanceTextColor,
   ) {
-    return TextField(
-      controller: _accountController,
-      cursorColor: balanceTextColor,
-      style: (t.textTheme.bodyMedium ?? const TextStyle()).copyWith(
-        fontFamily: balanceFontFamily,
-        color: t.colorScheme.onSurface,
-      ),
-      decoration: InputDecoration(
-        hintText: 'e.g., myaccount123',
-        hintStyle: (t.textTheme.bodyMedium ?? const TextStyle()).copyWith(
-          fontFamily: balanceFontFamily,
-          fontWeight: FontWeight.w400,
-          color: t.colorScheme.onSurface.withOpacity(0.7),
-        ),
-        filled: true,
-        fillColor: WidgetStateColor.resolveWith((_) => _addressFillColor),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
-          borderSide: BorderSide.none,
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
-          borderSide: BorderSide.none,
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
-          borderSide: BorderSide.none,
-        ),
-        prefixIcon: Icon(Icons.account_circle_outlined, color: t.colorScheme.onSurface.withOpacity(0.5)),
-        suffixIcon: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 8),
-          child: Observer(builder: (context) {
-            if (shieldStore.isLoadingTokens) {
-              return const SizedBox(
-                width: 36,
-                height: 36,
-                child: Center(
-                  child: SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Saved accounts chips (if any)
+        if (_savedAccounts.isNotEmpty) ...[
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: _savedAccounts.map((acct) {
+                final name = acct['account_name'] as String;
+                final label = acct['label'] as String? ?? '';
+                final isSelected = _accountController.text.trim() == name;
+                return Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: Material(
+                    color: isSelected
+                        ? balanceTextColor.withOpacity(0.25)
+                        : _addressFillColor,
+                    borderRadius: BorderRadius.circular(20),
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(20),
+                      onTap: () {
+                        _accountController.text = name;
+                        _debounceTimer?.cancel();
+                        _verifyAccount();
+                      },
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            SvgPicture.asset(
+                              'assets/icons/telos_ring.svg',
+                              width: 16,
+                              height: 16,
+                              colorFilter: ColorFilter.mode(
+                                isSelected ? Colors.white : balanceTextColor.withOpacity(0.6),
+                                BlendMode.srcIn,
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              label.isNotEmpty ? label : name,
+                              style: TextStyle(
+                                color: isSelected ? Colors.white : balanceTextColor.withOpacity(0.7),
+                                fontSize: 13,
+                                fontFamily: label.isNotEmpty ? balanceFontFamily : 'monospace',
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
                   ),
-                ),
-              );
+                );
+              }).toList(),
+            ),
+          ),
+          const SizedBox(height: 8),
+        ],
+        // Text field
+        TextField(
+          controller: _accountController,
+          cursorColor: balanceTextColor,
+          style: (t.textTheme.bodyMedium ?? const TextStyle()).copyWith(
+            fontFamily: balanceFontFamily,
+            color: t.colorScheme.onSurface,
+          ),
+          decoration: InputDecoration(
+            hintText: 'Enter Telos account name',
+            hintStyle: (t.textTheme.bodyMedium ?? const TextStyle()).copyWith(
+              fontFamily: balanceFontFamily,
+              fontWeight: FontWeight.w400,
+              color: t.colorScheme.onSurface.withOpacity(0.4),
+            ),
+            filled: true,
+            fillColor: WidgetStateColor.resolveWith((_) => _addressFillColor),
+            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
+            enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
+            focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
+            prefixIcon: Padding(
+              padding: const EdgeInsets.all(12),
+              child: SvgPicture.asset(
+                'assets/icons/telos_ring.svg',
+                width: 20,
+                height: 20,
+                colorFilter: ColorFilter.mode(t.colorScheme.onSurface.withOpacity(0.5), BlendMode.srcIn),
+              ),
+            ),
+            suffixIcon: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              child: Observer(builder: (context) {
+                if (shieldStore.isLoadingTokens) {
+                  return SizedBox(
+                    width: 36, height: 36,
+                    child: Center(child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: balanceTextColor))),
+                  );
+                }
+                return const SizedBox(width: 36, height: 36);
+              }),
+            ),
+          ),
+          onChanged: (value) {
+            _debounceTimer?.cancel();
+            final trimmed = value.trim();
+            if (trimmed.length >= 1) {
+              _debounceTimer = Timer(const Duration(milliseconds: 800), () {
+                _verifyAccount();
+              });
             }
-            return _SuffixChip(
-              icon: Icon(Icons.check_circle_outline, size: 18, color: t.colorScheme.onSurface),
-              backgroundColor: chipBgColor,
-              borderColor: chipBorderColor,
-              onTap: _verifyAccount,
-            );
-          }),
+            // Rebuild to update chip selection state
+            setState(() {});
+          },
+          onSubmitted: (_) => _verifyAccount(),
+          textInputAction: TextInputAction.next,
+          inputFormatters: [
+            FilteringTextInputFormatter.allow(RegExp(r'[a-z1-5.]')),
+            LengthLimitingTextInputFormatter(12),
+          ],
         ),
-      ),
-      onSubmitted: (_) => _verifyAccount(),
-      textInputAction: TextInputAction.next,
-      inputFormatters: [
-        FilteringTextInputFormatter.allow(RegExp(r'[a-z1-5.]')),
-        LengthLimitingTextInputFormatter(12),
       ],
     );
   }
@@ -683,7 +731,7 @@ class _ShieldPageState extends State<ShieldPage> {
           const Gap(8),
           Expanded(
             child: Text(
-              'Shield fee: $_shieldFeeDisplay (paid separately)',
+              'Shield fee: $_shieldFeeDisplay (paid from your Telos account via Anchor)',
               style: (t.textTheme.bodySmall ?? const TextStyle()).copyWith(
                 color: Colors.amber[700],
               ),
@@ -832,18 +880,6 @@ class _ShieldPageState extends State<ShieldPage> {
               ),
             ),
           ],
-          const Gap(8),
-          TextButton.icon(
-            onPressed: !isLoading && shieldStore.telosAccountName != null
-                ? _clearAssetBuffer
-                : null,
-            icon: const Icon(Icons.cleaning_services, size: 16),
-            label: const Text('Clear Asset Buffer'),
-            style: TextButton.styleFrom(
-              foregroundColor: Colors.orange[300],
-              textStyle: const TextStyle(fontSize: 12),
-            ),
-          ),
         ],
       );
     });
@@ -908,26 +944,18 @@ class _ShieldPageState extends State<ShieldPage> {
 
       if (mounted) {
         // Show the ESR display dialog with QR code
-        // Pass shieldData so we can complete the transaction after Anchor signs
+        // All 5 actions in one signing request (same pattern as app.cloak.today)
+        // Anchor signs, returns via WebSocket, wallet adds thezeosalias sig and broadcasts
         final result = await EsrDisplayDialog.show(
           context,
           esrUrl: esrUrl,
-          title: 'Sign Token Transfers',
-          subtitle: 'Scan with Anchor to approve your token transfers.\n'
-              'The ZK proof will be added and broadcast automatically.',
+          title: 'Sign Shield Transaction',
+          subtitle: 'Approve in Anchor to shield your tokens.\n'
+              'The transaction includes the ZK proof.',
           shieldData: shieldData,
         );
 
-        // If result is not null, transaction was broadcast successfully
-        if (result != null && mounted) {
-          // Handle both automatic and manual completion
-          if (result['status'] == 'completed_manually') {
-            await _showSuccessDialog(null);
-          } else {
-            final txId = result['transaction_id']?.toString();
-            await _showSuccessDialog(txId);
-          }
-        }
+        // Dialog handles navigation to balance page via DONE button
       }
     } catch (e) {
       shieldStore.setError(e.toString());
@@ -977,7 +1005,22 @@ class _ShieldPageState extends State<ShieldPage> {
   }
 
   /// Show success dialog after transaction is broadcast
+  /// Auto-save the Telos account if not already saved
+  Future<void> _autoSaveAccount(String accountName) async {
+    final exists = await CloakDb.telosAccountExists(accountName);
+    if (!exists) {
+      await CloakDb.addTelosAccount(accountName);
+      await _loadSavedAccounts();
+    }
+  }
+
   Future<void> _showSuccessDialog([String? txId]) async {
+    // Auto-save the account on successful shield
+    final accountName = shieldStore.telosAccountName;
+    if (accountName != null && accountName.isNotEmpty) {
+      await _autoSaveAccount(accountName);
+    }
+
     await showDialog(
       context: context,
       builder: (ctx) => AlertDialog(

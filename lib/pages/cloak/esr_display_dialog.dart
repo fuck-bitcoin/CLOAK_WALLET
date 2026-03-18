@@ -7,12 +7,15 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:go_router/go_router.dart';
 import 'package:gap/gap.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../accounts.dart';
 import '../../cloak/anchor_link.dart';
 import '../../cloak/esr_service.dart';
+import '../../theme/zashi_tokens.dart';
 import '../utils.dart';
 
 /// Dialog that displays an ESR URL with QR code and copy options
@@ -76,6 +79,7 @@ class _EsrDisplayDialogState extends State<EsrDisplayDialog> {
   void initState() {
     super.initState();
     _initAnchorLink();
+    // _startTransactionPolling is called AFTER Anchor is launched
   }
 
   @override
@@ -84,6 +88,9 @@ class _EsrDisplayDialogState extends State<EsrDisplayDialog> {
     _signatureController.dispose();
     super.dispose();
   }
+
+  /// No auto-detection — user taps Done
+  void _startTransactionPolling() {}
 
   /// Process manually entered signature from desktop Anchor
   Future<void> _processManualSignature() async {
@@ -153,11 +160,18 @@ class _EsrDisplayDialogState extends State<EsrDisplayDialog> {
     // Connect first to get channel ID for QR code
     final connected = await _anchorLink!.connect();
     if (connected && mounted) {
+      // Send the ESR to the relay channel so Anchor can fetch it
+      _anchorLink!.sendRequest(widget.esrUrl);
       // Force rebuild so QR code includes channel ID
       setState(() {});
       // Start listening for response in background
       _waitForResponseInBackground();
     }
+
+    // Auto-launch Anchor Desktop with the ESR, then start watching for TX
+    await _launchAnchorDesktop();
+    // Snapshot AFTER Anchor launch — avoids capturing stale values from before
+    _startTransactionPolling();
   }
 
   /// Wait for Anchor to respond after signing
@@ -304,16 +318,13 @@ class _EsrDisplayDialogState extends State<EsrDisplayDialog> {
   /// Launch Anchor Desktop directly with the ESR
   Future<void> _launchAnchorDesktop() async {
     try {
+      // Use the raw ESR URL — Anchor Desktop handles esr:// protocol directly
+      // Don't append callback channel (corrupts the base64 payload)
       final launched = await EsrService.launchAnchor(widget.esrUrl);
       if (launched) {
-        showSnackBar('Anchor opened! Review and sign the transaction.');
       } else {
-        showSnackBar('Could not launch Anchor. Try copying the link instead.');
       }
     } catch (e) {
-      if (mounted) {
-        showSnackBar('Error launching Anchor: $e');
-      }
     }
   }
 
@@ -394,6 +405,9 @@ class _EsrDisplayDialogState extends State<EsrDisplayDialog> {
   @override
   Widget build(BuildContext context) {
     final t = Theme.of(context);
+    final zashi = t.extension<ZashiThemeExt>();
+    final balanceTextColor = zashi?.balanceAmountColor ?? const Color(0xFFBDBDBD);
+    final balanceFontFamily = t.textTheme.displaySmall?.fontFamily;
     final mediaQuery = MediaQuery.of(context);
     final qrSize = mediaQuery.size.width * 0.40; // Smaller QR to fit better
 
@@ -438,6 +452,7 @@ class _EsrDisplayDialogState extends State<EsrDisplayDialog> {
               ),
               child: Column(
                 children: [
+                  if (!_transactionSigned) ...[
                   // Subtitle/instructions
                   Text(
                     widget.subtitle ??
@@ -450,7 +465,7 @@ class _EsrDisplayDialogState extends State<EsrDisplayDialog> {
                   const Gap(16),
 
                   // Anchor Link Status Indicator
-                  if (_linkStatus != AnchorLinkStatus.disconnected) ...[
+                  if (false) ...[
                     _buildStatusIndicator(t),
                     const Gap(12),
                   ],
@@ -500,183 +515,150 @@ class _EsrDisplayDialogState extends State<EsrDisplayDialog> {
                   ),
                   const Gap(16),
 
-                  // Action buttons
-                  // Copy to Clipboard button
+                  // Action buttons (dark theme, matching More menu patterns)
+                  // Copy ESR Link
                   SizedBox(
                     width: double.infinity,
                     height: 44,
-                    child: ElevatedButton.icon(
-                      onPressed: _copyToClipboard,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: _copied ? Colors.green : t.colorScheme.primary,
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
+                    child: Material(
+                      color: _copied ? const Color(0xFF2E4A2E) : const Color(0xFF2E2C2C),
+                      borderRadius: BorderRadius.circular(14),
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(14),
+                        onTap: _copyToClipboard,
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(_copied ? Icons.check : Icons.copy, size: 18, color: balanceTextColor),
+                            const SizedBox(width: 8),
+                            Text(
+                              _copied ? 'Copied!' : 'Copy ESR Link',
+                              style: TextStyle(color: balanceTextColor, fontFamily: balanceFontFamily, fontWeight: FontWeight.w500),
+                            ),
+                          ],
                         ),
                       ),
-                      icon: Icon(_copied ? Icons.check : Icons.copy, size: 18),
-                      label: Text(_copied ? 'Copied!' : 'Copy ESR Link'),
                     ),
                   ),
                   const Gap(10),
 
-                  // Launch Anchor Desktop button
+                  // Launch Anchor Desktop
                   SizedBox(
                     width: double.infinity,
                     height: 44,
-                    child: ElevatedButton.icon(
-                      onPressed: _launchAnchorDesktop,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.blue[700],
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
+                    child: Material(
+                      color: const Color(0xFF2E2C2C),
+                      borderRadius: BorderRadius.circular(14),
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(14),
+                        onTap: _launchAnchorDesktop,
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.launch, size: 18, color: balanceTextColor),
+                            const SizedBox(width: 8),
+                            Text(
+                              'Launch Anchor',
+                              style: TextStyle(color: balanceTextColor, fontFamily: balanceFontFamily, fontWeight: FontWeight.w500),
+                            ),
+                          ],
                         ),
                       ),
-                      icon: const Icon(Icons.launch, size: 18),
-                      label: const Text('Launch Anchor Desktop'),
-                    ),
-                  ),
-                  const Gap(10),
-
-                  // Open in Browser button
-                  SizedBox(
-                    width: double.infinity,
-                    height: 44,
-                    child: OutlinedButton.icon(
-                      onPressed: _openInBrowser,
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: t.colorScheme.onSurface,
-                        side: BorderSide(color: t.colorScheme.outline),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                      icon: const Icon(Icons.open_in_browser, size: 18),
-                      label: const Text('Open in Browser'),
                     ),
                   ),
                   const Gap(16),
 
-                  // Mark Complete button - for when Anchor broadcasts directly
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Colors.green.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: Colors.green.withOpacity(0.3)),
-                    ),
-                    child: Column(
-                      children: [
-                        Text(
-                          'Did Anchor show "Transaction Broadcast"?',
-                          style: t.textTheme.bodySmall?.copyWith(
-                            color: Colors.green[700],
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        const Gap(8),
-                        SizedBox(
-                          width: double.infinity,
-                          height: 40,
-                          child: ElevatedButton.icon(
-                            onPressed: () {
-                              Navigator.of(context).pop({'status': 'completed_manually'});
-                            },
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.green[700],
-                              foregroundColor: Colors.white,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(8),
-                              ),
+                  ], // end if (!_transactionSigned)
+
+                  // Done button — always visible, takes user to balance page
+                  SizedBox(
+                    width: double.infinity,
+                    height: 48,
+                    child: Material(
+                      color: balanceTextColor,
+                      borderRadius: BorderRadius.circular(14),
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(14),
+                        onTap: () async {
+                          // 1. Navigate to balance behind the sheet (user can't see it yet)
+                          GoRouter.of(context).go('/account');
+                          // 2. Wait for balance page to fully render behind the sheet
+                          await Future.delayed(const Duration(milliseconds: 500));
+                          // 3. Pop the sheet — it slides down to reveal balance
+                          if (mounted) Navigator.of(context).pop({'status': 'completed_manually'});
+                        },
+                        child: Center(
+                          child: Text(
+                            'DONE',
+                            style: TextStyle(
+                              color: t.colorScheme.background,
+                              fontFamily: balanceFontFamily,
+                              fontWeight: FontWeight.w600,
+                              letterSpacing: 1,
                             ),
-                            icon: const Icon(Icons.check_circle, size: 18),
-                            label: const Text('Yes, Transaction Complete!'),
                           ),
                         ),
-                      ],
+                      ),
                     ),
                   ),
                   const Gap(12),
 
-                  // Manual signature entry for desktop Anchor users (fallback)
-                  if (!_showManualEntry) ...[
-                    TextButton.icon(
-                      onPressed: () => setState(() => _showManualEntry = true),
-                      icon: Icon(Icons.keyboard, color: Colors.orange[700], size: 16),
-                      label: Text(
-                        'Advanced: Paste signature manually',
-                        style: t.textTheme.bodySmall?.copyWith(
-                          color: Colors.orange[700],
+                  // Manual signature entry (fallback) — hidden after success
+                  if (!_transactionSigned && !_showManualEntry) ...[
+                    Center(
+                      child: InkWell(
+                        onTap: () => setState(() => _showManualEntry = true),
+                        child: Text(
+                          'Advanced: Paste signature manually',
+                          style: TextStyle(color: balanceTextColor.withOpacity(0.5), fontSize: 12, fontFamily: balanceFontFamily),
                         ),
                       ),
                     ),
-                  ] else ...[
+                  ] else if (!_transactionSigned) ...[
                     Container(
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
-                        color: Colors.orange.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: Colors.orange.withOpacity(0.3)),
+                        color: const Color(0xFF2E2C2C),
+                        borderRadius: BorderRadius.circular(14),
                       ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Row(
-                            children: [
-                              Icon(Icons.edit, color: Colors.orange[700], size: 16),
-                              const Gap(8),
-                              Text(
-                                'Paste Raw Signature from Anchor:',
-                                style: t.textTheme.bodySmall?.copyWith(
-                                  color: Colors.orange[700],
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ],
+                          Text(
+                            'Paste Raw Signature from Anchor:',
+                            style: TextStyle(color: balanceTextColor.withOpacity(0.7), fontSize: 12, fontFamily: balanceFontFamily),
                           ),
                           const Gap(8),
                           TextField(
                             controller: _signatureController,
                             maxLines: 2,
-                            style: t.textTheme.bodySmall?.copyWith(
-                              fontFamily: 'monospace',
-                            ),
+                            cursorColor: balanceTextColor,
+                            style: TextStyle(color: balanceTextColor, fontFamily: 'monospace', fontSize: 12),
                             decoration: InputDecoration(
                               hintText: 'SIG_K1_...',
-                              hintStyle: TextStyle(color: Colors.grey[500]),
+                              hintStyle: TextStyle(color: balanceTextColor.withOpacity(0.3)),
                               filled: true,
-                              fillColor: Colors.black.withOpacity(0.2),
+                              fillColor: Colors.black.withOpacity(0.3),
                               contentPadding: const EdgeInsets.all(10),
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(8),
-                                borderSide: BorderSide.none,
-                              ),
+                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
                             ),
                           ),
                           const Gap(10),
                           SizedBox(
                             width: double.infinity,
                             height: 40,
-                            child: ElevatedButton(
-                              onPressed: _isProcessing ? null : _processManualSignature,
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.orange[700],
-                                foregroundColor: Colors.white,
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(8),
+                            child: Material(
+                              color: balanceTextColor,
+                              borderRadius: BorderRadius.circular(10),
+                              child: InkWell(
+                                borderRadius: BorderRadius.circular(10),
+                                onTap: _isProcessing ? null : _processManualSignature,
+                                child: Center(
+                                  child: _isProcessing
+                                      ? SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: t.colorScheme.background))
+                                      : Text('Sign & Broadcast', style: TextStyle(color: t.colorScheme.background, fontFamily: balanceFontFamily, fontWeight: FontWeight.w600)),
                                 ),
                               ),
-                              child: _isProcessing
-                                  ? const SizedBox(
-                                      width: 18,
-                                      height: 18,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                        color: Colors.white,
-                                      ),
-                                    )
-                                  : const Text('Sign & Broadcast'),
                             ),
                           ),
                         ],
@@ -685,11 +667,12 @@ class _EsrDisplayDialogState extends State<EsrDisplayDialog> {
                   ],
                   const Gap(12),
 
-                  // Instructions
+                  // Instructions — hidden after success
+                  if (!_transactionSigned)
                   Container(
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      color: Colors.blue.withOpacity(0.1),
+                      color: const Color(0xFF2E2C2C),
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(color: Colors.blue.withOpacity(0.3)),
                     ),
@@ -698,12 +681,14 @@ class _EsrDisplayDialogState extends State<EsrDisplayDialog> {
                       children: [
                         Row(
                           children: [
-                            Icon(Icons.info_outline, color: Colors.blue[700], size: 16),
+                            Icon(Icons.info_outline, color: balanceTextColor.withOpacity(0.5), size: 16),
                             const Gap(8),
                             Text(
                               'How to use in Anchor:',
-                              style: t.textTheme.bodySmall?.copyWith(
-                                color: Colors.blue[700],
+                              style: TextStyle(
+                                color: balanceTextColor.withOpacity(0.7),
+                                fontFamily: balanceFontFamily,
+                                fontSize: 12,
                                 fontWeight: FontWeight.w600,
                               ),
                             ),
@@ -711,13 +696,14 @@ class _EsrDisplayDialogState extends State<EsrDisplayDialog> {
                         ),
                         const Gap(8),
                         Text(
-                          '1. Open Anchor wallet and unlock it\n'
-                          '2. Go to Tools → URI Handler\n'
-                          '3. Paste the copied ESR link\n'
-                          '4. Copy the "Raw Signature" shown\n'
-                          '5. Paste it above and click Sign & Broadcast',
-                          style: t.textTheme.bodySmall?.copyWith(
-                            color: Colors.blue[700],
+                          '1. Click on Import Transaction\n'
+                          '2. Import ESR Payload\n'
+                          '3. Paste the ESR Link\n'
+                          '4. Trigger Signing Request',
+                          style: TextStyle(
+                            color: balanceTextColor.withOpacity(0.5),
+                            fontFamily: balanceFontFamily,
+                            fontSize: 11,
                             height: 1.4,
                           ),
                         ),

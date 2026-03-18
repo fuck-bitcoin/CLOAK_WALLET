@@ -58,6 +58,7 @@ import 'appsettings.dart';
 import 'pages/cloak/pending_requests.dart';
 import 'pages/cloak/request_approval.dart';
 import 'pages/cloak/shield_page.dart';
+import 'pages/more/telos_accounts_page.dart';
 import 'cloak/signature_provider_state.dart';
 
 final rootNavigatorKey = GlobalKey<NavigatorState>();
@@ -222,6 +223,22 @@ final router = GoRouter(
       pageBuilder: (context, state) => CustomTransitionPage(
         key: state.pageKey,
         child: const ShieldPage(),
+        transitionDuration: const Duration(milliseconds: 300),
+        reverseTransitionDuration: const Duration(milliseconds: 300),
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          final curved = CurvedAnimation(parent: animation, curve: Curves.easeOutCubic, reverseCurve: Curves.easeInCubic);
+          final offset = Tween<Offset>(begin: const Offset(1.0, 0.0), end: Offset.zero).animate(curved);
+          return RepaintBoundary(child: SlideTransition(position: offset, child: child));
+        },
+      ),
+    ),
+    // Telos Accounts management route
+    GoRoute(
+      path: '/telos_accounts',
+      parentNavigatorKey: rootNavigatorKey,
+      pageBuilder: (context, state) => CustomTransitionPage(
+        key: state.pageKey,
+        child: const TelosAccountsPage(),
         transitionDuration: const Duration(milliseconds: 300),
         reverseTransitionDuration: const Duration(milliseconds: 300),
         transitionsBuilder: (context, animation, secondaryAnimation, child) {

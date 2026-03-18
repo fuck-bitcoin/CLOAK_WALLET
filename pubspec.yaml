@@ -181,6 +181,7 @@ flutter:
     - assets/icons/scan_quick.svg
     - assets/icons/more_quick.svg
     - assets/icons/cloak_glyph.svg
+    - assets/icons/telos_ring.svg
     - assets/icons/shield_check.svg
     - assets/nft/
 
