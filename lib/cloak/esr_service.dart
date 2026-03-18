@@ -39,6 +39,14 @@ class EsrService {
   static String? _lastPresignature;
   static Uint8List? _lastTxBytes;
 
+  /// Clear pre-computed signature so addSignatureAndBroadcast uses
+  /// the fallback path that re-signs over Anchor's actual transaction bytes.
+  /// Used by the Android variant 1 flow where we can't pre-sign.
+  static void clearPresignature() {
+    _lastPresignature = null;
+    _lastTxBytes = null;
+  }
+
   /// Create an ESR URL with pre-signed thezeosalias signature
   ///
   /// This is the CORRECT way to handle transactions that require both user's
@@ -253,6 +261,79 @@ class EsrService {
     result.setRange(1, result.length, compressed);
     final encoded = base64Url.encode(result).replaceAll('=', '');
     return 'esr://$encoded';
+  }
+
+  /// Create an ESR variant 1 with all 5 shield actions and flags=0.
+  ///
+  /// This is for Android where Anchor doesn't support variant 2 (full transaction).
+  /// Variant 1 sends the action list; Anchor builds the transaction internally,
+  /// signs with the user's key, and returns the signed transaction (flags=0).
+  /// CLOAK Wallet then co-signs with thezeosalias@public and broadcasts.
+  ///
+  /// Action data is pre-serialized (ABI-encoded binary) so Anchor doesn't need
+  /// to fetch ABIs for custom contracts like thezeosalias.
+  static String createSigningRequestV1({
+    required List<Map<String, dynamic>> actions,
+  }) {
+    final buffer = EsrBuffer();
+
+    // Chain ID variant 0 = chain_alias
+    buffer.pushVarint32(0);
+    buffer.pushUint8(2); // Telos
+
+    // Request variant 1 = action list
+    buffer.pushVarint32(1);
+    buffer.pushVarint32(actions.length);
+    for (final action in actions) {
+      _serializeActionToEsrBinary(buffer, action);
+    }
+
+    // Flags = 0 (Anchor signs but does NOT broadcast)
+    // This is critical: the tx needs thezeosalias co-signature before broadcast
+    buffer.pushUint8(0);
+
+    // Callback - empty
+    buffer.pushString('');
+
+    // Info pairs - none
+    buffer.pushVarint32(0);
+
+    // Encode
+    final payload = buffer.asUint8List();
+    final header = ESR_VERSION | 0x80;
+    final codec = ZLibCodec(level: 9, raw: true);
+    final compressed = codec.encode(payload);
+    final result = Uint8List(1 + compressed.length);
+    result[0] = header;
+    result.setRange(1, result.length, compressed);
+    final encoded = base64Url.encode(result).replaceAll('=', '');
+    return 'esr://$encoded';
+  }
+
+  /// Serialize an action into the ESR buffer with pre-serialized (binary) data.
+  ///
+  /// Unlike _serializeActionToEsr which sends JSON for Anchor to ABI-serialize,
+  /// this sends already-serialized binary data. This avoids Anchor needing to
+  /// fetch ABIs for custom contracts (thezeosalias) which it may not support.
+  static void _serializeActionToEsrBinary(EsrBuffer buffer, Map<String, dynamic> action) {
+    // account (name)
+    buffer.pushName(action['account'] as String);
+    // action name
+    final actionName = action['name'] as String;
+    buffer.pushName(actionName);
+    // authorization array
+    final auth = action['authorization'] as List;
+    buffer.pushVarint32(auth.length);
+    for (final a in auth) {
+      final m = a as Map<String, dynamic>;
+      buffer.pushName(m['actor'] as String);
+      buffer.pushName(m['permission'] as String);
+    }
+    // data - pre-serialize using our own ABI encoder
+    final rawData = action['data'];
+    final data = rawData is Map ? Map<String, dynamic>.from(rawData) : rawData as Map<String, dynamic>;
+    final dataBytes = _serializeActionData(actionName, data);
+    buffer.pushBytes(dataBytes);
   }
 
   /// Serialize an action into the ESR buffer (for variant 1 action list)

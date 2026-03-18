@@ -4060,11 +4060,23 @@ class CloakWalletManager {
       feeQuantity: feeQuantity,
     );
 
-    // 3. Create ESR with pre-signed thezeosalias signature and flags=0
-    // This sends all 5 actions to Anchor in one signing request (same as web app)
-    // Anchor signs the full transaction, returns it via WebSocket
-    // Flutter adds the thezeosalias@public signature and broadcasts
-    final esrUrl = await EsrService.createSigningRequestWithPresig(actions: actions);
+    // 3. Create ESR — platform-specific format
+    final String esrUrl;
+    if (Platform.isAndroid) {
+      // Android: Use variant 1 (action list) with flags=0.
+      // Anchor Android doesn't support variant 2 (full transaction).
+      // Variant 1 sends actions as JSON; Anchor builds the transaction,
+      // signs with user's key, returns it. We then co-sign with thezeosalias
+      // and broadcast (handled by addSignatureAndBroadcast's fallback path
+      // which re-computes the thezeosalias signature over Anchor's tx bytes).
+      EsrService.clearPresignature(); // Ensure fallback re-sign path is used
+      esrUrl = EsrService.createSigningRequestV1(actions: actions);
+    } else {
+      // Desktop: Use variant 2 (full pre-signed transaction) with flags=0.
+      // More reliable — guarantees byte-exact match between pre-signature
+      // and what Anchor signs.
+      esrUrl = await EsrService.createSigningRequestWithPresig(actions: actions);
+    }
 
     return {
       'esrUrl': esrUrl,
