@@ -197,16 +197,16 @@ preflight_checks() {
     fi
     success "SHA256 verification: available"
 
-    # FUSE check (warning only -- user may install later)
-    if ! command -v fusermount &>/dev/null && ! command -v fusermount3 &>/dev/null && ! [ -e /dev/fuse ]; then
-        warn "FUSE not detected. AppImage requires FUSE to run."
-        warn "Install it with:"
-        warn "  Ubuntu/Debian: sudo apt install libfuse2"
-        warn "  Fedora:        sudo dnf install fuse-libs"
-        warn "  Arch:          sudo pacman -S fuse2"
-        printf "\n"
-    else
+    # FUSE check — the AppImage runtime supports FUSE 3, FUSE 2, or no-FUSE
+    # (self-extract fallback), so any configuration works. Just inform the user.
+    if [ -e /usr/lib64/libfuse3.so.3 ] || [ -e /usr/lib/x86_64-linux-gnu/libfuse3.so.3 ]; then
+        success "FUSE: version 3 (native support)"
+    elif [ -e /usr/lib64/libfuse.so.2 ] || [ -e /usr/lib/x86_64-linux-gnu/libfuse.so.2 ]; then
+        success "FUSE: version 2 (native support)"
+    elif [ -e /dev/fuse ]; then
         success "FUSE: available"
+    else
+        info "FUSE not detected. AppImage will use self-extract mode (slightly slower startup)."
     fi
 
     # Disk space -- need ~500MB for AppImage + params

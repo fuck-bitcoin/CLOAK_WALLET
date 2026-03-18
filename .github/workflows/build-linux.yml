@@ -83,8 +83,14 @@ jobs:
 
       - name: Build AppImage
         run: |
-          # Download appimagetool
-          wget -q "https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage" \
+          # Download appimagetool with FUSE 3 + FUSE 2 compatible runtime
+          # The type2-runtime tries FUSE 3 first, falls back to FUSE 2, and
+          # self-extracts if neither is available. This ensures the AppImage
+          # works on all Linux distros regardless of FUSE version:
+          #   - Fedora 43+, Ubuntu 24.04+, Arch (FUSE 3 only)
+          #   - Fedora 42, Ubuntu 22.04, Debian 12 (FUSE 2 only)
+          #   - Minimal installs with no FUSE at all
+          wget -q "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage" \
               -O /tmp/appimagetool
           chmod +x /tmp/appimagetool
 
