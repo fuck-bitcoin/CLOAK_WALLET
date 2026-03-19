@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_mobx/flutter_mobx.dart';
@@ -121,8 +122,11 @@ class _ReceiveAddressPanelsState extends State<ReceiveAddressPanels> {
               onRequest: () => _requestShielded(context),
               containerColor: t.colorScheme.surfaceVariant,
             ),
-            const Gap(12),
-            _TelosReceiveCard(),
+            // Receive from Telos — desktop only (Anchor mobile lacks co-signing support)
+            if (!Platform.isAndroid && !Platform.isIOS) ...[
+              const Gap(12),
+              _TelosReceiveCard(),
+            ],
           ],
         );
       }
