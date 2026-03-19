@@ -13,8 +13,11 @@ import 'package:gap/gap.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import 'dart:typed_data';
+
 import '../../accounts.dart';
 import '../../cloak/anchor_link.dart';
+import '../../cloak/cloak_wallet_manager.dart';
 import '../../cloak/esr_service.dart';
 import '../../theme/zashi_tokens.dart';
 import '../utils.dart';
@@ -99,7 +102,22 @@ class _EsrDisplayDialogState extends State<EsrDisplayDialog> {
   void dispose() {
     _anchorLink?.close();
     _signatureController.dispose();
+    // If the dialog is dismissed without a successful broadcast,
+    // rollback wallet state to prevent phantom transactions
+    if (!_transactionSigned) {
+      _rollbackWalletState();
+    }
     super.dispose();
+  }
+
+  /// Rollback wallet state from the pre-proof snapshot if available.
+  /// This undoes the state mutation from transactPacked() that happens
+  /// during ZK proof generation, preventing phantom transactions.
+  Future<void> _rollbackWalletState() async {
+    final snapshot = widget.shieldData?['_walletSnapshot'];
+    if (snapshot is Uint8List) {
+      await CloakWalletManager.restoreWalletFromSnapshot(snapshot);
+    }
   }
 
   /// No auto-detection — user taps Done
@@ -297,6 +315,9 @@ class _EsrDisplayDialogState extends State<EsrDisplayDialog> {
             });
           }
 
+          // Persist wallet state now that broadcast succeeded
+          await CloakWalletManager.saveWallet();
+
           showSnackBar('Transaction broadcast successfully!');
           await Future.delayed(const Duration(seconds: 2));
           if (mounted) {
@@ -304,6 +325,8 @@ class _EsrDisplayDialogState extends State<EsrDisplayDialog> {
           }
         } catch (e) {
           print('[EsrDisplayDialog] Error processing response: $e');
+          // Rollback wallet state since broadcast failed
+          await _rollbackWalletState();
           if (mounted) {
             setState(() {
               _linkStatus = AnchorLinkStatus.error;

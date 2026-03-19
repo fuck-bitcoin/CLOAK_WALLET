@@ -3779,7 +3779,13 @@ class CloakWalletManager {
       tokenContract: tokenContract,
     );
 
-    // 5. Call FFI to generate transaction with ZK proof
+    // 5. Snapshot wallet state BEFORE transactPacked mutates it.
+    // transactPacked is side-effecting: it adds notes to the merkle tree and
+    // updates balances in-memory. If the broadcast later fails or the user
+    // cancels, we restore from this snapshot to prevent phantom transactions.
+    final walletSnapshot = await FfiIsolate.writeWallet(wallet: _cloakWallet!);
+
+    // 6. Call FFI to generate transaction with ZK proof
     // NOTE: This is CPU-intensive and takes 5-30 seconds
     // Use transactPacked to get hex_data for ABI-serialized action data (required for ESR/Anchor)
     final txJson = CloakApi.transactPacked(
@@ -3794,17 +3800,45 @@ class CloakWalletManager {
     );
 
     if (txJson == null) {
+      // Restore wallet state since transactPacked failed partway
+      if (walletSnapshot != null) {
+        await restoreWalletFromSnapshot(walletSnapshot);
+      }
       final error = CloakApi.getLastError();
       throw Exception('wallet_transact_packed failed: $error');
     }
 
-    // 6. Parse the transaction and extract mint action data (includes hex_data)
+    // 7. Parse the transaction and extract mint action data (includes hex_data)
     final mintData = _extractMintActionData(txJson);
     if (mintData == null) {
       throw Exception('Failed to extract mint action from transaction');
     }
 
+    // Include wallet snapshot so callers can rollback on broadcast failure
+    mintData['_walletSnapshot'] = walletSnapshot;
     return mintData;
+  }
+
+  /// Restore wallet from a pre-mutation snapshot.
+  /// Used to undo the state changes from transactPacked() when the
+  /// transaction fails to broadcast or the user cancels.
+  static Future<bool> restoreWalletFromSnapshot(Uint8List snapshotBytes) async {
+    try {
+      final wallet = CloakApi.readWallet(snapshotBytes);
+      if (wallet == null) {
+        print('[CloakWalletManager] Failed to restore wallet from snapshot');
+        return false;
+      }
+      if (_cloakWallet != null) {
+        CloakApi.closeWallet(_cloakWallet!);
+      }
+      _cloakWallet = wallet;
+      print('[CloakWalletManager] Wallet restored from pre-proof snapshot');
+      return true;
+    } catch (e) {
+      print('[CloakWalletManager] Error restoring wallet: $e');
+      return false;
+    }
   }
 
   /// Get protocol fees as JSON string
@@ -4083,6 +4117,10 @@ class CloakWalletManager {
       esrUrl = await EsrService.createSigningRequestWithPresig(actions: actions);
     }
 
+    // Extract wallet snapshot from mintProof (added by generateMintProof)
+    // so the dialog can rollback on failure/cancel
+    final walletSnapshot = mintProof.remove('_walletSnapshot');
+
     return {
       'esrUrl': esrUrl,
       'tokenContract': tokenContract,
@@ -4092,6 +4130,7 @@ class CloakWalletManager {
       'mintProof': mintProof,
       'feeQuantity': feeQuantity,
       'isAndroidTwoStep': Platform.isAndroid,
+      '_walletSnapshot': walletSnapshot,
     };
   }
 
