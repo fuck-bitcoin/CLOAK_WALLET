@@ -243,9 +243,12 @@ class EsrService {
     buffer.pushVarint32(1);
     // Push action count
     buffer.pushVarint32(actions.length);
-    // Serialize each action
+    // Serialize each action with proper ABI-encoded binary data.
+    // Anchor mobile (Swift/iOS, Android) expects ABI-serialized binary,
+    // NOT JSON text bytes. _serializeActionToEsrBinary uses our own ABI
+    // encoder so Anchor doesn't need to fetch ABIs or parse JSON.
     for (final action in actions) {
-      _serializeActionToEsr(buffer, action);
+      _serializeActionToEsrBinary(buffer, action);
     }
 
     // Flags:
