@@ -10,7 +10,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:gap/gap.dart';
-import 'package:qr_flutter/qr_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'dart:typed_data';
@@ -299,15 +298,6 @@ class _EsrDisplayDialogState extends State<EsrDisplayDialog> {
     }
   }
 
-  /// Get the QR data with Anchor Link channel ID if connected
-  String get _qrData {
-    if (_anchorLink != null && _anchorLink!.status != AnchorLinkStatus.disconnected) {
-      // Include channel ID for automatic response via WebSocket
-      return AnchorLinkClient.generateQrData(_effectiveEsrUrl, _anchorLink!.channelId ?? '');
-    }
-    return _effectiveEsrUrl;
-  }
-
   void _copyToClipboard() {
     Clipboard.setData(ClipboardData(text: _effectiveEsrUrl));
     setState(() => _copied = true);
@@ -425,8 +415,6 @@ class _EsrDisplayDialogState extends State<EsrDisplayDialog> {
     final balanceTextColor = zashi?.balanceAmountColor ?? const Color(0xFFBDBDBD);
     final balanceFontFamily = t.textTheme.displaySmall?.fontFamily;
     final mediaQuery = MediaQuery.of(context);
-    final qrSize = mediaQuery.size.width * 0.40; // Smaller QR to fit better
-
     return Container(
       height: mediaQuery.size.height * 0.9,
       decoration: BoxDecoration(
@@ -469,67 +457,16 @@ class _EsrDisplayDialogState extends State<EsrDisplayDialog> {
               child: Column(
                 children: [
                   if (!_transactionSigned) ...[
-                  // Subtitle/instructions
+                  // Instructions
                   Text(
                     widget.subtitle ??
-                      'Scan this QR code with Anchor wallet, or copy the link and paste it in Anchor\'s URI handler.',
+                      'Copy the ESR link below and paste it into Anchor wallet\'s URI handler to sign.',
                     style: t.textTheme.bodyMedium?.copyWith(
                       color: t.colorScheme.onSurface.withOpacity(0.7),
                     ),
                     textAlign: TextAlign.center,
                   ),
-                  const Gap(16),
-
-                  // Anchor Link Status Indicator
-                  if (false) ...[
-                    _buildStatusIndicator(t),
-                    const Gap(12),
-                  ],
-
-                  // QR Code (with checkmark overlay if signed)
-                  Stack(
-                    alignment: Alignment.center,
-                    children: [
-                      Container(
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                        padding: const EdgeInsets.all(12),
-                        child: QrImage(
-                          data: _qrData,
-                          size: qrSize,
-                          backgroundColor: Colors.white,
-                        ),
-                      ),
-                      // Success overlay when signed
-                      if (_transactionSigned)
-                        Container(
-                          width: qrSize + 24,
-                          height: qrSize + 24,
-                          decoration: BoxDecoration(
-                            color: Colors.green.withOpacity(0.9),
-                            borderRadius: BorderRadius.circular(16),
-                          ),
-                          child: const Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(Icons.check_circle, color: Colors.white, size: 48),
-                              Gap(8),
-                              Text(
-                                'Signed!',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 20,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                    ],
-                  ),
-                  const Gap(16),
+                  const Gap(20),
 
                   // Action buttons (dark theme, matching More menu patterns)
                   // Copy ESR Link
