@@ -217,6 +217,14 @@ class AnchorLinkClient {
           return;
         }
 
+        // Check for ESR CallbackPayload (from Buoy relay on Android two-step flow)
+        // Anchor POSTs: {sig, tx, bn, sa, sp, rbn, rid, ex, cid, req}
+        if (json.containsKey('sig') || json.containsKey('sa') || json.containsKey('tx')) {
+          _setStatus(AnchorLinkStatus.processing, 'Callback received...');
+          _responseCompleter?.complete(json);
+          return;
+        }
+
         // Acknowledgment or other message
       }
     } catch (_) {
