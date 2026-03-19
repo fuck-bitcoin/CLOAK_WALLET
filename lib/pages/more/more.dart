@@ -107,6 +107,19 @@ class _MorePageState extends State<MorePage> {
               ),
 
             // Display section (desktop only)
+            // Version info
+            const SizedBox(height: 24),
+            Center(
+              child: Text(
+                'CLOAK Wallet v2.0.31',
+                style: TextStyle(
+                  color: Colors.white.withOpacity(0.25),
+                  fontSize: 11,
+                  fontWeight: FontWeight.w400,
+                ),
+              ),
+            ),
+
             if (isDesktop) ...[
               const SizedBox(height: 24),
               Padding(
