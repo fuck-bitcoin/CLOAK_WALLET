@@ -14,6 +14,10 @@ import 'coin/coins.dart';
 var appSettings = AppSettings();
 var coinSettings = CoinSettings();
 
+/// App version string — injected from git tag at CI build time via --dart-define=APP_VERSION
+/// Falls back to 'dev' for local debug builds
+const String appVersion = String.fromEnvironment('APP_VERSION', defaultValue: 'dev');
+
 /// Whether the bottom navigation bar is hidden.
 final hideBottomNav = ValueNotifier<bool>(false);
 

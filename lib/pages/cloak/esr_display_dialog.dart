@@ -250,15 +250,12 @@ class _EsrDisplayDialogState extends State<EsrDisplayDialog> {
             // The response is a Buoy-relayed CallbackPayload with keys like:
             // sig, tx, bn, sa, sp, rbn, rid, ex, cid, req
             // OR it could be the raw POST body as a JSON string.
-            final transferTxId = response['tx']?.toString() ??
-                response['transaction_id']?.toString() ??
-                response['txid']?.toString();
-            print('[EsrDisplayDialog] Android callback received. Transfer TX: $transferTxId');
-
             // Step 2: Broadcast begin/mint/end with thezeosalias key
-            setState(() {
-              _statusMessage = 'Completing shield (ZK proof)...';
-            });
+            if (mounted) {
+              setState(() {
+                _statusMessage = 'Completing shield (ZK proof)...';
+              });
+            }
 
             final sd = widget.shieldData!;
             final mintProof = sd['mintProof'] as Map<String, dynamic>;

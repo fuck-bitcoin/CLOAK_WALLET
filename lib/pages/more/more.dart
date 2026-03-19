@@ -111,7 +111,7 @@ class _MorePageState extends State<MorePage> {
             const SizedBox(height: 24),
             Center(
               child: Text(
-                'CLOAK Wallet v2.0.31',
+                'CLOAK Wallet v$appVersion',
                 style: TextStyle(
                   color: Colors.white.withOpacity(0.25),
                   fontSize: 11,

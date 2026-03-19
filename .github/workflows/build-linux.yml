@@ -74,7 +74,8 @@ jobs:
           flutter pub get
           dart run build_runner build -d
           (cd packages/cloak_api_ffi && flutter pub get)
-          flutter build linux --release
+          VERSION="${GITHUB_REF_NAME#v}"
+          flutter build linux --release --dart-define=APP_VERSION="$VERSION"
 
       - name: Create release tarball
         run: |

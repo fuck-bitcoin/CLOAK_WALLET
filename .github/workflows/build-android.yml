@@ -94,7 +94,8 @@ jobs:
           flutter pub get
           dart run build_runner build -d
           (cd packages/cloak_api_ffi && flutter pub get)
-          flutter build apk --release
+          VERSION="${GITHUB_REF_NAME#v}"
+          flutter build apk --release --dart-define=APP_VERSION="$VERSION"
           cp build/app/outputs/flutter-apk/app-release.apk CLOAK_Wallet.apk
 
       - name: Generate checksum
