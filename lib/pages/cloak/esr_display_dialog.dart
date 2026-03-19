@@ -78,6 +78,8 @@ class _EsrDisplayDialogState extends State<EsrDisplayDialog> {
   bool _showManualEntry = false;
   final _signatureController = TextEditingController();
   bool _isProcessing = false;
+  /// Error from broadcastMintOnly — displayed persistently in dialog
+  String? _shieldError;
   /// On Android, the ESR is regenerated with a Buoy callback URL
   /// once the WebSocket channel is ready.
   String? _androidEsrUrl;
@@ -158,11 +160,12 @@ class _EsrDisplayDialogState extends State<EsrDisplayDialog> {
         if (mounted) Navigator.of(context).pop({'transaction_id': txId});
       }
     } catch (e) {
+      final errorMsg = e.toString();
       setState(() {
         _isProcessing = false;
-        _statusMessage = 'Shield failed: ${e.toString()}';
+        _statusMessage = 'Shield failed: $errorMsg';
+        _shieldError = errorMsg;
       });
-      showSnackBar('Error: ${e.toString()}');
     }
   }
 
@@ -716,6 +719,42 @@ class _EsrDisplayDialogState extends State<EsrDisplayDialog> {
                           Text(
                             _statusMessage ?? 'Processing...',
                             style: TextStyle(color: Colors.white.withOpacity(0.6), fontSize: 12),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const Gap(10),
+                  ],
+
+                  // Show shield error persistently so user can read it
+                  if (_shieldError != null) ...[
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.red.withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.red.withOpacity(0.3)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Shield Error',
+                            style: TextStyle(
+                              color: Colors.red,
+                              fontWeight: FontWeight.w600,
+                              fontSize: 13,
+                            ),
+                          ),
+                          const Gap(6),
+                          SelectableText(
+                            _shieldError!,
+                            style: TextStyle(
+                              color: Colors.red.withOpacity(0.9),
+                              fontSize: 11,
+                              fontFamily: 'monospace',
+                            ),
                           ),
                         ],
                       ),
