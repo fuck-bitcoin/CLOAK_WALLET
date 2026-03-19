@@ -82,16 +82,8 @@ class _EsrDisplayDialogState extends State<EsrDisplayDialog> {
   String? _shieldError;
   /// On Android, the ESR is regenerated with a Buoy callback URL
   /// once the WebSocket channel is ready.
-  String? _androidEsrUrl;
-
-  /// Whether this is an Android two-step flow
-  bool get _isAndroidTwoStep =>
-      Platform.isAndroid &&
-      widget.shieldData != null &&
-      widget.shieldData!['isAndroidTwoStep'] == true;
-
-  /// The effective ESR URL (Android may override with callback-enabled version)
-  String get _effectiveEsrUrl => _androidEsrUrl ?? widget.esrUrl;
+  /// The effective ESR URL
+  String get _effectiveEsrUrl => widget.esrUrl;
 
   @override
   void initState() {
@@ -124,50 +116,6 @@ class _EsrDisplayDialogState extends State<EsrDisplayDialog> {
 
   /// No auto-detection — user taps Done
   void _startTransactionPolling() {}
-
-  /// Android two-step: complete the shield by broadcasting begin/mint/end.
-  /// Called when user taps "I've signed in Anchor" button.
-  Future<void> _completeAndroidShield() async {
-    if (_isProcessing || _transactionSigned) return;
-
-    setState(() {
-      _isProcessing = true;
-      _statusMessage = 'Broadcasting shield transaction...';
-    });
-
-    try {
-      final sd = widget.shieldData!;
-      final mintProof = sd['mintProof'] as Map<String, dynamic>;
-      final txId = await EsrService.broadcastMintOnly(
-        mintProof: mintProof,
-        feeQuantity: sd['feeQuantity'] as String? ?? '0.3000 CLOAK',
-      );
-
-      setState(() {
-        _transactionSigned = true;
-        _isProcessing = false;
-        _statusMessage = 'Shield complete!';
-      });
-
-      // Save wallet state
-      await CloakWalletManager.saveWallet();
-
-      showSnackBar('Shield transaction broadcast successfully!');
-      await Future.delayed(const Duration(seconds: 2));
-      if (mounted) {
-        GoRouter.of(context).go('/account');
-        await Future.delayed(const Duration(milliseconds: 500));
-        if (mounted) Navigator.of(context).pop({'transaction_id': txId});
-      }
-    } catch (e) {
-      final errorMsg = e.toString();
-      setState(() {
-        _isProcessing = false;
-        _statusMessage = 'Shield failed: $errorMsg';
-        _shieldError = errorMsg;
-      });
-    }
-  }
 
   /// Process manually entered signature from desktop Anchor
   Future<void> _processManualSignature() async {
@@ -237,26 +185,9 @@ class _EsrDisplayDialogState extends State<EsrDisplayDialog> {
     // Connect first to get channel ID for QR code
     final connected = await _anchorLink!.connect();
     if (connected && mounted) {
-      if (_isAndroidTwoStep) {
-        // Android two-step flow:
-        // Generate a transfer-only ESR with Buoy callback URL.
-        // Anchor broadcasts the transfers, POSTs the result to Buoy,
-        // we receive it on the WebSocket, then broadcast begin/mint/end.
-        final channelId = _anchorLink!.channelId!;
-        final callbackUrl = 'https://cb.anchor.link/$channelId';
-        final sd = widget.shieldData!;
-        _androidEsrUrl = await EsrService.createTransferOnlyEsr(
-          tokenContract: sd['tokenContract'] as String,
-          quantity: sd['quantity'] as String,
-          userAccount: sd['telosAccount'] as String,
-          feeQuantity: sd['feeQuantity'] as String? ?? '0.3000 CLOAK',
-          callbackUrl: callbackUrl,
-        );
-      } else {
-        // Desktop: send ESR to relay for QR-scan / Anchor Link flow
-        _anchorLink!.sendRequest(widget.esrUrl);
-      }
-      // Force rebuild so QR code includes channel ID / new ESR
+      // Send ESR to relay for QR-scan / Anchor Link flow (desktop)
+      _anchorLink!.sendRequest(widget.esrUrl);
+      // Force rebuild so QR code includes channel ID
       setState(() {});
       // Start listening for response in background
       _waitForResponseInBackground();
@@ -270,12 +201,10 @@ class _EsrDisplayDialogState extends State<EsrDisplayDialog> {
 
   /// Wait for Anchor to respond after signing
   ///
-  /// Desktop (flags=0): Anchor returns signed transaction via WebSocket relay.
-  /// Flutter adds thezeosalias signature and broadcasts.
-  ///
-  /// Android two-step (flags=3): Anchor broadcasts user's transfers, POSTs
-  /// CallbackPayload to Buoy relay. Flutter receives it on WebSocket, then
-  /// broadcasts begin/mint/end via broadcastMintOnly().
+  /// Wait for Anchor response via WebSocket relay.
+  /// Desktop (flags=0): Anchor returns signed transaction, Flutter co-signs and broadcasts.
+  /// Android: This path is unlikely to fire (Anchor mobile doesn't use relay).
+  /// The user will instead tap "Done" after Anchor broadcasts via cosig.
   Future<void> _waitForResponseInBackground() async {
     try {
       final response = await _anchorLink?.waitForResponse(
@@ -291,27 +220,7 @@ class _EsrDisplayDialogState extends State<EsrDisplayDialog> {
         try {
           String? txId;
 
-          if (_isAndroidTwoStep) {
-            // Android two-step: Anchor already broadcast the 2 user transfers.
-            // The response is a Buoy-relayed CallbackPayload with keys like:
-            // sig, tx, bn, sa, sp, rbn, rid, ex, cid, req
-            // OR it could be the raw POST body as a JSON string.
-            // Step 2: Broadcast begin/mint/end with thezeosalias key
-            if (mounted) {
-              setState(() {
-                _statusMessage = 'Completing shield (ZK proof)...';
-              });
-            }
-
-            final sd = widget.shieldData!;
-            final mintProof = sd['mintProof'] as Map<String, dynamic>;
-            txId = await EsrService.broadcastMintOnly(
-              mintProof: mintProof,
-              feeQuantity: sd['feeQuantity'] as String? ?? '0.3000 CLOAK',
-            );
-          } else {
-            // Desktop flow: flags=0 - Anchor returns signed transaction
-            if (response.containsKey('serializedTransaction') ||
+          if (response.containsKey('serializedTransaction') ||
                 response.containsKey('packed_trx') ||
                 response.containsKey('signatures')) {
               setState(() {
@@ -348,7 +257,6 @@ class _EsrDisplayDialogState extends State<EsrDisplayDialog> {
                 txId = await EsrService.addSignatureAndBroadcast(response);
               }
             }
-          }
 
           final result = {'transaction_id': txId};
 
@@ -678,53 +586,6 @@ class _EsrDisplayDialogState extends State<EsrDisplayDialog> {
 
                   ], // end if (!_transactionSigned)
 
-                  // Android two-step: manual trigger for step 2 after signing in Anchor
-                  if (_isAndroidTwoStep && !_transactionSigned && !_isProcessing) ...[
-                    SizedBox(
-                      width: double.infinity,
-                      height: 48,
-                      child: Material(
-                        color: const Color(0xFF4CAF50),
-                        borderRadius: BorderRadius.circular(14),
-                        child: InkWell(
-                          borderRadius: BorderRadius.circular(14),
-                          onTap: _completeAndroidShield,
-                          child: const Center(
-                            child: Text(
-                              'I\'VE SIGNED IN ANCHOR — COMPLETE SHIELD',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.w600,
-                                fontSize: 13,
-                                letterSpacing: 0.5,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                    const Gap(10),
-                  ],
-
-                  if (_isProcessing) ...[
-                    Center(
-                      child: Column(
-                        children: [
-                          const SizedBox(
-                            width: 24,
-                            height: 24,
-                            child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF4CAF50)),
-                          ),
-                          const Gap(8),
-                          Text(
-                            _statusMessage ?? 'Processing...',
-                            style: TextStyle(color: Colors.white.withOpacity(0.6), fontSize: 12),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const Gap(10),
-                  ],
 
                   // Show shield error persistently so user can read it
                   if (_shieldError != null) ...[
@@ -772,11 +633,13 @@ class _EsrDisplayDialogState extends State<EsrDisplayDialog> {
                       child: InkWell(
                         borderRadius: BorderRadius.circular(14),
                         onTap: () async {
-                          // 1. Navigate to balance behind the sheet (user can't see it yet)
+                          // Save wallet state — Anchor broadcast via cosig, so the
+                          // wallet's proof-mutated state is now valid on-chain.
+                          _transactionSigned = true;
+                          await CloakWalletManager.saveWallet();
+                          // Navigate to balance
                           GoRouter.of(context).go('/account');
-                          // 2. Wait for balance page to fully render behind the sheet
                           await Future.delayed(const Duration(milliseconds: 500));
-                          // 3. Pop the sheet — it slides down to reveal balance
                           if (mounted) Navigator.of(context).pop({'status': 'completed_manually'});
                         },
                         child: Center(
