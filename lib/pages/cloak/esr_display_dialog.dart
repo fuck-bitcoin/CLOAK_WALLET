@@ -123,6 +123,49 @@ class _EsrDisplayDialogState extends State<EsrDisplayDialog> {
   /// No auto-detection — user taps Done
   void _startTransactionPolling() {}
 
+  /// Android two-step: complete the shield by broadcasting begin/mint/end.
+  /// Called when user taps "I've signed in Anchor" button.
+  Future<void> _completeAndroidShield() async {
+    if (_isProcessing || _transactionSigned) return;
+
+    setState(() {
+      _isProcessing = true;
+      _statusMessage = 'Broadcasting shield transaction...';
+    });
+
+    try {
+      final sd = widget.shieldData!;
+      final mintProof = sd['mintProof'] as Map<String, dynamic>;
+      final txId = await EsrService.broadcastMintOnly(
+        mintProof: mintProof,
+        feeQuantity: sd['feeQuantity'] as String? ?? '0.3000 CLOAK',
+      );
+
+      setState(() {
+        _transactionSigned = true;
+        _isProcessing = false;
+        _statusMessage = 'Shield complete!';
+      });
+
+      // Save wallet state
+      await CloakWalletManager.saveWallet();
+
+      showSnackBar('Shield transaction broadcast successfully!');
+      await Future.delayed(const Duration(seconds: 2));
+      if (mounted) {
+        GoRouter.of(context).go('/account');
+        await Future.delayed(const Duration(milliseconds: 500));
+        if (mounted) Navigator.of(context).pop({'transaction_id': txId});
+      }
+    } catch (e) {
+      setState(() {
+        _isProcessing = false;
+        _statusMessage = 'Shield failed: ${e.toString()}';
+      });
+      showSnackBar('Error: ${e.toString()}');
+    }
+  }
+
   /// Process manually entered signature from desktop Anchor
   Future<void> _processManualSignature() async {
     final sig = _signatureController.text.trim();
@@ -631,6 +674,54 @@ class _EsrDisplayDialogState extends State<EsrDisplayDialog> {
                   const Gap(16),
 
                   ], // end if (!_transactionSigned)
+
+                  // Android two-step: manual trigger for step 2 after signing in Anchor
+                  if (_isAndroidTwoStep && !_transactionSigned && !_isProcessing) ...[
+                    SizedBox(
+                      width: double.infinity,
+                      height: 48,
+                      child: Material(
+                        color: const Color(0xFF4CAF50),
+                        borderRadius: BorderRadius.circular(14),
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(14),
+                          onTap: _completeAndroidShield,
+                          child: const Center(
+                            child: Text(
+                              'I\'VE SIGNED IN ANCHOR — COMPLETE SHIELD',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w600,
+                                fontSize: 13,
+                                letterSpacing: 0.5,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const Gap(10),
+                  ],
+
+                  if (_isProcessing) ...[
+                    Center(
+                      child: Column(
+                        children: [
+                          const SizedBox(
+                            width: 24,
+                            height: 24,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF4CAF50)),
+                          ),
+                          const Gap(8),
+                          Text(
+                            _statusMessage ?? 'Processing...',
+                            style: TextStyle(color: Colors.white.withOpacity(0.6), fontSize: 12),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const Gap(10),
+                  ],
 
                   // Done button — always visible, takes user to balance page
                   SizedBox(
