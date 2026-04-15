@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:gap/gap.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../cloak/bridge_init_protocol.dart';
 import '../../cloak/cloak_wallet_manager.dart';
 import '../../cloak/signature_provider.dart';
 import '../../cloak/signature_provider_state.dart';
@@ -499,6 +500,9 @@ class _AuthRequestPanelState extends State<_AuthRequestPanel>
       case SignatureRequestType.login:
         return 'wants to verify your identity';
       case SignatureRequestType.sign:
+        if (_isBridgeInitRequest(widget.request.params)) {
+          return 'wants to initialize a bridge transfer';
+        }
         return 'wants you to sign a transaction';
       case SignatureRequestType.balance:
         return 'wants to check your balance';
@@ -510,6 +514,9 @@ class _AuthRequestPanelState extends State<_AuthRequestPanel>
       case SignatureRequestType.login:
         return 'Your wallet address will be shared with the website. No funds will be moved.';
       case SignatureRequestType.sign:
+        if (_isBridgeInitRequest(widget.request.params)) {
+          return 'Approving will send the bridge fee to cloakdspregs and prepare a fresh private receiving address for the bridge.';
+        }
         return 'The transaction will be signed and may transfer funds. This cannot be undone.';
       case SignatureRequestType.balance:
         return 'Your current balance will be shared. No funds will be moved.';
@@ -517,6 +524,16 @@ class _AuthRequestPanelState extends State<_AuthRequestPanel>
   }
 
   String _formatParams(Map<String, dynamic> params) {
+    if (_isBridgeInitRequest(params)) {
+      return [
+        'bridge_init: v1',
+        'recipient: cloakdspregs',
+        'token_contract: thezeostoken',
+        'memo: bridge-fee',
+        'receive_address: derived automatically after success',
+      ].join('\n');
+    }
+
     // Show only key fields for compact view
     final buffer = StringBuffer();
     final keys = ['id', 'label', 'chain_id', 'protocol_contract'];
@@ -534,6 +551,13 @@ class _AuthRequestPanelState extends State<_AuthRequestPanel>
       return const JsonEncoder.withIndent('  ').convert(params);
     }
     return buffer.toString().trim();
+  }
+
+  bool _isBridgeInitRequest(Map<String, dynamic> params) {
+    final bridgeInit = params['bridge_init'];
+    return bridgeInit is Map &&
+        bridgeInit['version'] == 1 &&
+        bridgeInit['derive_receive_address'] == true;
   }
 
   Future<void> _handleApprove() async {
@@ -586,13 +610,7 @@ class _AuthRequestPanelState extends State<_AuthRequestPanel>
   }
 
   Future<Map<String, dynamic>> _processLogin() async {
-    // app.cloak.today expects {status: "success", result: "<actor_name>"}
-    // Since this is a shielded ZK wallet, we use "anonymous" as the actor.
-    // The web app stores this as the actor name for display purposes only.
-    return {
-      'status': 'success',
-      'result': 'anonymous',
-    };
+    return BridgeInitProtocol.buildLoginResponse(supportsBridgeInitV1: true);
   }
 
   Future<Map<String, dynamic>> _processSign() async {

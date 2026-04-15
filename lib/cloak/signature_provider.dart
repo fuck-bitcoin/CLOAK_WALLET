@@ -17,6 +17,7 @@ import '../router.dart' show rootNavigatorKey;
 import '../pages/cloak/auth_request_sheet.dart';
 import '../pages/utils.dart';
 import 'package:cloak_api/cloak_api.dart';
+import 'bridge_init_protocol.dart';
 import 'cloak_db.dart';
 import 'cloak_wallet_manager.dart';
 import 'eosio_client.dart';
@@ -418,19 +419,11 @@ class SignatureProvider {
 
   /// Handle login request
   static void _handleLoginRequest(String clientId, dynamic id, Map<String, dynamic> params) {
-    final requestId = '$clientId:$id';
-
-    final request = SignatureRequest(
-      id: requestId,
-      type: SignatureRequestType.login,
-      origin: _getOrigin(clientId, params),
-      params: params,
-      timestamp: DateTime.now(),
-      status: SignatureRequestStatus.pending,
+    _sendResponse(
+      clientId,
+      id,
+      BridgeInitProtocol.buildLoginResponse(supportsBridgeInitV1: true),
     );
-
-    signatureProviderStore.addRequest(request);
-    _notifyNewRequest(request);
   }
 
   /// Handle sign request
@@ -705,6 +698,8 @@ class SignatureProvider {
   /// Execute a transact request after user approval
   /// Called from auth_request_sheet when user approves a transact/sign request
   static Future<Map<String, dynamic>> executeTransact(Map<String, dynamic> params) async {
+    final bridgeInit = BridgeInitProtocol.extractBridgeInitRequest(params);
+
     // Ensure ZK params are loaded
     if (!await CloakWalletManager.loadZkParams()) {
       throw Exception('Failed to load ZK params');
@@ -713,10 +708,10 @@ class SignatureProvider {
     // Pre-process: ABI-serialize action data in authenticate zactions.
     // The web app sends action data as JSON objects, but Rust's PackedActionDesc
     // expects data as a hex string (ABI-serialized binary).
-    await _abiSerializeAuthenticateActions(params);
+    await _abiSerializeAuthenticateActions(bridgeInit.cleanedParams);
 
     // Build ZTransaction JSON from the web app's params
-    final ztxJson = jsonEncode(params);
+    final ztxJson = jsonEncode(bridgeInit.cleanedParams);
 
     // Get fees
     final feesJson = await CloakWalletManager.getFeesJsonPublic();
@@ -760,7 +755,7 @@ class SignatureProvider {
     if (decoded is List && decoded.isNotEmpty) {
       tx = Map<String, dynamic>.from(decoded[0] as Map);
     } else if (decoded is Map) {
-      tx = Map<String, dynamic>.from(decoded as Map);
+      tx = Map<String, dynamic>.from(decoded);
     } else {
       throw Exception('Unexpected transactPacked response format');
     }
@@ -813,10 +808,21 @@ class SignatureProvider {
 
     final txId = result['transaction_id'] as String? ?? 'unknown';
 
+    String? receiveAddress;
+    if (bridgeInit.enabled) {
+      receiveAddress = CloakWalletManager.getAddress();
+      if (receiveAddress == null || receiveAddress.isEmpty) {
+        throw Exception('Bridge init completed but no receive address could be derived');
+      }
+    }
+
     // Save wallet state
     await CloakWalletManager.saveWallet();
 
-    return {'status': 'success', 'result': txId};
+    return BridgeInitProtocol.buildTransactSuccessResponse(
+      txId: txId,
+      z01Address: receiveAddress,
+    );
   }
 
   /// ABI-serialize action data in authenticate zactions.
