@@ -1,4 +1,4 @@
-import 'dart:io';
+import 'dart:io' show Directory, Platform, exit;
 
 import 'accounts.dart';
 import 'appsettings.dart';
@@ -121,7 +121,7 @@ class _OnWindow extends WindowListener {
 
   @override
   void onWindowClose() async {
-    await windowManager.destroy();
+    exit(0);
   }
 }
 
