@@ -121,9 +121,7 @@ class _OnWindow extends WindowListener {
 
   @override
   void onWindowClose() async {
-    // On desktop, prevent-close is enabled. Intercept the close event
-    // so the app does not immediately shut down when backgrounded.
-    await windowManager.hide();
+    await windowManager.destroy();
   }
 }
 
