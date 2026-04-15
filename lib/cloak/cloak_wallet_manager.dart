@@ -2303,7 +2303,7 @@ class CloakWalletManager {
     final chainId = getChainId() ?? TELOS_CHAIN_ID;
     final protocolContract = getProtocolContract() ?? 'zeosprotocol';
     final vaultContract = getVaultContract() ?? 'thezeosvault';
-    const aliasAuthority = 'thezeosalias@public';
+    final aliasAuthority = getAliasAuthority() ?? 'thezeosalias@public';
 
     // Build spend recipients from the recipients list
     final spendTo = recipients.map((r) {
@@ -2552,7 +2552,7 @@ class CloakWalletManager {
     final chainId = getChainId() ?? TELOS_CHAIN_ID;
     final protocolContract = getProtocolContract() ?? 'zeosprotocol';
     final vaultContractName = getVaultContract() ?? 'thezeosvault';
-    const aliasAuthority = 'thezeosalias@public';
+    final aliasAuthority = getAliasAuthority() ?? 'thezeosalias@public';
 
     // withdrawp transfers tokens from vault to the shielded pool (zeosprotocol),
     // NOT to the user's za1 address. The shielded notes are created by the
@@ -2924,7 +2924,7 @@ class CloakWalletManager {
         'data': withdrawpData,
       });
     }
-    const aliasAuthority = 'thezeosalias@public';
+    final aliasAuthority = getAliasAuthority() ?? 'thezeosalias@public';
 
     // Determine fee token contract — use the first FT entry's contract, or default
     String feeTokenContract = 'thezeostoken';
@@ -4001,8 +4001,7 @@ class CloakWalletManager {
     final chainId = getChainId() ?? TELOS_CHAIN_ID;
     final protocolContract = getProtocolContract() ?? 'zeosprotocol';
     final vaultContract = getVaultContract() ?? 'thezeosvault';
-    // FORCE correct alias_authority - wallet storage may have wrong value
-    const aliasAuthority = 'thezeosalias@public';
+    final aliasAuthority = getAliasAuthority() ?? 'thezeosalias@public';
 
     final ztx = {
       'chain_id': chainId,

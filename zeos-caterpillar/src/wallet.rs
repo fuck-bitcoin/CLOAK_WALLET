@@ -228,6 +228,13 @@ impl Wallet
             actor: Name(reader.read_u64::<LittleEndian>()?),
             permission: Name(reader.read_u64::<LittleEndian>()?)
         };
+        // Auto-migrate: wallets created before alias_authority was standardised may
+        // carry a stale value. Correct it in-memory so resolve_ztransaction passes.
+        let alias_authority = if let Ok(expected) = Authorization::from_string("thezeosalias@public") {
+            if alias_authority != expected { expected } else { alias_authority }
+        } else {
+            alias_authority
+        };
         let block_num = reader.read_u32::<LittleEndian>()?;
         let leaf_count = reader.read_u64::<LittleEndian>()?;
         let auth_count = reader.read_u64::<LittleEndian>()?;
