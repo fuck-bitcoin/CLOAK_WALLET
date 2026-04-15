@@ -83,6 +83,10 @@ abstract class _SignatureProviderStore with Store {
   @observable
   bool serverRunning = false;
 
+  /// Whether the server is actively attempting to start (e.g. port retry loop)
+  @observable
+  bool serverStarting = false;
+
   /// Port the server is listening on
   @observable
   int serverPort = 9367;
@@ -145,6 +149,13 @@ abstract class _SignatureProviderStore with Store {
   @action
   void setServerRunning(bool running, {int? port}) {
     serverRunning = running;
+    if (running) serverStarting = false;
     if (port != null) serverPort = port;
+  }
+
+  /// Mark server as in the process of starting (port retry loop active)
+  @action
+  void setServerStarting(bool starting) {
+    serverStarting = starting;
   }
 }

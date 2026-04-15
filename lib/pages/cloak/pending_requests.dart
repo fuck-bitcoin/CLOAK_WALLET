@@ -27,15 +27,18 @@ class PendingRequestsPage extends StatelessWidget {
           // Server status indicator
           Observer(builder: (context) {
             final running = signatureProviderStore.serverRunning;
+            final starting = signatureProviderStore.serverStarting;
             return Padding(
               padding: const EdgeInsets.only(right: 16),
               child: Tooltip(
                 message: running
                     ? 'Server running on port ${signatureProviderStore.serverPort}'
-                    : 'Server not running',
+                    : starting
+                        ? 'Starting server...'
+                        : 'Server not running',
                 child: Icon(
                   running ? Icons.wifi : Icons.wifi_off,
-                  color: running ? Colors.green : Colors.red,
+                  color: running ? Colors.green : starting ? Colors.orange : Colors.red,
                 ),
               ),
             );
@@ -90,22 +93,23 @@ class PendingRequestsPage extends StatelessWidget {
           const Gap(24),
           Observer(builder: (context) {
             final running = signatureProviderStore.serverRunning;
+            final starting = signatureProviderStore.serverStarting;
+            final statusColor = running ? Colors.green : starting ? Colors.orange : Colors.orange;
             return Column(
               children: [
                 Icon(
-                  running ? Icons.check_circle : Icons.error,
-                  color: running ? Colors.green : Colors.orange,
+                  running ? Icons.check_circle : starting ? Icons.hourglass_top : Icons.error,
+                  color: statusColor,
                   size: 20,
                 ),
                 const Gap(4),
                 Text(
                   running
                       ? 'Listening on port ${signatureProviderStore.serverPort}'
-                      : 'Server not running',
-                  style: TextStyle(
-                    color: running ? Colors.green : Colors.orange,
-                    fontSize: 12,
-                  ),
+                      : starting
+                          ? 'Starting...'
+                          : 'Server not running',
+                  style: TextStyle(color: statusColor, fontSize: 12),
                 ),
               ],
             );

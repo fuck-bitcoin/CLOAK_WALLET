@@ -239,8 +239,8 @@ class SignatureProvider {
       return true;
     } on SocketException catch (e) {
       if (e.osError?.errorCode == 98 || e.message.contains('Address already in use')) {
-        print('[SignatureProvider] Port $port is already in use!');
-        print('[SignatureProvider] Is the official CLOAK GUI running? Close it first.');
+        print('[SignatureProvider] Port $port in use — another wallet instance may be closing. Retrying...');
+        signatureProviderStore.setServerStarting(true);
       } else {
         print('[SignatureProvider] Socket error: $e');
       }
@@ -258,10 +258,13 @@ class SignatureProvider {
     }
   }
 
-  /// Start the watchdog timer that ensures the server stays running
+  /// Start the watchdog timer that ensures the server stays running.
+  /// Uses a 2-second interval so that after a wallet update (where the old
+  /// instance briefly holds port 9367), the new instance recovers quickly
+  /// rather than showing "Server not running" for a long time.
   static void _startWatchdog(int port) {
     if (_watchdog != null) return; // Already watching
-    _watchdog = Timer.periodic(const Duration(seconds: 15), (_) async {
+    _watchdog = Timer.periodic(const Duration(seconds: 2), (_) async {
       if (_server == null) {
         print('[SignatureProvider] Watchdog: server is down, restarting...');
         _watchdog?.cancel();
