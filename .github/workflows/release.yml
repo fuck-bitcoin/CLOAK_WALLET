@@ -578,9 +578,10 @@ jobs:
             "$app/Contents/Frameworks/"
           install_name_tool -id '@rpath/libzeos_caterpillar.dylib' \
             "$app/Contents/Frameworks/libzeos_caterpillar.dylib"
-          lipo -verify_arch x86_64 arm64 "$app/Contents/MacOS/CLOAK Wallet"
-          lipo -verify_arch x86_64 arm64 \
-            "$app/Contents/Frameworks/libzeos_caterpillar.dylib"
+          lipo "$app/Contents/MacOS/CLOAK Wallet" \
+            -verify_arch x86_64 arm64
+          lipo "$app/Contents/Frameworks/libzeos_caterpillar.dylib" \
+            -verify_arch x86_64 arm64
           short_version="$(/usr/libexec/PlistBuddy -c Print:CFBundleShortVersionString \
             "$app/Contents/Info.plist")"
           bundle_build="$(/usr/libexec/PlistBuddy -c Print:CFBundleVersion \
