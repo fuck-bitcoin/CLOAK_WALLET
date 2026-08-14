@@ -78,6 +78,13 @@ pub extern "C" fn caterpillar_init() {
     ignore_sigpipe();
 }
 
+/// Merkle-tree depth compiled into the wallet engine and proving circuits.
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos", target_os = "android"))]
+#[no_mangle]
+pub extern "C" fn caterpillar_merkle_tree_depth() -> u32 {
+    crate::constants::MERKLE_TREE_DEPTH as u32
+}
+
 #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos", target_os = "android"))]
 fn set_last_error(msg: &str) {
     LAST_ERROR.with(|e| {
@@ -102,7 +109,7 @@ pub extern "C" fn wallet_last_error() -> *const libc::c_char {
 /// source: https://dev.to/kgrech/7-ways-to-pass-a-string-between-rust-and-c-4ieb
 #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos", target_os = "android"))]
 #[no_mangle]
-pub unsafe extern fn free_string(ptr: *const libc::c_char)
+pub unsafe extern "C" fn free_string(ptr: *const libc::c_char)
 {
     // Take the ownership back to rust and drop the owner
     let _ = CString::from_raw(ptr as *mut _);
@@ -778,6 +785,67 @@ pub extern "C" fn wallet_set_auth_count(
 
     let wallet = unsafe { &mut *p_wallet };
     wallet.set_auth_count(count);
+    true
+}
+
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos", target_os = "android"))]
+#[no_mangle]
+pub extern "C" fn wallet_protocol_generation(
+    p_wallet: *mut Wallet,
+    out_generation: &mut *const libc::c_char,
+) -> bool {
+    *out_generation = std::ptr::null();
+    if p_wallet.is_null() {
+        set_last_error("wallet_protocol_generation: p_wallet is null");
+        return false;
+    }
+
+    let wallet = unsafe { &*p_wallet };
+    match CString::new(wallet.protocol_generation()) {
+        Ok(generation) => {
+            *out_generation = generation.into_raw();
+            true
+        },
+        Err(_) => {
+            set_last_error("wallet_protocol_generation: generation contains a null byte");
+            false
+        }
+    }
+}
+
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos", target_os = "android"))]
+#[no_mangle]
+pub extern "C" fn wallet_begin_protocol_migration(
+    p_wallet: *mut Wallet,
+) -> bool {
+    if p_wallet.is_null() {
+        set_last_error("wallet_begin_protocol_migration: p_wallet is null");
+        return false;
+    }
+
+    let wallet = unsafe { &mut *p_wallet };
+    if let Err(error) = wallet.begin_protocol_migration() {
+        set_last_error(&format!("wallet_begin_protocol_migration: {error}"));
+        return false;
+    }
+    true
+}
+
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos", target_os = "android"))]
+#[no_mangle]
+pub extern "C" fn wallet_complete_protocol_migration(
+    p_wallet: *mut Wallet,
+) -> bool {
+    if p_wallet.is_null() {
+        set_last_error("wallet_complete_protocol_migration: p_wallet is null");
+        return false;
+    }
+
+    let wallet = unsafe { &mut *p_wallet };
+    if let Err(error) = wallet.complete_protocol_migration() {
+        set_last_error(&format!("wallet_complete_protocol_migration: {error}"));
+        return false;
+    }
     true
 }
 

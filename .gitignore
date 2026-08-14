@@ -83,9 +83,17 @@ data/
 # Secrets and keystores
 *.jks
 *.keystore
+*.p12
 key.properties
 *.pem
+release-keys/
+__pycache__/
+*.pyc
+test/*.reflectable.dart
 
 # AI/docs (never commit)
 claude.md
-docs/
+docs/*
+!docs/protocol-v1.1.0-12.md
+!docs/release-v2.1-runbook.md
+!docs/upstream-feature-roadmap.md

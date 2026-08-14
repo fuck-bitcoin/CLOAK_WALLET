@@ -2,16 +2,15 @@ import 'dart:async';
 
 import 'package:cloak_wallet/appsettings.dart';
 import 'package:flutter/material.dart';
-import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 
 import '../../accounts.dart';
 import '../../cloak/cloak_wallet_manager.dart';
-import '../../coin/coins.dart';
 import '../../generated/intl/messages.dart';
 import '../../router.dart' show router;
-import '../../store2.dart';
 import '../utils.dart';
 import '../widgets.dart';
+import '../../update/update_ui.dart';
+import '../../update/update_coordinator.dart';
 
 class MorePage extends StatefulWidget {
   @override
@@ -46,28 +45,39 @@ class _MorePageState extends State<MorePage> {
             ),
 
             // Account section (hidden for view-only wallets)
-            if (CloakWalletManager.isCloak(aa.coin) && !CloakWalletManager.isViewOnly)
+            if (CloakWalletManager.isCloak(aa.coin) &&
+                !CloakWalletManager.isViewOnly)
               _MenuCard(
                 icon: Icons.shield_outlined,
                 iconColor: const Color(0xFF4CAF50),
                 title: 'Auth Requests',
                 subtitle: 'Review pending signature requests',
-                onTap: () => _onNav(MoreTile(url: '/cloak_requests', icon: const SizedBox.shrink(), text: '')),
+                onTap: () => _onNav(MoreTile(
+                    url: '/cloak_requests',
+                    icon: const SizedBox.shrink(),
+                    text: '')),
               ),
 
-            if (CloakWalletManager.isCloak(aa.coin) && !CloakWalletManager.isViewOnly)
+            if (CloakWalletManager.isCloak(aa.coin) &&
+                !CloakWalletManager.isViewOnly)
               const SizedBox(height: 10),
 
             // Backup section (hidden for view-only wallets)
-            if (!CloakWalletManager.isViewOnly || !CloakWalletManager.isCloak(aa.coin))
+            if (!CloakWalletManager.isViewOnly ||
+                !CloakWalletManager.isCloak(aa.coin))
               _MenuCard(
                 icon: Icons.spa_outlined,
                 iconColor: const Color(0xFF4CAF50),
                 title: s.seedKeys,
                 subtitle: 'View recovery phrase, keys, and tokens',
-                onTap: () => _onNav(MoreTile(url: '/more/backup', icon: const SizedBox.shrink(), text: '', secured: true)),
+                onTap: () => _onNav(MoreTile(
+                    url: '/more/backup',
+                    icon: const SizedBox.shrink(),
+                    text: '',
+                    secured: true)),
                 trailing: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                   decoration: BoxDecoration(
                     color: const Color(0xFF4CAF50).withOpacity(0.15),
                     borderRadius: BorderRadius.circular(6),
@@ -83,7 +93,8 @@ class _MorePageState extends State<MorePage> {
                   ),
                 ),
               ),
-            if (!CloakWalletManager.isViewOnly || !CloakWalletManager.isCloak(aa.coin))
+            if (!CloakWalletManager.isViewOnly ||
+                !CloakWalletManager.isCloak(aa.coin))
               const SizedBox(height: 10),
 
             // Sync section
@@ -92,26 +103,56 @@ class _MorePageState extends State<MorePage> {
               iconColor: Colors.white.withOpacity(0.7),
               title: 'Resync Wallet',
               subtitle: 'Re-download all chain data from scratch',
-              onTap: () => _onNav(MoreTile(url: '/more/resync', icon: const SizedBox.shrink(), text: '')),
+              onTap: () => _onNav(MoreTile(
+                  url: '/more/resync',
+                  icon: const SizedBox.shrink(),
+                  text: '')),
             ),
 
-            if (CloakWalletManager.isCloak(aa.coin))
-              const SizedBox(height: 10),
+            if (CloakWalletManager.isCloak(aa.coin)) const SizedBox(height: 10),
             if (CloakWalletManager.isCloak(aa.coin))
               _MenuCard(
                 icon: Icons.trip_origin,
                 iconColor: Colors.white,
                 title: 'Telos Accounts',
                 subtitle: 'Manage accounts for receiving from Telos',
-                onTap: () => _onNav(MoreTile(url: '/telos_accounts', icon: const SizedBox.shrink(), text: '')),
+                onTap: () => _onNav(MoreTile(
+                    url: '/telos_accounts',
+                    icon: const SizedBox.shrink(),
+                    text: '')),
               ),
+
+            if (Theme.of(context).platform != TargetPlatform.iOS) ...[
+              const SizedBox(height: 10),
+              _MenuCard(
+                icon: Icons.system_update_alt,
+                iconColor: const Color(0xFF64B5F6),
+                title: 'Check for Updates',
+                subtitle: 'Verify the latest signed CLOAK Wallet release',
+                onTap: () => UpdateUi.checkNow(context),
+              ),
+              const SizedBox(height: 10),
+              ValueListenableBuilder<bool>(
+                valueListenable:
+                    UpdateCoordinator.instance.automaticChecksEnabled,
+                builder: (context, enabled, _) => _ToggleCard(
+                  icon: Icons.notifications_active_outlined,
+                  iconColor: const Color(0xFF64B5F6),
+                  title: 'Automatic Update Checks',
+                  subtitle: 'Check signed releases once per day',
+                  value: enabled,
+                  onChanged: (value) => UpdateCoordinator.instance
+                      .setAutomaticChecksEnabled(value),
+                ),
+              ),
+            ],
 
             // Display section (desktop only)
             // Version info
             const SizedBox(height: 24),
             Center(
               child: Text(
-                'CLOAK Wallet v$appVersion',
+                'CLOAK Wallet v$appVersion ($appBuildNumber)',
                 style: TextStyle(
                   color: Colors.white.withOpacity(0.25),
                   fontSize: 11,

@@ -1,21 +1,18 @@
-use bellman::gadgets::{boolean::AllocatedBit, num::Num};
-use bellman::{Circuit, ConstraintSystem, SynthesisError};
-use crate::note::Note;
+use super::constants::NOTE_COMMITMENT_RANDOMNESS_GENERATOR;
 use super::ecc;
 use super::pedersen_hash;
-use super::constants::NOTE_COMMITMENT_RANDOMNESS_GENERATOR;
+use crate::circuit::constants::{
+    VALUE_COMMITMENT_RANDOMNESS_GENERATOR, VALUE_COMMITMENT_VALUE_GENERATOR,
+};
+use crate::note::Note;
 use bellman::gadgets::boolean;
 use bellman::gadgets::num;
-use crate::circuit::constants::{
-    VALUE_COMMITMENT_RANDOMNESS_GENERATOR,
-    VALUE_COMMITMENT_VALUE_GENERATOR,
-};
-#[cfg(not(target_arch = "wasm32"))]
+use bellman::gadgets::num::Num;
+use bellman::{Circuit, ConstraintSystem, SynthesisError};
 use ff::Field;
 
 /// This is an instance of the `Spend` circuit.
-pub struct Output
-{
+pub struct Output {
     // The blinding factor of the net value commitment
     pub rcv: Option<jubjub::Fr>,
     // The randomness of the symbol commitment
@@ -25,25 +22,20 @@ pub struct Output
     pub note_b: Option<Note>,
 }
 
-impl Circuit<crate::engine::Scalar> for Output
-{
+impl Circuit<crate::engine::Scalar> for Output {
     fn synthesize<CS: ConstraintSystem<crate::engine::Scalar>>(
         self,
         cs: &mut CS,
-    ) -> Result<(), SynthesisError>
-    {
+    ) -> Result<(), SynthesisError> {
         // note b's account to boolean bit vector
         let account_b_bits = boolean::u64_into_boolean_vec_le(
             cs.namespace(|| "account_b"),
-            self.note_b.as_ref().map(|b| {
-                b.account().raw()
-            })
+            self.note_b.as_ref().map(|b| b.account().raw()),
         )?;
         // Compute accounts's value as a linear combination of the bits.
         let mut account_b_num = Num::zero();
         let mut coeff = crate::engine::scalar_one();
-        for bit in &account_b_bits
-        {
+        for bit in &account_b_bits {
             account_b_num = account_b_num.add_bool_with_coeff(CS::one(), bit, coeff);
             coeff = coeff.double();
         }
@@ -61,23 +53,27 @@ impl Circuit<crate::engine::Scalar> for Output
         // notes' symbol to boolean bit vector
         let symbol_bits = boolean::u64_into_boolean_vec_le(
             cs.namespace(|| "symbol"),
-            self.note_b.as_ref().map(|b| {
-                b.symbol().raw()
-            })
+            self.note_b.as_ref().map(|b| b.symbol().raw()),
         )?;
         symbol_preimage.extend(symbol_bits.clone());
+        // Compute note b's symbol as a linear combination of the same bits
+        // that are bound into the note and symbol commitments.
+        let mut symbol_num = num::Num::zero();
+        let mut coeff = crate::engine::scalar_one();
+        for bit in &symbol_bits {
+            symbol_num = symbol_num.add_bool_with_coeff(CS::one(), bit, coeff);
+            coeff = coeff.double();
+        }
         // notes' contract to boolean bit vector
         let contract_bits = boolean::u64_into_boolean_vec_le(
             cs.namespace(|| "contract"),
-            self.note_b.as_ref().map(|b| {
-                b.contract().raw()
-            })
+            self.note_b.as_ref().map(|b| b.contract().raw()),
         )?;
         symbol_preimage.extend(contract_bits.clone());
         assert_eq!(
             symbol_preimage.len(),
             64 +    // symbol
-            64      // contract
+            64 // contract
         );
 
         // Compute the symbol commitment
@@ -107,15 +103,12 @@ impl Circuit<crate::engine::Scalar> for Output
         // note b value to boolean bit vector
         let value_b_bits = boolean::u64_into_boolean_vec_le(
             cs.namespace(|| "value_b"),
-            self.note_b.as_ref().map(|b| {
-                b.amount()
-            })
+            self.note_b.as_ref().map(|b| b.amount()),
         )?;
         // Compute note b's value as a linear combination of the bits.
         let mut value_b_num = num::Num::zero();
         let mut coeff = crate::engine::scalar_one();
-        for bit in &value_b_bits
-        {
+        for bit in &value_b_bits {
             value_b_num = value_b_num.add_bool_with_coeff(CS::one(), bit, coeff);
             coeff = coeff.double();
         }
@@ -132,7 +125,8 @@ impl Circuit<crate::engine::Scalar> for Output
             ecc::EdwardsPoint::witness(
                 cs.namespace(|| "witness g_d b"),
                 self.note_b.as_ref().map(|b| {
-                    b.address().diversifier()
+                    b.address()
+                        .diversifier()
                         .g_d()
                         .expect("checked at construction")
                         .into()
@@ -145,9 +139,9 @@ impl Circuit<crate::engine::Scalar> for Output
         let pk_d_b = {
             ecc::EdwardsPoint::witness(
                 cs.namespace(|| "witness pk_d b"),
-                self.note_b.as_ref().map(|b| {
-                    b.address().pk_d().inner().into()
-                }),
+                self.note_b
+                    .as_ref()
+                    .map(|b| b.address().pk_d().inner().into()),
             )?
         };
         pk_d_b.assert_not_small_order(cs.namespace(|| "pk_d b not small order"))?;
@@ -162,9 +156,7 @@ impl Circuit<crate::engine::Scalar> for Output
             // Booleanize the randomness for the note commitment
             let rcm = boolean::field_into_boolean_vec_le(
                 cs.namespace(|| "rcm b"),
-                self.note_b.as_ref().map(|b|
-                    b.rcm()
-                ),
+                self.note_b.as_ref().map(|b| b.rcm()),
             )?;
 
             // Compute the note commitment randomness in the exponent
@@ -180,20 +172,7 @@ impl Circuit<crate::engine::Scalar> for Output
         // Expose note commit b as input
         cm_b.get_u().inputize(cs.namespace(|| "commitment b"))?;
 
-        // determine if this note is an NFT?
-        // the net value of the circuit is then exposed as a pedersen commitment: net_value = note_b
-        let is_nft;
-        match self.note_b.as_ref() {
-            Some(note_b) => {
-                // check if note being spent is an NFT
-                is_nft = Some(note_b.symbol().raw() == 0);
-            },
-            None => {
-                is_nft = None;
-            }
-        };
-
-        // calculate the pedersen commitment of the net value of this SpendOutput transfer
+        // calculate the pedersen commitment of the net value of this Output transfer
         // Compute the note value in the exponent
         let value_b_exp = ecc::fixed_base_multiplication(
             cs.namespace(|| "compute the value_b in the exponent"),
@@ -216,14 +195,26 @@ impl Circuit<crate::engine::Scalar> for Output
         // Expose the commitment as an input to the circuit
         cv.inputize(cs.namespace(|| "commitment point"))?;
 
-        let is_nft_bit = AllocatedBit::alloc(cs.namespace(|| "is_nft bit"), is_nft)?;
+        // Plain outputs are only valid for fungible tokens. Prove symbol != 0
+        // from the constrained symbol bits used by the note and symbol commitments.
+        let symbol_inv = num::AllocatedNum::alloc(cs.namespace(|| "symbol inverse"), || {
+            let symbol = self
+                .note_b
+                .as_ref()
+                .map(|b| b.symbol().raw())
+                .ok_or(SynthesisError::AssignmentMissing)?;
+            if symbol == 0 {
+                Ok(crate::engine::scalar_zero())
+            } else {
+                Ok(crate::engine::Scalar::from(symbol).invert().unwrap())
+            }
+        })?;
 
-        // To prevent NFTs from being 'split', enforce: 0 = is_nft * 1
         cs.enforce(
-            || "conditionally enforce 0 = is_nft * 1",
+            || "enforce output symbol nonzero",
+            |lc| lc + &symbol_num.lc(crate::engine::scalar_one()),
+            |lc| lc + symbol_inv.get_variable(),
             |lc| lc + CS::one(),
-            |lc| lc + is_nft_bit.get_variable(),
-            |lc| lc,
         );
 
         Ok(())
@@ -231,53 +222,63 @@ impl Circuit<crate::engine::Scalar> for Output
 }
 
 #[cfg(test)]
-mod tests
-{
-    use group::Curve;
-    use rand::rngs::OsRng;
-    use bellman::gadgets::test::TestConstraintSystem;
-    use bellman::Circuit;
-    use bellman::groth16::generate_random_parameters;
-    use crate::engine::{Bls12, fq_to_engine_scalar, scalar_to_canonical_bytes};
+#[path = "output_soundness_tests.rs"]
+mod output_soundness_tests;
+
+#[cfg(test)]
+mod tests {
+    use super::Output;
     use crate::address::Address;
+    use crate::contract::AffineVerifyingKeyBytesLE;
+    use crate::engine::{fq_to_engine_scalar, scalar_to_canonical_bytes, Bls12};
     use crate::eosio::ExtendedAsset;
     use crate::eosio::Name;
     use crate::note::Note;
     use crate::note::Rseed;
-    use crate::contract::AffineVerifyingKeyBytesLE;
-    use super::Output;
-    use crate::value::{ValueCommitTrapdoor, ValueCommitment};
-    use std::fs::File;
-    use std::fs;
-    use crate::spec::windowed_pedersen_commit;
     use crate::pedersen_hash::Personalization;
     use crate::spec::extract_p;
-    use ff::PrimeField;
-    use core::iter;
+    use crate::spec::windowed_pedersen_commit;
+    use crate::value::{ValueCommitTrapdoor, ValueCommitment};
+    use bellman::gadgets::test::TestConstraintSystem;
+    use bellman::groth16::generate_random_parameters;
+    use bellman::Circuit;
     use bitvec::{array::BitArray, order::Lsb0};
+    use core::iter;
+    use ff::PrimeField;
+    use group::Curve;
+    use rand::rngs::OsRng;
+    use std::fs;
+    use std::fs::File;
 
     #[test]
-    fn test_output_circuit()
-    {
+    fn test_output_circuit() {
         let mut rng = OsRng.clone();
         let mut cs = TestConstraintSystem::new();
-        
+
         let note_b = Note::from_parts(
             0,
             Address::dummy(&mut rng),
             Name(0),
             ExtendedAsset::from_string(&"11.0000 EOS@eosio.token".to_string()).unwrap(),
             Rseed([42; 32]),
-            [0; 512]
+            [0; 512],
         );
 
         let srcm = Rseed([21; 32]);
         let scm = windowed_pedersen_commit(
             Personalization::SymbolCommitment,
             iter::empty()
-                .chain(BitArray::<_, Lsb0>::new(note_b.symbol().raw().to_le_bytes()).iter().by_vals())
-                .chain(BitArray::<_, Lsb0>::new(note_b.contract().raw().to_le_bytes()).iter().by_vals()),
-                srcm.rcm().0
+                .chain(
+                    BitArray::<_, Lsb0>::new(note_b.symbol().raw().to_le_bytes())
+                        .iter()
+                        .by_vals(),
+                )
+                .chain(
+                    BitArray::<_, Lsb0>::new(note_b.contract().raw().to_le_bytes())
+                        .iter()
+                        .by_vals(),
+                ),
+            srcm.rcm().0,
         );
         let scm = extract_p(&scm);
 
@@ -287,21 +288,32 @@ mod tests
         let instance = Output {
             rcv: Some(rcv.inner()),
             rscm: Some(srcm.rcm().0),
-            note_b: Some(note_b.clone())
+            note_b: Some(note_b.clone()),
         };
 
         instance.synthesize(&mut cs).unwrap();
-        println!("num constraints: {}", cs.num_constraints());
-        println!("cs hash: {}", cs.hash());
+        assert_eq!(cs.num_constraints(), 6_598);
+        assert_eq!(
+            cs.hash(),
+            "5e9206a01732651c033c95b8d68eb1dc51167722372354ff70e3d35fa4f73a92"
+        );
 
         assert!(cs.is_satisfied());
-        assert_eq!(cs.get("randomization of note commitment b/u3/num").to_repr(), note_b.commitment().to_bytes());
+        assert_eq!(
+            cs.get("randomization of note commitment b/u3/num")
+                .to_repr(),
+            note_b.commitment().to_bytes()
+        );
         assert_eq!(cs.get_input(0, "ONE"), crate::engine::scalar_one());
         assert_eq!(
-            cs.get_input(1, "symbol commitment/input variable").to_repr(),
+            cs.get_input(1, "symbol commitment/input variable")
+                .to_repr(),
             scalar_to_canonical_bytes(&scm)
         );
-        assert_eq!(cs.get_input(2, "commitment b/input variable").to_repr(), note_b.commitment().to_bytes());
+        assert_eq!(
+            cs.get_input(2, "commitment b/input variable").to_repr(),
+            note_b.commitment().to_bytes()
+        );
         assert_eq!(
             cs.get_input(3, "commitment point/u/input variable"),
             fq_to_engine_scalar(cv.as_inner().to_affine().get_u())
@@ -313,12 +325,11 @@ mod tests
     }
 
     #[test]
-    fn generate_and_write_params()
-    {
+    fn generate_and_write_params() {
         let instance = Output {
             rcv: None,
             rscm: None,
-            note_b: None
+            note_b: None,
         };
         let params = generate_random_parameters::<Bls12, _, _>(instance, &mut OsRng).unwrap();
         let f = File::create("params_output.bin").unwrap();
@@ -330,4 +341,3 @@ mod tests
         assert!(res.is_ok());
     }
 }
-

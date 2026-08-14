@@ -1,0 +1,45 @@
+{
+  "assets": {
+    "android-universal": {
+      "architecture": "universal",
+      "name": "CLOAK_Wallet.apk",
+      "platform": "android",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "size": 1,
+      "url": "https://github.com/fuck-bitcoin/CLOAK_WALLET/releases/download/v2.1.0/CLOAK_Wallet.apk"
+    },
+    "linux-x64": {
+      "architecture": "x64",
+      "name": "CLOAK_Wallet-x86_64.AppImage",
+      "platform": "linux",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "size": 1,
+      "url": "https://github.com/fuck-bitcoin/CLOAK_WALLET/releases/download/v2.1.0/CLOAK_Wallet-x86_64.AppImage"
+    },
+    "macos-universal": {
+      "architecture": "universal",
+      "name": "CLOAK_Wallet-macos-universal.zip",
+      "platform": "macos",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "size": 1,
+      "url": "https://github.com/fuck-bitcoin/CLOAK_WALLET/releases/download/v2.1.0/CLOAK_Wallet-macos-universal.zip"
+    },
+    "windows-x64": {
+      "architecture": "x64",
+      "name": "CLOAK_Wallet-windows-x64.zip",
+      "platform": "windows",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "size": 1,
+      "url": "https://github.com/fuck-bitcoin/CLOAK_WALLET/releases/download/v2.1.0/CLOAK_Wallet-windows-x64.zip"
+    }
+  },
+  "build": 2001000,
+  "commit": "0000000000000000000000000000000000000000",
+  "issuedAt": "2026-08-13T00:00:00Z",
+  "minimumUpdaterVersion": "2.1.0",
+  "notes": "Example only; release manifests are generated and signed in CI.",
+  "requiredParameterGeneration": "v1.1.0-12",
+  "schema": 1,
+  "tag": "v2.1.0",
+  "version": "2.1.0"
+}

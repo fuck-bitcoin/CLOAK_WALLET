@@ -5,19 +5,16 @@
 // Also integrates with Anchor Link WebSocket protocol for automatic response detection.
 
 import 'dart:async';
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:gap/gap.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import 'dart:typed_data';
-
-import '../../accounts.dart';
 import '../../cloak/anchor_link.dart';
 import '../../cloak/cloak_wallet_manager.dart';
 import '../../cloak/esr_service.dart';
+import '../../cloak/pending_wallet_operation.dart';
 import '../../theme/zashi_tokens.dart';
 import '../utils.dart';
 
@@ -26,6 +23,7 @@ class EsrDisplayDialog extends StatefulWidget {
   final String esrUrl;
   final String? title;
   final String? subtitle;
+
   /// Optional shield data for CLEOS-style 2-step flow
   /// Contains mintProof, tokenContract, quantity, telosAccount
   final Map<String, dynamic>? shieldData;
@@ -54,6 +52,8 @@ class EsrDisplayDialog extends StatefulWidget {
     return showModalBottomSheet<Map<String, dynamic>?>(
       context: context,
       isScrollControlled: true,
+      isDismissible: false,
+      enableDrag: false,
       backgroundColor: Colors.transparent,
       builder: (ctx) => EsrDisplayDialog(
         esrUrl: esrUrl,
@@ -77,12 +77,16 @@ class _EsrDisplayDialogState extends State<EsrDisplayDialog> {
   bool _showManualEntry = false;
   final _signatureController = TextEditingController();
   bool _isProcessing = false;
+
   /// Error from broadcastMintOnly — displayed persistently in dialog
   String? _shieldError;
+
   /// On Android, the ESR is regenerated with a Buoy callback URL
   /// once the WebSocket channel is ready.
   /// The effective ESR URL
   String get _effectiveEsrUrl => widget.esrUrl;
+  String? get _walletOperationId =>
+      widget.shieldData?['_walletOperationId'] as String?;
 
   @override
   void initState() {
@@ -95,21 +99,29 @@ class _EsrDisplayDialogState extends State<EsrDisplayDialog> {
   void dispose() {
     _anchorLink?.close();
     _signatureController.dispose();
-    // If the dialog is dismissed without a successful broadcast,
-    // rollback wallet state to prevent phantom transactions
-    if (!_transactionSigned) {
-      _rollbackWalletState();
-    }
+    // A dispose callback cannot await an atomic wallet restore. The durable
+    // pending-operation record deliberately survives dismissal/restart and is
+    // reconciled from the deterministic transaction id instead.
     super.dispose();
   }
 
-  /// Rollback wallet state from the pre-proof snapshot if available.
-  /// This undoes the state mutation from transactPacked() that happens
-  /// during ZK proof generation, preventing phantom transactions.
-  Future<void> _rollbackWalletState() async {
-    final snapshot = widget.shieldData?['_walletSnapshot'];
-    if (snapshot is Uint8List) {
-      await CloakWalletManager.restoreWalletFromSnapshot(snapshot);
+  Future<void> _confirmWalletState(String transactionId) async {
+    final operationId = _walletOperationId;
+    if (operationId != null) {
+      await CloakWalletManager.confirmPendingWalletOperationAccepted(
+        operationId: operationId,
+        transactionId: transactionId,
+      );
+    }
+  }
+
+  Future<void> _recordAmbiguousOrRejected(Object error) async {
+    final operationId = _walletOperationId;
+    if (operationId != null) {
+      await CloakWalletManager.recordExternalSubmissionFailure(
+        operationId: operationId,
+        error: error,
+      );
     }
   }
 
@@ -143,6 +155,7 @@ class _EsrDisplayDialogState extends State<EsrDisplayDialog> {
     try {
       // Broadcast using the stored transaction + user's signature + thezeosalias signature
       final txId = await EsrService.broadcastWithManualSignature(sig);
+      await _confirmWalletState(txId);
 
       setState(() {
         _transactionSigned = true;
@@ -158,6 +171,7 @@ class _EsrDisplayDialogState extends State<EsrDisplayDialog> {
       }
     } catch (e) {
       print('[EsrDisplayDialog] Manual broadcast error: $e');
+      await _recordAmbiguousOrRejected(e);
       setState(() {
         _isProcessing = false;
         _statusMessage = 'Error: $e';
@@ -170,7 +184,8 @@ class _EsrDisplayDialogState extends State<EsrDisplayDialog> {
   Future<void> _initAnchorLink() async {
     // Create client with Telos chain ID
     _anchorLink = AnchorLinkClient(
-      chainId: '4667b205c6838ef70ff7988f6e8257e8be0e1284a2f59699054a018f743b1d11',
+      chainId:
+          '4667b205c6838ef70ff7988f6e8257e8be0e1284a2f59699054a018f743b1d11',
       onStatusChange: (status, message) {
         if (mounted) {
           setState(() {
@@ -212,7 +227,6 @@ class _EsrDisplayDialogState extends State<EsrDisplayDialog> {
 
       if (response != null && mounted) {
         setState(() {
-          _transactionSigned = true;
           _statusMessage = 'Processing response...';
         });
 
@@ -220,43 +234,49 @@ class _EsrDisplayDialogState extends State<EsrDisplayDialog> {
           String? txId;
 
           if (response.containsKey('serializedTransaction') ||
-                response.containsKey('packed_trx') ||
-                response.containsKey('signatures')) {
-              setState(() {
-                _statusMessage = 'Adding protocol signature and broadcasting...';
-              });
-              txId = await EsrService.addSignatureAndBroadcast(response);
-            } else if (response.containsKey('transaction_id')) {
-              txId = response['transaction_id']?.toString();
-            } else if (response.containsKey('processed')) {
-              final processed = response['processed'];
-              if (processed is Map) {
-                txId = processed['id']?.toString();
-              }
-            } else if (response.containsKey('transaction')) {
-              setState(() {
-                _statusMessage = 'Adding protocol signature and broadcasting...';
-              });
-              txId = await EsrService.addSignatureAndBroadcast(response);
-            } else {
-              final errorMsg = response['error']?.toString() ??
-                               response['message']?.toString();
-              if (errorMsg != null) {
-                throw Exception('Anchor returned error: $errorMsg');
-              }
-              final status = response['status']?.toString();
-              if (status == 'rejected' || status == 'cancelled' || status == 'expired') {
-                throw Exception('Transaction was $status by user');
-              }
-              txId = response['txid']?.toString() ??
-                     response['trx_id']?.toString() ??
-                     response['tx']?.toString() ??
-                     response['id']?.toString();
-              if (txId == null) {
-                txId = await EsrService.addSignatureAndBroadcast(response);
-              }
+              response.containsKey('packed_trx') ||
+              response.containsKey('signatures')) {
+            setState(() {
+              _statusMessage = 'Adding protocol signature and broadcasting...';
+            });
+            txId = await EsrService.addSignatureAndBroadcast(response);
+          } else if (response.containsKey('transaction_id')) {
+            txId = response['transaction_id']?.toString();
+          } else if (response.containsKey('processed')) {
+            final processed = response['processed'];
+            if (processed is Map) {
+              txId = processed['id']?.toString();
             }
+          } else if (response.containsKey('transaction')) {
+            setState(() {
+              _statusMessage = 'Adding protocol signature and broadcasting...';
+            });
+            txId = await EsrService.addSignatureAndBroadcast(response);
+          } else {
+            final errorMsg = response['error']?.toString() ??
+                response['message']?.toString();
+            if (errorMsg != null) {
+              throw Exception('Anchor returned error: $errorMsg');
+            }
+            final status = response['status']?.toString();
+            if (status == 'rejected' ||
+                status == 'cancelled' ||
+                status == 'expired') {
+              throw Exception('Transaction was $status by user');
+            }
+            txId = response['txid']?.toString() ??
+                response['trx_id']?.toString() ??
+                response['tx']?.toString() ??
+                response['id']?.toString();
+            if (txId == null) {
+              txId = await EsrService.addSignatureAndBroadcast(response);
+            }
+          }
 
+          if (txId == null || txId.isEmpty) {
+            throw StateError('Anchor did not return a transaction id');
+          }
+          await _confirmWalletState(txId);
           final result = {'transaction_id': txId};
 
           if (mounted) {
@@ -265,8 +285,7 @@ class _EsrDisplayDialogState extends State<EsrDisplayDialog> {
             });
           }
 
-          // Persist wallet state now that broadcast succeeded
-          await CloakWalletManager.saveWallet();
+          _transactionSigned = true;
 
           showSnackBar('Transaction broadcast successfully!');
           await Future.delayed(const Duration(seconds: 2));
@@ -275,8 +294,7 @@ class _EsrDisplayDialogState extends State<EsrDisplayDialog> {
           }
         } catch (e) {
           print('[EsrDisplayDialog] Error processing response: $e');
-          // Rollback wallet state since broadcast failed
-          await _rollbackWalletState();
+          await _recordAmbiguousOrRejected(e);
           if (mounted) {
             setState(() {
               _linkStatus = AnchorLinkStatus.error;
@@ -328,10 +346,8 @@ class _EsrDisplayDialogState extends State<EsrDisplayDialog> {
       // Don't append callback channel (corrupts the base64 payload)
       final launched = await EsrService.launchAnchor(_effectiveEsrUrl);
       if (launched) {
-      } else {
-      }
-    } catch (e) {
-    }
+      } else {}
+    } catch (e) {}
   }
 
   /// Build status indicator for Anchor Link connection
@@ -412,7 +428,8 @@ class _EsrDisplayDialogState extends State<EsrDisplayDialog> {
   Widget build(BuildContext context) {
     final t = Theme.of(context);
     final zashi = t.extension<ZashiThemeExt>();
-    final balanceTextColor = zashi?.balanceAmountColor ?? const Color(0xFFBDBDBD);
+    final balanceTextColor =
+        zashi?.balanceAmountColor ?? const Color(0xFFBDBDBD);
     final balanceFontFamily = t.textTheme.displaySmall?.fontFamily;
     final mediaQuery = MediaQuery.of(context);
     return Container(
@@ -457,72 +474,80 @@ class _EsrDisplayDialogState extends State<EsrDisplayDialog> {
               child: Column(
                 children: [
                   if (!_transactionSigned) ...[
-                  // Instructions
-                  Text(
-                    widget.subtitle ??
-                      'Copy the ESR link below and paste it into Anchor wallet\'s URI handler to sign.',
-                    style: t.textTheme.bodyMedium?.copyWith(
-                      color: t.colorScheme.onSurface.withOpacity(0.7),
+                    // Instructions
+                    Text(
+                      widget.subtitle ??
+                          'Copy the ESR link below and paste it into Anchor wallet\'s URI handler to sign.',
+                      style: t.textTheme.bodyMedium?.copyWith(
+                        color: t.colorScheme.onSurface.withOpacity(0.7),
+                      ),
+                      textAlign: TextAlign.center,
                     ),
-                    textAlign: TextAlign.center,
-                  ),
-                  const Gap(20),
+                    const Gap(20),
 
-                  // Action buttons (dark theme, matching More menu patterns)
-                  // Copy ESR Link
-                  SizedBox(
-                    width: double.infinity,
-                    height: 44,
-                    child: Material(
-                      color: _copied ? const Color(0xFF2E4A2E) : const Color(0xFF2E2C2C),
-                      borderRadius: BorderRadius.circular(14),
-                      child: InkWell(
+                    // Action buttons (dark theme, matching More menu patterns)
+                    // Copy ESR Link
+                    SizedBox(
+                      width: double.infinity,
+                      height: 44,
+                      child: Material(
+                        color: _copied
+                            ? const Color(0xFF2E4A2E)
+                            : const Color(0xFF2E2C2C),
                         borderRadius: BorderRadius.circular(14),
-                        onTap: _copyToClipboard,
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(_copied ? Icons.check : Icons.copy, size: 18, color: balanceTextColor),
-                            const SizedBox(width: 8),
-                            Text(
-                              _copied ? 'Copied!' : 'Copy ESR Link',
-                              style: TextStyle(color: balanceTextColor, fontFamily: balanceFontFamily, fontWeight: FontWeight.w500),
-                            ),
-                          ],
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(14),
+                          onTap: _copyToClipboard,
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(_copied ? Icons.check : Icons.copy,
+                                  size: 18, color: balanceTextColor),
+                              const SizedBox(width: 8),
+                              Text(
+                                _copied ? 'Copied!' : 'Copy ESR Link',
+                                style: TextStyle(
+                                    color: balanceTextColor,
+                                    fontFamily: balanceFontFamily,
+                                    fontWeight: FontWeight.w500),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                  const Gap(10),
+                    const Gap(10),
 
-                  // Launch Anchor Desktop
-                  SizedBox(
-                    width: double.infinity,
-                    height: 44,
-                    child: Material(
-                      color: const Color(0xFF2E2C2C),
-                      borderRadius: BorderRadius.circular(14),
-                      child: InkWell(
+                    // Launch Anchor Desktop
+                    SizedBox(
+                      width: double.infinity,
+                      height: 44,
+                      child: Material(
+                        color: const Color(0xFF2E2C2C),
                         borderRadius: BorderRadius.circular(14),
-                        onTap: _launchAnchorDesktop,
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(Icons.launch, size: 18, color: balanceTextColor),
-                            const SizedBox(width: 8),
-                            Text(
-                              'Launch Anchor',
-                              style: TextStyle(color: balanceTextColor, fontFamily: balanceFontFamily, fontWeight: FontWeight.w500),
-                            ),
-                          ],
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(14),
+                          onTap: _launchAnchorDesktop,
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.launch,
+                                  size: 18, color: balanceTextColor),
+                              const SizedBox(width: 8),
+                              Text(
+                                'Launch Anchor',
+                                style: TextStyle(
+                                    color: balanceTextColor,
+                                    fontFamily: balanceFontFamily,
+                                    fontWeight: FontWeight.w500),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                  const Gap(16),
-
+                    const Gap(16),
                   ], // end if (!_transactionSigned)
-
 
                   // Show shield error persistently so user can read it
                   if (_shieldError != null) ...[
@@ -560,7 +585,8 @@ class _EsrDisplayDialogState extends State<EsrDisplayDialog> {
                     const Gap(10),
                   ],
 
-                  // Done button — always visible, takes user to balance page
+                  // Status button never commits eager state without a verified
+                  // transaction id or authoritative chain-history result.
                   SizedBox(
                     width: double.infinity,
                     height: 48,
@@ -570,18 +596,36 @@ class _EsrDisplayDialogState extends State<EsrDisplayDialog> {
                       child: InkWell(
                         borderRadius: BorderRadius.circular(14),
                         onTap: () async {
-                          // Save wallet state — Anchor broadcast via cosig, so the
-                          // wallet's proof-mutated state is now valid on-chain.
-                          _transactionSigned = true;
-                          await CloakWalletManager.saveWallet();
-                          // Navigate to balance
-                          GoRouter.of(context).go('/account');
-                          await Future.delayed(const Duration(milliseconds: 500));
-                          if (mounted) Navigator.of(context).pop({'status': 'completed_manually'});
+                          final operationId = _walletOperationId;
+                          if (operationId == null) {
+                            if (mounted) Navigator.of(context).pop();
+                            return;
+                          }
+                          setState(() => _isProcessing = true);
+                          final result = await CloakWalletManager
+                              .reconcilePendingWalletOperationFromChain();
+                          if (!mounted) return;
+                          setState(() => _isProcessing = false);
+                          if (result == PendingReconciliationResult.accepted) {
+                            _transactionSigned = true;
+                            GoRouter.of(context).go('/account');
+                            Navigator.of(context).pop({
+                              'transaction_id':
+                                  widget.shieldData?['transactionId'],
+                            });
+                          } else if (result ==
+                              PendingReconciliationResult.rejectedAfterExpiry) {
+                            setState(() => _statusMessage =
+                                'Transaction expired without being accepted. Wallet state was restored.');
+                          } else {
+                            setState(() => _statusMessage = CloakWalletManager
+                                    .pendingTransactionStatus.value ??
+                                'Still awaiting network confirmation.');
+                          }
                         },
                         child: Center(
                           child: Text(
-                            'DONE',
+                            _isProcessing ? 'CHECKING...' : 'CHECK STATUS',
                             style: TextStyle(
                               color: t.colorScheme.background,
                               fontFamily: balanceFontFamily,
@@ -602,7 +646,10 @@ class _EsrDisplayDialogState extends State<EsrDisplayDialog> {
                         onTap: () => setState(() => _showManualEntry = true),
                         child: Text(
                           'Advanced: Paste signature manually',
-                          style: TextStyle(color: balanceTextColor.withOpacity(0.5), fontSize: 12, fontFamily: balanceFontFamily),
+                          style: TextStyle(
+                              color: balanceTextColor.withOpacity(0.5),
+                              fontSize: 12,
+                              fontFamily: balanceFontFamily),
                         ),
                       ),
                     ),
@@ -618,21 +665,30 @@ class _EsrDisplayDialogState extends State<EsrDisplayDialog> {
                         children: [
                           Text(
                             'Paste Raw Signature from Anchor:',
-                            style: TextStyle(color: balanceTextColor.withOpacity(0.7), fontSize: 12, fontFamily: balanceFontFamily),
+                            style: TextStyle(
+                                color: balanceTextColor.withOpacity(0.7),
+                                fontSize: 12,
+                                fontFamily: balanceFontFamily),
                           ),
                           const Gap(8),
                           TextField(
                             controller: _signatureController,
                             maxLines: 2,
                             cursorColor: balanceTextColor,
-                            style: TextStyle(color: balanceTextColor, fontFamily: 'monospace', fontSize: 12),
+                            style: TextStyle(
+                                color: balanceTextColor,
+                                fontFamily: 'monospace',
+                                fontSize: 12),
                             decoration: InputDecoration(
                               hintText: 'SIG_K1_...',
-                              hintStyle: TextStyle(color: balanceTextColor.withOpacity(0.3)),
+                              hintStyle: TextStyle(
+                                  color: balanceTextColor.withOpacity(0.3)),
                               filled: true,
                               fillColor: Colors.black.withOpacity(0.3),
                               contentPadding: const EdgeInsets.all(10),
-                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
+                              border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(10),
+                                  borderSide: BorderSide.none),
                             ),
                           ),
                           const Gap(10),
@@ -644,11 +700,22 @@ class _EsrDisplayDialogState extends State<EsrDisplayDialog> {
                               borderRadius: BorderRadius.circular(10),
                               child: InkWell(
                                 borderRadius: BorderRadius.circular(10),
-                                onTap: _isProcessing ? null : _processManualSignature,
+                                onTap: _isProcessing
+                                    ? null
+                                    : _processManualSignature,
                                 child: Center(
                                   child: _isProcessing
-                                      ? SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: t.colorScheme.background))
-                                      : Text('Sign & Broadcast', style: TextStyle(color: t.colorScheme.background, fontFamily: balanceFontFamily, fontWeight: FontWeight.w600)),
+                                      ? SizedBox(
+                                          width: 18,
+                                          height: 18,
+                                          child: CircularProgressIndicator(
+                                              strokeWidth: 2,
+                                              color: t.colorScheme.background))
+                                      : Text('Sign & Broadcast',
+                                          style: TextStyle(
+                                              color: t.colorScheme.background,
+                                              fontFamily: balanceFontFamily,
+                                              fontWeight: FontWeight.w600)),
                                 ),
                               ),
                             ),
@@ -661,47 +728,49 @@ class _EsrDisplayDialogState extends State<EsrDisplayDialog> {
 
                   // Instructions — hidden after success
                   if (!_transactionSigned)
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF2E2C2C),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: Colors.blue.withOpacity(0.3)),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Icon(Icons.info_outline, color: balanceTextColor.withOpacity(0.5), size: 16),
-                            const Gap(8),
-                            Text(
-                              'How to use in Anchor:',
-                              style: TextStyle(
-                                color: balanceTextColor.withOpacity(0.7),
-                                fontFamily: balanceFontFamily,
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF2E2C2C),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.blue.withOpacity(0.3)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Icon(Icons.info_outline,
+                                  color: balanceTextColor.withOpacity(0.5),
+                                  size: 16),
+                              const Gap(8),
+                              Text(
+                                'How to use in Anchor:',
+                                style: TextStyle(
+                                  color: balanceTextColor.withOpacity(0.7),
+                                  fontFamily: balanceFontFamily,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                ),
                               ),
-                            ),
-                          ],
-                        ),
-                        const Gap(8),
-                        Text(
-                          '1. Click on Import Transaction\n'
-                          '2. Import ESR Payload\n'
-                          '3. Paste the ESR Link\n'
-                          '4. Trigger Signing Request',
-                          style: TextStyle(
-                            color: balanceTextColor.withOpacity(0.5),
-                            fontFamily: balanceFontFamily,
-                            fontSize: 11,
-                            height: 1.4,
+                            ],
                           ),
-                        ),
-                      ],
+                          const Gap(8),
+                          Text(
+                            '1. Click on Import Transaction\n'
+                            '2. Import ESR Payload\n'
+                            '3. Paste the ESR Link\n'
+                            '4. Trigger Signing Request',
+                            style: TextStyle(
+                              color: balanceTextColor.withOpacity(0.5),
+                              fontFamily: balanceFontFamily,
+                              fontSize: 11,
+                              height: 1.4,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
                   const Gap(16),
                 ],
               ),

@@ -1,0 +1,904 @@
+name: Secure CLOAK release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      action:
+        description: Build a review bundle or publish an existing verified draft
+        required: true
+        type: choice
+        options:
+          - build-draft
+          - publish-draft
+        default: build-draft
+      tag:
+        description: Stable vMAJOR.MINOR.PATCH tag
+        required: true
+        default: v2.1.0
+
+concurrency:
+  group: cloak-release-${{ inputs.tag || github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  FLUTTER_VERSION: '3.22.2'
+  FLUTTER_COMMIT: '761747bfc538b5af34aa0d3fac380f1bc331ec49'
+  RUST_VERSION: '1.80.1'
+  ANDROID_NDK_VERSION: '25.1.8937393'
+  PARAMETER_GENERATION: 'v1.1.0-12'
+  APPIMAGETOOL_SHA256: 'a6d71e2b6cd66f8e8d16c37ad164658985e0cf5fcaa950c90a482890cb9d13e0'
+  APPIMAGE_RUNTIME_SHA256: '1cc49bcf1e2ccd593c379adb17c9f85a36d619088296504de95b1d06215aebbf'
+
+jobs:
+  metadata:
+    if: github.event_name == 'push' || inputs.action == 'build-draft'
+    runs-on: ubuntu-22.04
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      version: ${{ steps.version.outputs.version }}
+      build: ${{ steps.version.outputs.build }}
+      commit: ${{ steps.version.outputs.commit }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+          fetch-depth: 0
+          submodules: recursive
+      - id: version
+        shell: bash
+        env:
+          REQUESTED_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            tag="$GITHUB_REF_NAME"
+          else
+            tag="$REQUESTED_TAG"
+          fi
+          [[ "$tag" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]] || {
+            echo 'Only stable vMAJOR.MINOR.PATCH releases are accepted' >&2
+            exit 1
+          }
+          major="${BASH_REMATCH[1]}"
+          minor="${BASH_REMATCH[2]}"
+          patch="${BASH_REMATCH[3]}"
+          (( major < 2100 && minor < 1000 && patch < 1000 )) || exit 1
+          version="${tag#v}"
+          build=$((major * 1000000 + minor * 1000 + patch))
+          pubspec_version="$(python3 - <<'PY'
+          import re
+          from pathlib import Path
+          text = Path('pubspec.yaml').read_text(encoding='utf-8')
+          matches = re.findall(r'^version:\s*([^\s#]+)', text, re.MULTILINE)
+          if len(matches) != 1:
+              raise SystemExit('pubspec.yaml must have exactly one top-level version')
+          print(matches[0])
+          PY
+          )"
+          [[ "$pubspec_version" == "$version+$build" ]] || {
+            echo "pubspec.yaml has $pubspec_version; tag requires $version+$build" >&2
+            exit 1
+          }
+          commit="$(git rev-parse HEAD)"
+          [[ "$commit" =~ ^[0-9a-f]{40}$ ]] || exit 1
+          git fetch --no-tags origin main:refs/remotes/origin/main
+          git merge-base --is-ancestor "$commit" origin/main || {
+            echo 'Release tag must point to a commit on origin/main' >&2
+            exit 1
+          }
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "build=$build" >> "$GITHUB_OUTPUT"
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
+      - name: Verify reviewed release identities
+        shell: bash
+        env:
+          RELEASE_PUBLIC_KEY: ${{ vars.CLOAK_RELEASE_MANIFEST_PUBLIC_KEY }}
+          SPARKLE_PUBLIC_KEY: ${{ vars.CLOAK_SPARKLE_PUBLIC_KEY }}
+          ANDROID_CERT_SHA256: ${{ vars.CLOAK_ANDROID_CERT_SHA256 }}
+        run: |
+          set -euo pipefail
+          committed_release="$(tr -d '\r\n' \
+            < release/keys/release-manifest-public.base64)"
+          committed_sparkle="$(tr -d '\r\n' \
+            < release/keys/sparkle-public.base64)"
+          committed_android="$(tr -d '\r\n' \
+            < release/keys/android-cert-sha256.txt)"
+          [[ -n "$RELEASE_PUBLIC_KEY" && -n "$SPARKLE_PUBLIC_KEY" \
+             && -n "$ANDROID_CERT_SHA256" ]] || exit 1
+          [[ "$RELEASE_PUBLIC_KEY" == "$committed_release" \
+             && "$SPARKLE_PUBLIC_KEY" == "$committed_sparkle" \
+             && "${ANDROID_CERT_SHA256^^}" == "$committed_android" ]] || {
+            echo 'Configured release identities differ from the reviewed trust roots' >&2
+            exit 1
+          }
+
+  validate:
+    needs: metadata
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ needs.metadata.outputs.commit }}
+          submodules: recursive
+      - name: Require the reviewed immutable parameter release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          release_json="$RUNNER_TEMP/params-release.json"
+          manifest_dir="$RUNNER_TEMP/params-release-manifest"
+          gh api \
+            "repos/$GITHUB_REPOSITORY/releases/tags/params-v1.1.0-12" \
+            > "$release_json"
+          python3 - "$release_json" <<'PY'
+          import json, sys
+          from pathlib import Path
+
+          release = json.loads(Path(sys.argv[1]).read_text(encoding='utf-8'))
+          if release.get('tag_name') != 'params-v1.1.0-12':
+              raise SystemExit('unexpected parameter release tag')
+          if release.get('draft') or release.get('prerelease'):
+              raise SystemExit('parameter generation is not a published stable release')
+          expected = {
+              'mint.params': 15_600_764,
+              'spend-output.params': 116_049_020,
+              'spend.params': 114_333_500,
+              'output.params': 3_070_652,
+          }
+          assets = {asset['name']: asset['size'] for asset in release.get('assets', [])}
+          if set(assets) != set(expected) | {
+              'params-manifest-v1.json',
+              'params-manifest-v1.json.sig',
+          }:
+              raise SystemExit('parameter release asset set is incomplete or unexpected')
+          for name, size in expected.items():
+              if assets.get(name) != size:
+                  raise SystemExit(f'parameter release size mismatch: {name}')
+          if assets['params-manifest-v1.json'] <= 0 or assets['params-manifest-v1.json.sig'] <= 0:
+              raise SystemExit('parameter release manifest assets are empty')
+          PY
+          mkdir "$manifest_dir"
+          gh release download params-v1.1.0-12 --dir "$manifest_dir" \
+            --pattern 'params-manifest-v1.json' \
+            --pattern 'params-manifest-v1.json.sig'
+          cmp --silent release/params/params-manifest-v1.json \
+            "$manifest_dir/params-manifest-v1.json"
+          cmp --silent release/params/params-manifest-v1.json.sig \
+            "$manifest_dir/params-manifest-v1.json.sig"
+      - shell: bash
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch "$FLUTTER_VERSION" \
+            https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
+          [[ "$(git -C "$RUNNER_TEMP/flutter" rev-parse HEAD)" == "$FLUTTER_COMMIT" ]]
+          echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
+      - shell: bash
+        run: |
+          set -euo pipefail
+          flutter pub get
+          dart run build_runner build -d
+          flutter analyze --no-fatal-infos --no-fatal-warnings \
+            lib/security lib/update lib/appsettings.dart lib/main.dart \
+            lib/init.dart lib/pages/more/more.dart lib/pages/more/about.dart \
+            lib/cloak/block_direct_sync_result.dart \
+            lib/cloak/bridge_init_protocol.dart \
+            lib/cloak/params_manager.dart \
+            lib/cloak/pending_wallet_operation.dart \
+            lib/cloak/protocol_compatibility.dart \
+            lib/cloak/send_recovery.dart \
+            lib/cloak/shielded_ft_balance.dart \
+            lib/cloak/signature_provider.dart \
+            lib/cloak/wallet_operation_coordinator.dart
+          flutter test \
+            test/block_direct_sync_result_test.dart \
+            test/bridge_init_protocol_test.dart \
+            test/desktop_update_installer_test.dart \
+            test/ed25519_verifier_test.dart \
+            test/params_manifest_test.dart \
+            test/protocol_compatibility_test.dart \
+            test/send_recovery_test.dart \
+            test/shielded_ft_balance_test.dart \
+            test/update_health_test.dart \
+            test/update_manifest_test.dart \
+            test/update_downloader_test.dart \
+            test/update_install_gate_test.dart \
+            test/update_preferences_test.dart \
+            test/wallet_operation_coordinator_test.dart
+          bash -n install.sh install-macos.sh \
+            assets/updater/linux-update.sh \
+            build-scripts/mac/codesign-mac.sh \
+            scripts/provision-release-manifest-key.sh \
+            scripts/provision-sparkle-key.sh \
+            scripts/provision-android-keystore.sh
+          bash scripts/test-linux-update-helper.sh
+          python3 -m py_compile scripts/generate-update-manifest.py
+
+  protocol-security:
+    needs: metadata
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ needs.metadata.outputs.commit }}
+          submodules: recursive
+      - shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install "$RUST_VERSION" --profile minimal
+          rustup default "$RUST_VERSION"
+          cargo check --manifest-path zeos-caterpillar/Cargo.toml \
+            --release --locked --all-targets
+          cargo test --manifest-path zeos-caterpillar/Cargo.toml \
+            --release --locked soundness_tests -- --test-threads=1
+          cargo test --manifest-path zeos-caterpillar/Cargo.toml \
+            --release --locked wallet::tests -- --test-threads=1
+          cargo test --manifest-path zeos-caterpillar/Cargo.toml \
+            --release --locked --lib \
+            circuit::mint::tests::test_mint_circuit_utxo \
+            -- --exact --test-threads=1
+          cargo test --manifest-path zeos-caterpillar/Cargo.toml \
+            --release --locked --lib \
+            circuit::mint::tests::test_mint_circuit_auth \
+            -- --exact --test-threads=1
+          cargo test --manifest-path zeos-caterpillar/Cargo.toml \
+            --release --locked --lib \
+            circuit::output::tests::test_output_circuit \
+            -- --exact --test-threads=1
+          cargo test --manifest-path zeos-caterpillar/Cargo.toml \
+            --release --locked --lib \
+            circuit::spend::tests::test_spend_circuit \
+            -- --exact --test-threads=1
+          cargo test --manifest-path zeos-caterpillar/Cargo.toml \
+            --release --locked --lib \
+            circuit::spend_output::tests::test_spendoutput_circuit \
+            -- --exact --test-threads=1
+
+  windows:
+    needs: [metadata, validate, protocol-security]
+    runs-on: windows-2022
+    environment: release
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ needs.metadata.outputs.commit }}
+          submodules: recursive
+      - shell: bash
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch "$FLUTTER_VERSION" \
+            https://github.com/flutter/flutter.git /d/flutter
+          [[ "$(git -C /d/flutter rev-parse HEAD)" == "$FLUTTER_COMMIT" ]]
+          echo 'D:/flutter/bin' >> "$GITHUB_PATH"
+      - shell: bash
+        env:
+          RELEASE_PUBLIC_KEY: ${{ vars.CLOAK_RELEASE_MANIFEST_PUBLIC_KEY }}
+          VERSION: ${{ needs.metadata.outputs.version }}
+          BUILD: ${{ needs.metadata.outputs.build }}
+          COMMIT: ${{ needs.metadata.outputs.commit }}
+        run: |
+          set -euo pipefail
+          [[ -n "$RELEASE_PUBLIC_KEY" ]] || exit 1
+          rustup toolchain install "$RUST_VERSION" --profile minimal
+          rustup default "$RUST_VERSION"
+          (cd zeos-caterpillar && cargo build --release --locked)
+          mkdir -p windows/lib
+          cp zeos-caterpillar/target/release/zeos_caterpillar.dll windows/lib/
+          flutter pub get
+          dart run build_runner build -d
+          (cd packages/cloak_api_ffi && flutter pub get)
+          flutter build windows --release \
+            --build-name="$VERSION" --build-number="$BUILD" \
+            --dart-define="APP_VERSION=$VERSION" \
+            --dart-define="APP_BUILD_NUMBER=$BUILD" \
+            --dart-define="APP_COMMIT=$COMMIT" \
+            --dart-define="CLOAK_RELEASE_MANIFEST_PUBLIC_KEY=$RELEASE_PUBLIC_KEY"
+          cp zeos-caterpillar/target/release/zeos_caterpillar.dll \
+            build/windows/x64/runner/Release/
+      - shell: pwsh
+        env:
+          VERSION: ${{ needs.metadata.outputs.version }}
+          BUILD: ${{ needs.metadata.outputs.build }}
+        run: |
+          $info = (Get-Item 'build/windows/x64/runner/Release/cloak-wallet.exe').VersionInfo
+          $expected = "$env:VERSION+$env:BUILD"
+          if ($info.ProductVersion -ne $expected -or $info.FileVersion -ne $expected) {
+            throw "Windows metadata $($info.ProductVersion)/$($info.FileVersion) != $expected"
+          }
+      - shell: bash
+        run: |
+          set -euo pipefail
+          cd build/windows/x64/runner
+          mv Release CLOAK_Wallet
+          7z a ../../../../CLOAK_Wallet-windows-x64.zip CLOAK_Wallet
+      - name: Verify managed Windows archive layout
+        shell: pwsh
+        run: |
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $archive = [IO.Compression.ZipFile]::OpenRead(
+            (Resolve-Path 'CLOAK_Wallet-windows-x64.zip')
+          )
+          try {
+            $files = @($archive.Entries | Where-Object { $_.Name })
+            $executables = @($files | Where-Object {
+              $_.FullName.Replace('\', '/') -eq 'CLOAK_Wallet/cloak-wallet.exe'
+            })
+            $outsideRoot = @($files | Where-Object {
+              -not $_.FullName.Replace('\', '/').StartsWith('CLOAK_Wallet/')
+            })
+            if ($executables.Count -ne 1 -or $outsideRoot.Count -ne 0) {
+              throw 'Windows ZIP does not match the managed app layout'
+            }
+          } finally {
+            $archive.Dispose()
+          }
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: release-windows
+          path: CLOAK_Wallet-windows-x64.zip
+          if-no-files-found: error
+
+  linux:
+    needs: [metadata, validate, protocol-security]
+    runs-on: ubuntu-22.04
+    environment: release
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ needs.metadata.outputs.commit }}
+          submodules: recursive
+      - shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y clang cmake ninja-build libgtk-3-dev \
+            libssl-dev libsecret-1-dev libjsoncpp-dev libunwind-dev \
+            libudev-dev pkg-config patchelf squashfs-tools libfuse2
+          git clone --depth 1 --branch "$FLUTTER_VERSION" \
+            https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
+          [[ "$(git -C "$RUNNER_TEMP/flutter" rev-parse HEAD)" == "$FLUTTER_COMMIT" ]]
+          echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
+      - shell: bash
+        env:
+          RELEASE_PUBLIC_KEY: ${{ vars.CLOAK_RELEASE_MANIFEST_PUBLIC_KEY }}
+          VERSION: ${{ needs.metadata.outputs.version }}
+          BUILD: ${{ needs.metadata.outputs.build }}
+          COMMIT: ${{ needs.metadata.outputs.commit }}
+        run: |
+          set -euo pipefail
+          [[ -n "$RELEASE_PUBLIC_KEY" ]] || exit 1
+          rustup toolchain install "$RUST_VERSION" --profile minimal
+          rustup default "$RUST_VERSION"
+          (cd zeos-caterpillar && cargo build --release --locked)
+          mkdir -p linux/lib
+          cp zeos-caterpillar/target/release/libzeos_caterpillar.so linux/lib/
+          flutter pub get
+          dart run build_runner build -d
+          (cd packages/cloak_api_ffi && flutter pub get)
+          flutter build linux --release \
+            --build-name="$VERSION" --build-number="$BUILD" \
+            --dart-define="APP_VERSION=$VERSION" \
+            --dart-define="APP_BUILD_NUMBER=$BUILD" \
+            --dart-define="APP_COMMIT=$COMMIT" \
+            --dart-define="CLOAK_RELEASE_MANIFEST_PUBLIC_KEY=$RELEASE_PUBLIC_KEY"
+
+          appdir="$RUNNER_TEMP/CLOAK_Wallet.AppDir"
+          bundle='build/linux/x64/release/bundle'
+          mkdir -p "$appdir/usr/bin" "$appdir/usr/lib" \
+            "$appdir/usr/share/applications" \
+            "$appdir/usr/share/icons/hicolor/256x256/apps"
+          cp "$bundle/cloak-wallet" "$appdir/usr/bin/"
+          cp -R "$bundle/data" "$appdir/usr/bin/"
+          cp -R "$bundle/lib/." "$appdir/usr/lib/"
+          ln -s ../lib "$appdir/usr/bin/lib"
+          cp misc/cloak-wallet.desktop \
+            "$appdir/usr/share/applications/app.cloak.wallet.desktop"
+          cp assets/icon.png \
+            "$appdir/usr/share/icons/hicolor/256x256/apps/app.cloak.wallet.png"
+          cp "$appdir/usr/share/applications/app.cloak.wallet.desktop" \
+            "$appdir/app.cloak.wallet.desktop"
+          cp "$appdir/usr/share/icons/hicolor/256x256/apps/app.cloak.wallet.png" \
+            "$appdir/app.cloak.wallet.png"
+          ln -s app.cloak.wallet.png "$appdir/.DirIcon"
+          python3 - "$appdir/AppRun" <<'PY'
+          import os, sys
+          path = sys.argv[1]
+          with open(path, 'w', encoding='utf-8', newline='\n') as output:
+              output.write('#!/usr/bin/env bash\n')
+              output.write('set -e\n')
+              output.write('here="$(dirname "$(readlink -f "$0")")"\n')
+              output.write('export LD_LIBRARY_PATH="$here/usr/lib:${LD_LIBRARY_PATH:-}"\n')
+              output.write('export GDK_BACKEND="${GDK_BACKEND:-x11}"\n')
+              output.write('exec "$here/usr/bin/cloak-wallet" "$@"\n')
+          os.chmod(path, 0o755)
+          PY
+
+          tool="$RUNNER_TEMP/appimagetool-x86_64.AppImage"
+          curl -fsSL \
+            https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage \
+            -o "$tool"
+          echo "$APPIMAGETOOL_SHA256  $tool" | sha256sum -c -
+          chmod 700 "$tool"
+          runtime="$RUNNER_TEMP/runtime-x86_64"
+          curl -fsSL \
+            https://github.com/AppImage/type2-runtime/releases/download/continuous/runtime-x86_64 \
+            -o "$runtime"
+          echo "$APPIMAGE_RUNTIME_SHA256  $runtime" | sha256sum -c -
+          APPIMAGE_EXTRACT_AND_RUN=1 ARCH=x86_64 "$tool" --no-appstream \
+            --runtime-file "$runtime" "$appdir" CLOAK_Wallet-x86_64.AppImage
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: release-linux
+          path: CLOAK_Wallet-x86_64.AppImage
+          if-no-files-found: error
+
+  android:
+    needs: [metadata, validate, protocol-security]
+    runs-on: ubuntu-22.04
+    environment: release
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ needs.metadata.outputs.commit }}
+          submodules: recursive
+      - uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00
+        with:
+          distribution: temurin
+          java-version: '17'
+      - shell: bash
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch "$FLUTTER_VERSION" \
+            https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
+          [[ "$(git -C "$RUNNER_TEMP/flutter" rev-parse HEAD)" == "$FLUTTER_COMMIT" ]]
+          echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
+          sdkmanager "ndk;$ANDROID_NDK_VERSION" 'platforms;android-34' \
+            'build-tools;34.0.0'
+          rustup toolchain install "$RUST_VERSION" --profile minimal
+          rustup default "$RUST_VERSION"
+          rustup target add aarch64-linux-android armv7-linux-androideabi
+          cargo install cargo-ndk --version 3.5.4 --locked
+          [[ "$(cargo ndk --version)" == 'cargo-ndk 3.5.4' ]]
+      - shell: bash
+        env:
+          KEYSTORE_B64: ${{ secrets.CLOAK_ANDROID_KEYSTORE_B64 }}
+          CLOAK_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.CLOAK_ANDROID_KEYSTORE_PASSWORD }}
+          CLOAK_ANDROID_KEY_PASSWORD: ${{ secrets.CLOAK_ANDROID_KEY_PASSWORD }}
+          CLOAK_ANDROID_KEY_ALIAS: ${{ vars.CLOAK_ANDROID_KEY_ALIAS }}
+          EXPECTED_CERT_SHA256: ${{ vars.CLOAK_ANDROID_CERT_SHA256 }}
+          RELEASE_PUBLIC_KEY: ${{ vars.CLOAK_RELEASE_MANIFEST_PUBLIC_KEY }}
+          VERSION: ${{ needs.metadata.outputs.version }}
+          BUILD: ${{ needs.metadata.outputs.build }}
+          COMMIT: ${{ needs.metadata.outputs.commit }}
+        run: |
+          set -euo pipefail
+          [[ -n "$KEYSTORE_B64" && -n "$CLOAK_ANDROID_KEYSTORE_PASSWORD" && \
+             -n "$CLOAK_ANDROID_KEY_PASSWORD" && -n "$CLOAK_ANDROID_KEY_ALIAS" && \
+             -n "$EXPECTED_CERT_SHA256" && -n "$RELEASE_PUBLIC_KEY" ]] || exit 1
+          keystore="$RUNNER_TEMP/cloak-release.jks"
+          printf '%s' "$KEYSTORE_B64" | base64 --decode > "$keystore"
+          chmod 600 "$keystore"
+          export CLOAK_ANDROID_KEYSTORE_PATH="$keystore"
+          export ANDROID_NDK_HOME="$ANDROID_SDK_ROOT/ndk/$ANDROID_NDK_VERSION"
+          (cd zeos-caterpillar && cargo ndk -t arm64-v8a -t armeabi-v7a \
+            -o ../android/app/src/main/jniLibs build --release)
+          flutter pub get
+          dart run build_runner build -d
+          (cd packages/cloak_api_ffi && flutter pub get)
+          flutter build apk --release \
+            --build-name="$VERSION" --build-number="$BUILD" \
+            --dart-define="APP_VERSION=$VERSION" \
+            --dart-define="APP_BUILD_NUMBER=$BUILD" \
+            --dart-define="APP_COMMIT=$COMMIT" \
+            --dart-define="CLOAK_RELEASE_MANIFEST_PUBLIC_KEY=$RELEASE_PUBLIC_KEY"
+          cp build/app/outputs/flutter-apk/app-release.apk CLOAK_Wallet.apk
+          badging="$($ANDROID_SDK_ROOT/build-tools/34.0.0/aapt dump badging CLOAK_Wallet.apk | head -1)"
+          [[ "$badging" == *"name='app.cloak.wallet'"* \
+             && "$badging" == *"versionCode='$BUILD'"* \
+             && "$badging" == *"versionName='$VERSION'"* ]] || {
+            echo "Unexpected APK metadata: $badging" >&2
+            exit 1
+          }
+          actual_cert="$($ANDROID_SDK_ROOT/build-tools/34.0.0/apksigner \
+            verify --print-certs CLOAK_Wallet.apk \
+            | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' \
+            | tr '[:lower:]' '[:upper:]')"
+          [[ "$actual_cert" == "${EXPECTED_CERT_SHA256^^}" ]] || {
+            echo 'APK signing certificate does not match the permanent identity' >&2
+            exit 1
+          }
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: release-android
+          path: CLOAK_Wallet.apk
+          if-no-files-found: error
+
+  macos:
+    needs: [metadata, validate, protocol-security]
+    runs-on: macos-14
+    environment: release
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ needs.metadata.outputs.commit }}
+          submodules: recursive
+      - shell: bash
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch "$FLUTTER_VERSION" \
+            https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
+          [[ "$(git -C "$RUNNER_TEMP/flutter" rev-parse HEAD)" == "$FLUTTER_COMMIT" ]]
+          echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
+      - shell: bash
+        env:
+          RELEASE_PUBLIC_KEY: ${{ vars.CLOAK_RELEASE_MANIFEST_PUBLIC_KEY }}
+          SPARKLE_PUBLIC_KEY: ${{ vars.CLOAK_SPARKLE_PUBLIC_KEY }}
+          SPARKLE_PRIVATE_KEY: ${{ secrets.CLOAK_SPARKLE_PRIVATE_KEY }}
+          VERSION: ${{ needs.metadata.outputs.version }}
+          BUILD: ${{ needs.metadata.outputs.build }}
+          COMMIT: ${{ needs.metadata.outputs.commit }}
+          TAG: ${{ needs.metadata.outputs.tag }}
+        run: |
+          set -euo pipefail
+          [[ -n "$RELEASE_PUBLIC_KEY" && -n "$SPARKLE_PUBLIC_KEY" \
+             && -n "$SPARKLE_PRIVATE_KEY" ]] || exit 1
+          /usr/libexec/PlistBuddy -c "Set :SUPublicEDKey $SPARKLE_PUBLIC_KEY" \
+            macos/Runner/Info.plist
+          rustup toolchain install "$RUST_VERSION" --profile minimal
+          rustup default "$RUST_VERSION"
+          rustup target add x86_64-apple-darwin aarch64-apple-darwin
+          (cd zeos-caterpillar && \
+            cargo build --release --locked --target x86_64-apple-darwin && \
+            cargo build --release --locked --target aarch64-apple-darwin)
+          mkdir -p target/universal/release
+          lipo -create \
+            zeos-caterpillar/target/x86_64-apple-darwin/release/libzeos_caterpillar.dylib \
+            zeos-caterpillar/target/aarch64-apple-darwin/release/libzeos_caterpillar.dylib \
+            -output target/universal/release/libzeos_caterpillar.dylib
+          flutter pub get
+          dart run build_runner build -d
+          (cd packages/cloak_api_ffi && flutter pub get)
+          flutter build macos --release \
+            --build-name="$VERSION" --build-number="$BUILD" \
+            --dart-define="APP_VERSION=$VERSION" \
+            --dart-define="APP_BUILD_NUMBER=$BUILD" \
+            --dart-define="APP_COMMIT=$COMMIT" \
+            --dart-define="CLOAK_RELEASE_MANIFEST_PUBLIC_KEY=$RELEASE_PUBLIC_KEY"
+          grep -Fq -- '- Sparkle (2.9.5)' macos/Podfile.lock
+          app='build/macos/Build/Products/Release/CLOAK Wallet.app'
+          [[ -d "$app/Contents/Frameworks/Sparkle.framework" ]]
+          cp target/universal/release/libzeos_caterpillar.dylib \
+            "$app/Contents/Frameworks/"
+          install_name_tool -id '@rpath/libzeos_caterpillar.dylib' \
+            "$app/Contents/Frameworks/libzeos_caterpillar.dylib"
+          lipo -verify_arch x86_64 arm64 "$app/Contents/MacOS/CLOAK Wallet"
+          lipo -verify_arch x86_64 arm64 \
+            "$app/Contents/Frameworks/libzeos_caterpillar.dylib"
+          short_version="$(/usr/libexec/PlistBuddy -c Print:CFBundleShortVersionString \
+            "$app/Contents/Info.plist")"
+          bundle_build="$(/usr/libexec/PlistBuddy -c Print:CFBundleVersion \
+            "$app/Contents/Info.plist")"
+          [[ "$short_version" == "$VERSION" && "$bundle_build" == "$BUILD" ]] || {
+            echo "Unexpected macOS metadata: $short_version/$bundle_build" >&2
+            exit 1
+          }
+          bash build-scripts/mac/codesign-mac.sh "$app"
+          codesign --verify --deep --strict "$app"
+          signed_entitlements="$RUNNER_TEMP/cloak-signed-entitlements.plist"
+          codesign -d --entitlements :- "$app" \
+            > "$signed_entitlements" 2>/dev/null
+          mach_lookup_key='com.apple.security.temporary-exception.mach-lookup.global-name'
+          [[ "$(/usr/libexec/PlistBuddy -c "Print :$mach_lookup_key:0" \
+            "$signed_entitlements")" == 'app.cloak.wallet-spks' ]]
+          [[ "$(/usr/libexec/PlistBuddy -c "Print :$mach_lookup_key:1" \
+            "$signed_entitlements")" == 'app.cloak.wallet-spki' ]]
+          ! grep -Fq '$(PRODUCT_BUNDLE_IDENTIFIER)' "$signed_entitlements"
+
+          appcast_directory="$RUNNER_TEMP/appcast"
+          mkdir -p "$appcast_directory"
+          ditto -c -k --sequesterRsrc --keepParent "$app" \
+            "$appcast_directory/CLOAK_Wallet-macos-universal.zip"
+          hdiutil create -volname 'CLOAK Wallet' -srcfolder "$app" \
+            -ov -format UDZO CLOAK_Wallet-macos-universal.dmg
+          sparkle_archive="$RUNNER_TEMP/Sparkle-2.9.5.tar.xz"
+          curl -fsSL \
+            https://github.com/sparkle-project/Sparkle/releases/download/2.9.5/Sparkle-2.9.5.tar.xz \
+            -o "$sparkle_archive"
+          echo "015336b601493e05c237964954bff6191370003d94edefe663724c88840d73cc  $sparkle_archive" \
+            | shasum -a 256 -c -
+          tar -xJf "$sparkle_archive" -C "$RUNNER_TEMP"
+          printf '%s' "$SPARKLE_PRIVATE_KEY" \
+            | "$RUNNER_TEMP/bin/generate_appcast" --ed-key-file - \
+              --download-url-prefix \
+              "https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/" \
+              "$appcast_directory"
+          printf '%s' "$SPARKLE_PRIVATE_KEY" \
+            | "$RUNNER_TEMP/bin/sign_update" --ed-key-file - --verify \
+              "$appcast_directory/appcast.xml"
+          cp "$appcast_directory/CLOAK_Wallet-macos-universal.zip" .
+          cp "$appcast_directory/appcast.xml" .
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: release-macos
+          path: |
+            CLOAK_Wallet-macos-universal.zip
+            CLOAK_Wallet-macos-universal.dmg
+            appcast.xml
+          if-no-files-found: error
+
+  assemble-draft:
+    needs: [metadata, validate, protocol-security, windows, linux, android, macos]
+    runs-on: ubuntu-22.04
+    environment: release
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ needs.metadata.outputs.commit }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: release-*
+          path: dist
+          merge-multiple: true
+      - shell: bash
+        env:
+          RELEASE_PRIVATE_KEY_B64: ${{ secrets.CLOAK_RELEASE_MANIFEST_PRIVATE_KEY_B64 }}
+          EXPECTED_PUBLIC_KEY: ${{ vars.CLOAK_RELEASE_MANIFEST_PUBLIC_KEY }}
+          TAG: ${{ needs.metadata.outputs.tag }}
+          VERSION: ${{ needs.metadata.outputs.version }}
+          BUILD: ${{ needs.metadata.outputs.build }}
+          COMMIT: ${{ needs.metadata.outputs.commit }}
+        run: |
+          set -euo pipefail
+          [[ -n "$RELEASE_PRIVATE_KEY_B64" && -n "$EXPECTED_PUBLIC_KEY" ]] || exit 1
+          committed_public="$(tr -d '\r\n' \
+            < release/keys/release-manifest-public.base64)"
+          [[ "$EXPECTED_PUBLIC_KEY" == "$committed_public" ]] || {
+            echo 'Configured manifest key differs from the reviewed trust root' >&2
+            exit 1
+          }
+          python3 scripts/generate-update-manifest.py \
+            --directory dist --repository "$GITHUB_REPOSITORY" \
+            --tag "$TAG" --version "$VERSION" --build "$BUILD" \
+            --commit "$COMMIT" --parameter-generation "$PARAMETER_GENERATION"
+          private_key="$RUNNER_TEMP/release-manifest-private.pem"
+          public_key="$RUNNER_TEMP/release-manifest-public.pem"
+          signature_bin="$RUNNER_TEMP/update-v1.signature"
+          printf '%s' "$RELEASE_PRIVATE_KEY_B64" | base64 --decode > "$private_key"
+          chmod 600 "$private_key"
+          openssl pkey -in "$private_key" -pubout -out "$public_key"
+          derived_public="$(openssl pkey -pubin -in "$public_key" -outform DER \
+            | tail -c 32 | base64 -w0)"
+          [[ "$derived_public" == "$EXPECTED_PUBLIC_KEY" ]] || {
+            echo 'Manifest private key does not match the configured public key' >&2
+            exit 1
+          }
+          openssl pkeyutl -sign -rawin -inkey "$private_key" \
+            -in dist/update-v1.json -out "$signature_bin"
+          signature="$(base64 -w0 < "$signature_bin")"
+          python3 - "$signature" > dist/update-v1.sig <<'PY'
+          import json, sys
+          print(json.dumps({
+              'algorithm': 'Ed25519',
+              'keyId': 'cloak-release-v1',
+              'signature': sys.argv[1],
+          }, separators=(',', ':'), sort_keys=True))
+          PY
+          openssl pkeyutl -verify -rawin -pubin -inkey "$public_key" \
+            -sigfile "$signature_bin" -in dist/update-v1.json
+          (cd dist && sha256sum CLOAK_Wallet-windows-x64.zip \
+            > SHA256SUMS-windows)
+          (cd dist && sha256sum CLOAK_Wallet-macos-universal.dmg \
+            > SHA256SUMS-macos)
+          (cd dist && sha256sum CLOAK_Wallet-x86_64.AppImage \
+            > SHA256SUMS-linux)
+          cp install.ps1 install-macos.sh install.sh dist/
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: secure-release-bundle
+          path: dist/
+          if-no-files-found: error
+      - name: Create review draft
+        if: github.event_name == 'push' || inputs.action == 'build-draft'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.metadata.outputs.tag }}
+        run: |
+          set -euo pipefail
+          gh release create "$TAG" --verify-tag --draft \
+            --title "CLOAK Wallet $TAG" --generate-notes dist/*
+          echo 'Draft created. Publishing requires a separate publish-draft dispatch.'
+
+  publish-draft:
+    if: github.event_name == 'workflow_dispatch' && inputs.action == 'publish-draft'
+    runs-on: ubuntu-22.04
+    environment: release
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ inputs.tag }}
+          fetch-depth: 0
+      - shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+          RELEASE_PUBLIC_KEY: ${{ vars.CLOAK_RELEASE_MANIFEST_PUBLIC_KEY }}
+          SPARKLE_PUBLIC_KEY: ${{ vars.CLOAK_SPARKLE_PUBLIC_KEY }}
+          ANDROID_CERT_SHA256: ${{ vars.CLOAK_ANDROID_CERT_SHA256 }}
+        run: |
+          set -euo pipefail
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ \
+             && -n "$RELEASE_PUBLIC_KEY" && -n "$SPARKLE_PUBLIC_KEY" \
+             && -n "$ANDROID_CERT_SHA256" ]] || exit 1
+          committed_release="$(tr -d '\r\n' \
+            < release/keys/release-manifest-public.base64)"
+          committed_sparkle="$(tr -d '\r\n' \
+            < release/keys/sparkle-public.base64)"
+          committed_android="$(tr -d '\r\n' \
+            < release/keys/android-cert-sha256.txt)"
+          [[ "$RELEASE_PUBLIC_KEY" == "$committed_release" \
+             && "$SPARKLE_PUBLIC_KEY" == "$committed_sparkle" \
+             && "${ANDROID_CERT_SHA256^^}" == "$committed_android" ]] || {
+            echo 'Configured release identities differ from the reviewed trust roots' >&2
+            exit 1
+          }
+          git fetch --no-tags origin main:refs/remotes/origin/main
+          git merge-base --is-ancestor HEAD origin/main || {
+            echo 'Release tag is no longer on origin/main' >&2
+            exit 1
+          }
+          [[ "$(gh release view "$TAG" --json isDraft --jq .isDraft)" == 'true' ]] || {
+            echo 'The requested release is not an unpublished draft' >&2
+            exit 1
+          }
+          mkdir dist
+          gh release download "$TAG" --dir dist
+          for file in update-v1.json update-v1.sig \
+            CLOAK_Wallet-windows-x64.zip CLOAK_Wallet-x86_64.AppImage \
+            CLOAK_Wallet.apk CLOAK_Wallet-macos-universal.zip \
+            CLOAK_Wallet-macos-universal.dmg appcast.xml \
+            SHA256SUMS-windows SHA256SUMS-macos SHA256SUMS-linux \
+            install.ps1 install-macos.sh install.sh; do
+            [[ -s "dist/$file" ]] || { echo "Missing draft asset: $file" >&2; exit 1; }
+          done
+          cmp --silent install.ps1 dist/install.ps1
+          cmp --silent install-macos.sh dist/install-macos.sh
+          cmp --silent install.sh dist/install.sh
+          public_der="$RUNNER_TEMP/release-public.der"
+          public_raw="$RUNNER_TEMP/release-public.raw"
+          signature_bin="$RUNNER_TEMP/update.signature"
+          printf '%s' "$RELEASE_PUBLIC_KEY" | base64 --decode > "$public_raw"
+          [[ "$(wc -c < "$public_raw")" == 32 ]] || exit 1
+          printf '302a300506032b6570032100' | xxd -r -p > "$public_der"
+          cat "$public_raw" >> "$public_der"
+          python3 - "$signature_bin" <<'PY'
+          import base64, json, sys
+          from pathlib import Path
+          value = json.loads(Path('dist/update-v1.sig').read_text(encoding='utf-8'))
+          if value.get('algorithm') != 'Ed25519' or value.get('keyId') != 'cloak-release-v1':
+              raise SystemExit('invalid signature metadata')
+          Path(sys.argv[1]).write_bytes(base64.b64decode(value['signature'], validate=True))
+          PY
+          openssl pkeyutl -verify -rawin -pubin -keyform DER \
+            -inkey "$public_der" -sigfile "$signature_bin" \
+            -in dist/update-v1.json
+          sparkle_public_der="$RUNNER_TEMP/sparkle-public.der"
+          sparkle_public_raw="$RUNNER_TEMP/sparkle-public.raw"
+          sparkle_signature="$RUNNER_TEMP/sparkle.signature"
+          sparkle_feed_signature="$RUNNER_TEMP/sparkle-feed.signature"
+          sparkle_feed_content="$RUNNER_TEMP/sparkle-feed-content.xml"
+          printf '%s' "$SPARKLE_PUBLIC_KEY" | base64 --decode > "$sparkle_public_raw"
+          [[ "$(wc -c < "$sparkle_public_raw")" == 32 ]] || exit 1
+          printf '302a300506032b6570032100' | xxd -r -p > "$sparkle_public_der"
+          cat "$sparkle_public_raw" >> "$sparkle_public_der"
+          python3 - "$GITHUB_REPOSITORY" "$TAG" "$sparkle_signature" \
+            "$sparkle_feed_signature" "$sparkle_feed_content" <<'PY'
+          import base64, sys
+          from pathlib import Path
+          from xml.etree import ElementTree
+          repository, tag, signature_path, feed_signature_path, feed_content_path = sys.argv[1:]
+          namespace = 'http://www.andymatuschak.org/xml-namespaces/sparkle'
+          appcast = Path('dist/appcast.xml').read_bytes()
+          prefix = b'<!-- sparkle-signatures:\n'
+          if appcast.count(prefix) != 1:
+              raise SystemExit('appcast must contain one Sparkle feed-signature block')
+          prefix_index = appcast.rfind(prefix)
+          suffix_index = appcast.find(b'-->', prefix_index + len(prefix))
+          if suffix_index < 0 or appcast[suffix_index + 3:] not in (b'', b'\n', b'\r\n'):
+              raise SystemExit('appcast feed-signature block is malformed or not final')
+          content = appcast[:prefix_index]
+          fields = {}
+          block = appcast[prefix_index + len(prefix):suffix_index]
+          for line in block.decode('ascii').splitlines():
+              key, separator, value = line.partition(':')
+              if not separator or key in fields:
+                  raise SystemExit('invalid appcast feed-signature metadata')
+              fields[key] = value.strip()
+          if set(fields) != {'edSignature', 'length'}:
+              raise SystemExit('incomplete appcast feed-signature metadata')
+          if fields['length'] != str(len(content)):
+              raise SystemExit('appcast feed signed-content length mismatch')
+          Path(feed_signature_path).write_bytes(
+              base64.b64decode(fields['edSignature'], validate=True)
+          )
+          Path(feed_content_path).write_bytes(content)
+
+          root = ElementTree.fromstring(content)
+          enclosures = root.findall('.//enclosure')
+          if len(enclosures) != 1:
+              raise SystemExit('appcast must contain exactly one enclosure')
+          enclosure = enclosures[0]
+          expected_url = (
+              f'https://github.com/{repository}/releases/download/{tag}/'
+              'CLOAK_Wallet-macos-universal.zip'
+          )
+          if enclosure.get('url') != expected_url:
+              raise SystemExit('appcast enclosure URL is not the immutable release asset')
+          version = tag.removeprefix('v')
+          if enclosure.get(f'{{{namespace}}}shortVersionString') != version:
+              raise SystemExit('appcast version does not match the release tag')
+          archive = Path('dist/CLOAK_Wallet-macos-universal.zip')
+          if enclosure.get('length') != str(archive.stat().st_size):
+              raise SystemExit('appcast archive length mismatch')
+          signature = enclosure.get(f'{{{namespace}}}edSignature')
+          if not signature:
+              raise SystemExit('appcast has no Sparkle signature')
+          Path(signature_path).write_bytes(base64.b64decode(signature, validate=True))
+          PY
+          openssl pkeyutl -verify -rawin -pubin -keyform DER \
+            -inkey "$sparkle_public_der" -sigfile "$sparkle_signature" \
+            -in dist/CLOAK_Wallet-macos-universal.zip
+          openssl pkeyutl -verify -rawin -pubin -keyform DER \
+            -inkey "$sparkle_public_der" -sigfile "$sparkle_feed_signature" \
+            -in "$sparkle_feed_content"
+          python3 - "$GITHUB_REPOSITORY" "$TAG" "$(git rev-parse HEAD)" <<'PY'
+          import hashlib, json, re, sys
+          from pathlib import Path
+          repository, tag, commit = sys.argv[1:]
+          manifest = json.loads(Path('dist/update-v1.json').read_bytes())
+          if manifest.get('schema') != 1 or manifest.get('tag') != tag:
+              raise SystemExit('manifest tag/schema mismatch')
+          if manifest.get('commit') != commit:
+              raise SystemExit('manifest commit does not match the release tag')
+          if manifest.get('requiredParameterGeneration') != 'v1.1.0-12':
+              raise SystemExit('manifest parameter generation mismatch')
+          pubspec = Path('pubspec.yaml').read_text(encoding='utf-8')
+          version_match = re.findall(r'^version:\s*([^\s#]+)', pubspec, re.MULTILINE)
+          expected = f"{manifest['version']}+{manifest['build']}"
+          if version_match != [expected]:
+              raise SystemExit('manifest does not match pubspec version/build')
+          for target, asset in manifest.get('assets', {}).items():
+              if target != f"{asset['platform']}-{asset['architecture']}":
+                  raise SystemExit(f'target mismatch: {target}')
+              path = Path('dist') / asset['name']
+              if not path.is_file() or path.stat().st_size != asset['size']:
+                  raise SystemExit(f'asset size mismatch: {target}')
+              hasher = hashlib.sha256()
+              with path.open('rb') as source:
+                  for chunk in iter(lambda: source.read(1024 * 1024), b''):
+                      hasher.update(chunk)
+              digest = hasher.hexdigest()
+              if digest != asset['sha256']:
+                  raise SystemExit(f'asset hash mismatch: {target}')
+              expected_url = f"https://github.com/{repository}/releases/download/{tag}/{asset['name']}"
+              if asset['url'] != expected_url:
+                  raise SystemExit(f'asset URL mismatch: {target}')
+          if set(manifest['assets']) != {
+              'windows-x64', 'linux-x64', 'android-universal', 'macos-universal'
+          }:
+              raise SystemExit('release target set is incomplete')
+          PY
+          (cd dist && sha256sum -c SHA256SUMS-windows)
+          (cd dist && sha256sum -c SHA256SUMS-macos)
+          (cd dist && sha256sum -c SHA256SUMS-linux)
+          gh release edit "$TAG" --draft=false --latest

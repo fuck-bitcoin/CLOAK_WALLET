@@ -16,13 +16,13 @@ import 'package:path/path.dart' as p;
 import '../router.dart' show rootNavigatorKey;
 import '../pages/cloak/auth_request_sheet.dart';
 import '../pages/utils.dart';
-import 'package:cloak_api/cloak_api.dart';
 import 'bridge_init_protocol.dart';
 import 'cloak_db.dart';
 import 'cloak_wallet_manager.dart';
 import 'eosio_client.dart';
 import 'esr_service.dart';
 import 'signature_provider_state.dart';
+import '../update/update_install_gate.dart';
 
 /// WebSocket Signature Provider Server
 ///
@@ -31,11 +31,22 @@ import 'signature_provider_state.dart';
 class SignatureProvider {
   static HttpServer? _server;
   static final Map<String, WebSocket> _clients = {};
-  static final Map<String, String> _clientOrigins = {};  // Store origin per client
+  static final Map<String, String> _clientOrigins =
+      {}; // Store origin per client
   static String? _sslCertPath;
   static String? _sslKeyPath;
   static int _clientCounter = 0;
   static Timer? _watchdog;
+
+  /// True while a website auth/sign request is awaiting a user decision or is
+  /// being processed. Update application must remain deferred in either case.
+  static bool get isSigningRequestActive =>
+      _pendingTransacts.isNotEmpty ||
+      signatureProviderStore.requests.any(
+        (request) =>
+            request.status == SignatureRequestStatus.pending ||
+            request.status == SignatureRequestStatus.approved,
+      );
 
   /// Get SSL directory path
   static Future<String> _getSslDir() async {
@@ -50,12 +61,14 @@ class SignatureProvider {
     final sslDir = await _getSslDir();
     final certPath = p.join(sslDir, 'localhost+2.pem');
     _sslKeyPath = p.join(sslDir, 'localhost+2-key.pem');
-    _sslCertPath = p.join(sslDir, 'localhost+2-chain.pem');  // Use chain file
+    _sslCertPath = p.join(sslDir, 'localhost+2-chain.pem'); // Use chain file
 
     // Check if we already have valid certificates
     // Check for EITHER mkcert-generated (certPath) OR self-signed (chain.pem)
-    final hasMkcertCerts = await File(certPath).exists() && await File(_sslKeyPath!).exists();
-    final hasSelfSignedCerts = await File(_sslCertPath!).exists() && await File(_sslKeyPath!).exists();
+    final hasMkcertCerts =
+        await File(certPath).exists() && await File(_sslKeyPath!).exists();
+    final hasSelfSignedCerts =
+        await File(_sslCertPath!).exists() && await File(_sslKeyPath!).exists();
 
     if (hasMkcertCerts) {
       // Ensure chain file exists (include CA cert for proper chain)
@@ -72,12 +85,12 @@ class SignatureProvider {
     // Try to find mkcert
     final home = Platform.environment['HOME'] ?? '';
     final mkcertPaths = [
-      '/opt/cloak-gui/mkcert-linux-amd64',  // From official CLOAK GUI
-      'mkcert',  // In PATH
+      '/opt/cloak-gui/mkcert-linux-amd64', // From official CLOAK GUI
+      'mkcert', // In PATH
       '/usr/local/bin/mkcert',
       '/usr/bin/mkcert',
-      if (home.isNotEmpty) '$home/mkcert',  // User's home directory
-      if (home.isNotEmpty) '$home/.local/bin/mkcert',  // XDG local bin
+      if (home.isNotEmpty) '$home/mkcert', // User's home directory
+      if (home.isNotEmpty) '$home/.local/bin/mkcert', // XDG local bin
     ];
 
     String? mkcertPath;
@@ -97,11 +110,18 @@ class SignatureProvider {
         await Process.run(mkcertPath, ['-install']);
 
         // Generate certificates for localhost
-        final result = await Process.run(mkcertPath, [
-          '-cert-file', certPath,
-          '-key-file', _sslKeyPath!,
-          'localhost', '127.0.0.1', '::1',
-        ], workingDirectory: sslDir);
+        final result = await Process.run(
+            mkcertPath,
+            [
+              '-cert-file',
+              certPath,
+              '-key-file',
+              _sslKeyPath!,
+              'localhost',
+              '127.0.0.1',
+              '::1',
+            ],
+            workingDirectory: sslDir);
 
         if (result.exitCode == 0) {
           // Create chain file with CA cert
@@ -128,7 +148,8 @@ class SignatureProvider {
         caRoot = caRootResult.stdout.toString().trim();
       } else {
         // Try alternate mkcert path
-        final altResult = await Process.run('/opt/cloak-gui/mkcert-linux-amd64', ['-CAROOT']);
+        final altResult =
+            await Process.run('/opt/cloak-gui/mkcert-linux-amd64', ['-CAROOT']);
         if (altResult.exitCode == 0) {
           caRoot = altResult.stdout.toString().trim();
         }
@@ -160,36 +181,54 @@ class SignatureProvider {
     try {
       // Generate private key
       final keyResult = await Process.run('openssl', [
-        'genrsa', '-out', _sslKeyPath!, '2048',
+        'genrsa',
+        '-out',
+        _sslKeyPath!,
+        '2048',
       ]);
       if (keyResult.exitCode != 0) {
-        print('[SignatureProvider] Failed to generate key: ${keyResult.stderr}');
+        print(
+            '[SignatureProvider] Failed to generate key: ${keyResult.stderr}');
         return false;
       }
 
       // Try modern openssl first (with -addext for SAN)
       var certResult = await Process.run('openssl', [
-        'req', '-new', '-x509',
-        '-key', _sslKeyPath!,
-        '-out', _sslCertPath!,
-        '-days', '365',
-        '-subj', '/CN=localhost',
-        '-addext', 'subjectAltName=DNS:localhost,IP:127.0.0.1,IP:::1',
+        'req',
+        '-new',
+        '-x509',
+        '-key',
+        _sslKeyPath!,
+        '-out',
+        _sslCertPath!,
+        '-days',
+        '365',
+        '-subj',
+        '/CN=localhost',
+        '-addext',
+        'subjectAltName=DNS:localhost,IP:127.0.0.1,IP:::1',
       ]);
 
       // If -addext not supported, try simpler version
       if (certResult.exitCode != 0) {
         certResult = await Process.run('openssl', [
-          'req', '-new', '-x509',
-          '-key', _sslKeyPath!,
-          '-out', _sslCertPath!,
-          '-days', '365',
-          '-subj', '/CN=localhost',
+          'req',
+          '-new',
+          '-x509',
+          '-key',
+          _sslKeyPath!,
+          '-out',
+          _sslCertPath!,
+          '-days',
+          '365',
+          '-subj',
+          '/CN=localhost',
         ]);
       }
 
       if (certResult.exitCode != 0) {
-        print('[SignatureProvider] Failed to generate cert: ${certResult.stderr}');
+        print(
+            '[SignatureProvider] Failed to generate cert: ${certResult.stderr}');
         return false;
       }
 
@@ -204,7 +243,7 @@ class SignatureProvider {
   static Future<bool> start({int port = 9367}) async {
     if (_server != null) {
       _startWatchdog(port);
-      return true;  // Already running
+      return true; // Already running
     }
 
     // Ensure certificates exist
@@ -238,8 +277,10 @@ class SignatureProvider {
       print('[SignatureProvider] WSS listening on wss://127.0.0.1:$port');
       return true;
     } on SocketException catch (e) {
-      if (e.osError?.errorCode == 98 || e.message.contains('Address already in use')) {
-        print('[SignatureProvider] Port $port in use — another wallet instance may be closing. Retrying...');
+      if (e.osError?.errorCode == 98 ||
+          e.message.contains('Address already in use')) {
+        print(
+            '[SignatureProvider] Port $port in use — another wallet instance may be closing. Retrying...');
         signatureProviderStore.setServerStarting(true);
       } else {
         print('[SignatureProvider] Socket error: $e');
@@ -251,7 +292,8 @@ class SignatureProvider {
       if (e.toString().contains('HandshakeException') ||
           e.toString().contains('CERTIFICATE') ||
           e.toString().contains('certificate')) {
-        print('[SignatureProvider] SSL certificate error - try deleting data/ssl/ and restarting');
+        print(
+            '[SignatureProvider] SSL certificate error - try deleting data/ssl/ and restarting');
       }
       _startWatchdog(port);
       return false;
@@ -300,7 +342,8 @@ class SignatureProvider {
     // Set CORS headers for WebSocket upgrade
     request.response.headers.add('Access-Control-Allow-Origin', '*');
     request.response.headers.add('Access-Control-Allow-Methods', 'GET');
-    request.response.headers.add('Access-Control-Allow-Headers', 'content-type');
+    request.response.headers
+        .add('Access-Control-Allow-Headers', 'content-type');
 
     if (WebSocketTransformer.isUpgradeRequest(request)) {
       try {
@@ -309,7 +352,8 @@ class SignatureProvider {
         _clients[clientId] = socket;
 
         // Capture origin from HTTP headers for display in auth dialogs
-        final origin = request.headers.value('origin') ?? request.headers.value('Origin');
+        final origin =
+            request.headers.value('origin') ?? request.headers.value('Origin');
         if (origin != null && origin.isNotEmpty) {
           _clientOrigins[clientId] = _formatOrigin(origin);
         }
@@ -331,7 +375,8 @@ class SignatureProvider {
       }
     } else {
       // Return basic info for HTTP requests
-      request.response.write('CLOAK Wallet Signature Provider\nWSS on port ${signatureProviderStore.serverPort}');
+      request.response.write(
+          'CLOAK Wallet Signature Provider\nWSS on port ${signatureProviderStore.serverPort}');
       await request.response.close();
     }
   }
@@ -362,7 +407,9 @@ class SignatureProvider {
   static String _getOrigin(String clientId, Map<String, dynamic> params) {
     // Prefer origin from params if provided
     final paramOrigin = params['origin'] as String?;
-    if (paramOrigin != null && paramOrigin.isNotEmpty && paramOrigin != 'Unknown') {
+    if (paramOrigin != null &&
+        paramOrigin.isNotEmpty &&
+        paramOrigin != 'Unknown') {
       return _formatOrigin(paramOrigin);
     }
     // Fall back to stored origin from WebSocket connection
@@ -377,6 +424,17 @@ class SignatureProvider {
       final method = json['request'] as String? ?? json['method'] as String?;
       final id = json['id'];
       final params = json['params'] as Map<String, dynamic>? ?? {};
+
+      if (UpdateInstallGate.isApplyingUpdate &&
+          (method == 'sign' || method == 'transact')) {
+        _sendError(
+          clientId,
+          id,
+          -32000,
+          'Wallet update is being applied; try again after restart',
+        );
+        return;
+      }
 
       switch (method) {
         case 'login':
@@ -421,7 +479,8 @@ class SignatureProvider {
   }
 
   /// Handle login request
-  static void _handleLoginRequest(String clientId, dynamic id, Map<String, dynamic> params) {
+  static void _handleLoginRequest(
+      String clientId, dynamic id, Map<String, dynamic> params) {
     _sendResponse(
       clientId,
       id,
@@ -430,7 +489,8 @@ class SignatureProvider {
   }
 
   /// Handle sign request
-  static void _handleSignRequest(String clientId, dynamic id, Map<String, dynamic> params) {
+  static void _handleSignRequest(
+      String clientId, dynamic id, Map<String, dynamic> params) {
     final requestId = '$clientId:$id';
 
     final request = SignatureRequest(
@@ -447,7 +507,8 @@ class SignatureProvider {
   }
 
   /// Handle balance request (auto-approve - read only)
-  static void _handleBalanceRequest(String clientId, dynamic id, Map<String, dynamic> params) {
+  static void _handleBalanceRequest(
+      String clientId, dynamic id, Map<String, dynamic> params) {
     // Balance requests can be auto-approved (read-only, no user interaction needed)
     final balanceJson = CloakWalletManager.getBalancesJson();
     if (balanceJson != null) {
@@ -463,7 +524,8 @@ class SignatureProvider {
   }
 
   /// Handle get vaults request (auto-approve - read only)
-  static void _handleGetVaultsRequest(String clientId, dynamic id, Map<String, dynamic> params) {
+  static void _handleGetVaultsRequest(
+      String clientId, dynamic id, Map<String, dynamic> params) {
     final vaultsJson = CloakWalletManager.getAuthenticationTokensJson();
     if (vaultsJson != null) {
       try {
@@ -479,10 +541,12 @@ class SignatureProvider {
   }
 
   /// Handle get auth tokens request (auto-approve - read only)
-  static void _handleGetAuthTokensRequest(String clientId, dynamic id, Map<String, dynamic> params) {
+  static void _handleGetAuthTokensRequest(
+      String clientId, dynamic id, Map<String, dynamic> params) {
     final contract = params['contract'] as int? ?? 0;
     final spent = params['spent'] as bool? ?? false;
-    final tokensJson = CloakWalletManager.getAuthenticationTokensJson(contract: contract, spent: spent);
+    final tokensJson = CloakWalletManager.getAuthenticationTokensJson(
+        contract: contract, spent: spent);
     if (tokensJson != null) {
       try {
         final tokens = jsonDecode(tokensJson);
@@ -496,7 +560,8 @@ class SignatureProvider {
   }
 
   /// Handle get unpublished notes request (auto-approve - read only)
-  static void _handleGetUnpublishedNotesRequest(String clientId, dynamic id, Map<String, dynamic> params) {
+  static void _handleGetUnpublishedNotesRequest(
+      String clientId, dynamic id, Map<String, dynamic> params) {
     final notesJson = CloakWalletManager.getUnpublishedNotesJson();
     if (notesJson != null) {
       try {
@@ -512,7 +577,8 @@ class SignatureProvider {
 
   /// Handle all_balances request from app.cloak.today
   /// Returns {fts: ["1.0000 CLOAK@thezeostoken", ...], nfts: [...], ats: [...]}
-  static void _handleAllBalancesRequest(String clientId, dynamic id, Map<String, dynamic> params) async {
+  static void _handleAllBalancesRequest(
+      String clientId, dynamic id, Map<String, dynamic> params) async {
     final includeFt = params['ft'] as bool? ?? true;
     final includeNft = params['nft'] as bool? ?? true;
     final includeAt = params['at'] as bool? ?? true;
@@ -531,7 +597,8 @@ class SignatureProvider {
   }
 
   /// Handle filtered balances request from app.cloak.today
-  static void _handleFilteredBalancesRequest(String clientId, dynamic id, Map<String, dynamic> params) async {
+  static void _handleFilteredBalancesRequest(
+      String clientId, dynamic id, Map<String, dynamic> params) async {
     try {
       final result = await _buildBalancesResult(
         includeFt: params.containsKey('ft_symbols'),
@@ -594,12 +661,15 @@ class SignatureProvider {
     if (includeAt) {
       final tokensJson = CloakWalletManager.getAuthenticationTokensJson();
       // Also check spent auth tokens
-      final spentJson = CloakWalletManager.getAuthenticationTokensJson(spent: true);
+      final spentJson =
+          CloakWalletManager.getAuthenticationTokensJson(spent: true);
 
       // DB is the authoritative source for which vaults the user has.
       // Rust wallet auth tokens may lag behind (timing, wallet recreation, etc.)
       final dbVaults = await CloakDb.getAllVaults();
-      final knownHashes = dbVaults.map((v) => (v['commitment_hash'] as String).toLowerCase()).toSet();
+      final knownHashes = dbVaults
+          .map((v) => (v['commitment_hash'] as String).toLowerCase())
+          .toSet();
 
       // Track which DB vaults we find in the Rust wallet
       final foundHashes = <String>{};
@@ -611,7 +681,8 @@ class SignatureProvider {
             for (final t in tokens) {
               String hash = '';
               if (t is Map) {
-                hash = t['hash']?.toString() ?? t['commitment']?.toString() ?? '';
+                hash =
+                    t['hash']?.toString() ?? t['commitment']?.toString() ?? '';
               } else if (t is String) {
                 hash = t.contains('@') ? t.split('@')[0] : t;
               }
@@ -639,7 +710,8 @@ class SignatureProvider {
             for (final t in spentTokens) {
               String hash = '';
               if (t is Map) {
-                hash = t['hash']?.toString() ?? t['commitment']?.toString() ?? '';
+                hash =
+                    t['hash']?.toString() ?? t['commitment']?.toString() ?? '';
               } else if (t is String) {
                 hash = t.contains('@') ? t.split('@')[0] : t;
               }
@@ -654,7 +726,8 @@ class SignatureProvider {
       }
 
       // Track spent hashes so DB fallback doesn't duplicate them
-      final spentHashSet = spentAts.map((s) => s.split('@')[0].toLowerCase()).toSet();
+      final spentHashSet =
+          spentAts.map((s) => s.split('@')[0].toLowerCase()).toSet();
 
       // Add any DB vaults not found in the Rust wallet (unspent or spent).
       // This handles timing issues (reimport hasn't run yet) and
@@ -666,12 +739,17 @@ class SignatureProvider {
       }
     }
 
-    return {'fts': fts, 'nfts': nfts, 'ats': {'unspent': ats, 'spent': spentAts}};
+    return {
+      'fts': fts,
+      'nfts': nfts,
+      'ats': {'unspent': ats, 'spent': spentAts}
+    };
   }
 
   /// Handle transact request from app.cloak.today
   /// Receives zactions, generates ZK proofs, signs with alias key, broadcasts
-  static void _handleTransactRequest(String clientId, dynamic id, Map<String, dynamic> params) {
+  static void _handleTransactRequest(
+      String clientId, dynamic id, Map<String, dynamic> params) {
     // Show approval dialog for transactions (they move funds)
     final requestId = '$clientId:$id';
     final request = SignatureRequest(
@@ -700,7 +778,13 @@ class SignatureProvider {
 
   /// Execute a transact request after user approval
   /// Called from auth_request_sheet when user approves a transact/sign request
-  static Future<Map<String, dynamic>> executeTransact(Map<String, dynamic> params) async {
+  static Future<Map<String, dynamic>> executeTransact(
+      Map<String, dynamic> params) async {
+    if (UpdateInstallGate.isApplyingUpdate) {
+      throw StateError(
+        'Wallet update is being applied; signing is unavailable',
+      );
+    }
     final bridgeInit = BridgeInitProtocol.extractBridgeInitRequest(params);
 
     // Ensure ZK params are loaded
@@ -722,117 +806,115 @@ class SignatureProvider {
     // Sync auth_count from on-chain BEFORE proof generation
     // This is CRITICAL: auth_hash = Blake2s(auth_count || packed_actions)
     // If wallet's auth_count doesn't match chain, authenticate proofs fail
-    final wallet = CloakWalletManager.wallet;
-    if (wallet != null) {
-      try {
-        final endpoint = 'https://telos.eosusa.io';
-        final eosClient = EosioClient(endpoint);
-        final global = await eosClient.getZeosGlobal();
-        eosClient.close();
-        if (global != null) {
-          final walletAC = CloakApi.getAuthCount(wallet) ?? 0;
-          if (walletAC != global.authCount) {
-            CloakApi.setAuthCount(wallet, global.authCount);
-          }
-        }
-      } catch (e) {
-        print('[SignatureProvider] Warning: could not sync auth_count: $e');
+    try {
+      final endpoint = 'https://telos.eosusa.io';
+      final eosClient = EosioClient(endpoint);
+      final global = await eosClient.getZeosGlobal();
+      eosClient.close();
+      if (global != null) {
+        await CloakWalletManager.synchronizeAuthCount(global.authCount);
       }
+    } catch (e) {
+      print('[SignatureProvider] Warning: could not sync auth_count: $e');
     }
 
-    // Generate ZK proof + unsigned transaction via Rust FFI
-    final txJson = CloakWalletManager.transactPackedPublic(
+    final built = await CloakWalletManager.buildExternalProofTransaction(
       ztxJson: ztxJson,
       feesJson: feesJson,
+      operationKind: 'website-transact',
     );
-
-    if (txJson == null) {
-      final rustError = CloakWalletManager.getLastErrorPublic();
-      print('[SignatureProvider] ZK proof generation failed: $rustError');
-      throw Exception('ZK proof generation failed: $rustError');
-    }
-
-    // Parse the transaction
-    final decoded = jsonDecode(txJson);
-    final Map<String, dynamic> tx;
-    if (decoded is List && decoded.isNotEmpty) {
-      tx = Map<String, dynamic>.from(decoded[0] as Map);
-    } else if (decoded is Map) {
-      tx = Map<String, dynamic>.from(decoded);
-    } else {
-      throw Exception('Unexpected transactPacked response format');
-    }
-
-    // Set transaction headers
-    final client = HttpClient();
+    final operationId = built['operationId'] as String;
+    final tx = Map<String, dynamic>.from(built['transaction'] as Map);
+    var submissionDelegated = false;
     try {
-      final request = await client.getUrl(Uri.parse('https://telos.eosusa.io/v1/chain/get_info'));
-      final response = await request.close();
-      if (response.statusCode != 200) throw Exception('get_info failed');
-      final chainInfo = jsonDecode(await response.transform(const Utf8Decoder()).join()) as Map<String, dynamic>;
-      final headBlockId = chainInfo['head_block_id'] as String;
-      final refBlockNum = int.parse(headBlockId.substring(0, 8), radix: 16) & 0xFFFF;
-      final prefixHex = headBlockId.substring(16, 24);
-      final prefixBytes = List<int>.generate(4, (i) => int.parse(prefixHex.substring(i * 2, i * 2 + 2), radix: 16));
-      final refBlockPrefix = prefixBytes[3] << 24 | prefixBytes[2] << 16 | prefixBytes[1] << 8 | prefixBytes[0];
+      // Set transaction headers
+      final client = HttpClient();
+      try {
+        final request = await client
+            .getUrl(Uri.parse('https://telos.eosusa.io/v1/chain/get_info'));
+        final response = await request.close();
+        if (response.statusCode != 200) throw Exception('get_info failed');
+        final chainInfo =
+            jsonDecode(await response.transform(const Utf8Decoder()).join())
+                as Map<String, dynamic>;
+        final headBlockId = chainInfo['head_block_id'] as String;
+        final refBlockNum =
+            int.parse(headBlockId.substring(0, 8), radix: 16) & 0xFFFF;
+        final prefixHex = headBlockId.substring(16, 24);
+        final prefixBytes = List<int>.generate(4,
+            (i) => int.parse(prefixHex.substring(i * 2, i * 2 + 2), radix: 16));
+        final refBlockPrefix = prefixBytes[3] << 24 |
+            prefixBytes[2] << 16 |
+            prefixBytes[1] << 8 |
+            prefixBytes[0];
 
-      final expiration = DateTime.now().toUtc().add(const Duration(minutes: 10));
-      tx['expiration'] = '${expiration.toIso8601String().split('.')[0]}Z';
-      tx['ref_block_num'] = refBlockNum;
-      tx['ref_block_prefix'] = refBlockPrefix;
-      tx['max_net_usage_words'] = tx['max_net_usage_words'] ?? 0;
-      tx['max_cpu_usage_ms'] = tx['max_cpu_usage_ms'] ?? 0;
-      tx['delay_sec'] = tx['delay_sec'] ?? 0;
-      tx['context_free_actions'] = tx['context_free_actions'] ?? [];
-      tx['transaction_extensions'] = tx['transaction_extensions'] ?? [];
-    } finally {
-      client.close();
-    }
-
-    // Use hex_data for action serialization
-    final actions = tx['actions'] as List? ?? [];
-    for (final action in actions) {
-      if (action is Map && action['hex_data'] != null) {
-        action['data'] = action['hex_data'] as String;
+        final expiration =
+            DateTime.now().toUtc().add(const Duration(minutes: 10));
+        tx['expiration'] = '${expiration.toIso8601String().split('.')[0]}Z';
+        tx['ref_block_num'] = refBlockNum;
+        tx['ref_block_prefix'] = refBlockPrefix;
+        tx['max_net_usage_words'] = tx['max_net_usage_words'] ?? 0;
+        tx['max_cpu_usage_ms'] = tx['max_cpu_usage_ms'] ?? 0;
+        tx['delay_sec'] = tx['delay_sec'] ?? 0;
+        tx['context_free_actions'] = tx['context_free_actions'] ?? [];
+        tx['transaction_extensions'] = tx['transaction_extensions'] ?? [];
+      } finally {
+        client.close();
       }
-    }
 
-    // Sign with thezeosalias@public key
-    final signatures = await EsrTransactionHelper.signWithAliasKey(
-      transaction: tx,
-      existingSignatures: [],
-    );
-
-    // Broadcast
-    final result = await EsrTransactionHelper.broadcastTransaction(
-      transaction: tx,
-      signatures: signatures,
-    );
-
-    final txId = result['transaction_id'] as String? ?? 'unknown';
-
-    String? receiveAddress;
-    if (bridgeInit.enabled) {
-      receiveAddress = CloakWalletManager.getAddress();
-      if (receiveAddress == null || receiveAddress.isEmpty) {
-        throw Exception('Bridge init completed but no receive address could be derived');
+      // Use hex_data for action serialization
+      final actions = tx['actions'] as List? ?? [];
+      for (final action in actions) {
+        if (action is Map && action['hex_data'] != null) {
+          action['data'] = action['hex_data'] as String;
+        }
       }
+
+      await CloakWalletManager.finalizeExternalProofTransaction(
+        operationId: operationId,
+        transaction: tx,
+      );
+      final signatures = await EsrTransactionHelper.signWithAliasKey(
+        transaction: tx,
+        existingSignatures: [],
+      );
+      submissionDelegated = true;
+      final txId = await CloakWalletManager.submitExternalProofTransaction(
+        operationId: operationId,
+        transaction: tx,
+        signatures: signatures,
+      );
+
+      String? receiveAddress;
+      if (bridgeInit.enabled) {
+        receiveAddress = CloakWalletManager.getAddress();
+        if (receiveAddress == null || receiveAddress.isEmpty) {
+          throw Exception(
+              'Bridge init completed but no receive address could be derived');
+        }
+      }
+
+      return BridgeInitProtocol.buildTransactSuccessResponse(
+        txId: txId,
+        z01Address: receiveAddress,
+      );
+    } catch (error, stackTrace) {
+      if (!submissionDelegated) {
+        await CloakWalletManager.resolvePendingWalletOperation(
+          operationId: operationId,
+          accepted: false,
+        );
+      }
+      Error.throwWithStackTrace(error, stackTrace);
     }
-
-    // Save wallet state
-    await CloakWalletManager.saveWallet();
-
-    return BridgeInitProtocol.buildTransactSuccessResponse(
-      txId: txId,
-      z01Address: receiveAddress,
-    );
   }
 
   /// ABI-serialize action data in authenticate zactions.
   /// The web app sends action data as JSON objects (maps), but Rust's
   /// PackedActionDesc expects data as a hex string (ABI-serialized binary).
   /// Since abi_json_to_bin is deprecated on Telos nodes, we serialize manually.
-  static Future<void> _abiSerializeAuthenticateActions(Map<String, dynamic> params) async {
+  static Future<void> _abiSerializeAuthenticateActions(
+      Map<String, dynamic> params) async {
     final zactions = params['zactions'] as List?;
     if (zactions == null) return;
 
@@ -854,11 +936,13 @@ class SignatureProvider {
         if (action is! Map) continue;
 
         final actionData = action['data'];
-        if (actionData is! Map) continue; // Already a string = already serialized
+        if (actionData is! Map)
+          continue; // Already a string = already serialized
 
         final account = action['account']?.toString() ?? '';
         final actionName = action['name']?.toString() ?? '';
-        final hexData = _serializeActionDataToHex(account, actionName, actionData);
+        final hexData =
+            _serializeActionDataToHex(account, actionName, actionData);
         action['data'] = hexData;
       }
     }
@@ -866,7 +950,8 @@ class SignatureProvider {
 
   /// Manually serialize EOSIO action data to hex.
   /// Handles known action types for vault operations.
-  static String _serializeActionDataToHex(String account, String actionName, Map actionData) {
+  static String _serializeActionDataToHex(
+      String account, String actionName, Map actionData) {
     final sb = eosdart.SerialBuffer(Uint8List(0));
 
     if (actionName == 'withdrawp') {
@@ -910,7 +995,8 @@ class SignatureProvider {
       }
     } else {
       // Fallback: try JSON encoding (will likely fail in Rust but provides debug info)
-      print('[SignatureProvider] WARNING: Unknown action $account::$actionName — cannot serialize');
+      print(
+          '[SignatureProvider] WARNING: Unknown action $account::$actionName — cannot serialize');
       final jsonStr = jsonEncode(actionData);
       final jsonBytes = Uint8List.fromList(utf8.encode(jsonStr));
       sb.pushArray(jsonBytes);
@@ -921,7 +1007,8 @@ class SignatureProvider {
 
   /// Send success response
   /// Include request id so website can correlate response with request
-  static void _sendResponse(String clientId, dynamic id, Map<String, dynamic> result) {
+  static void _sendResponse(
+      String clientId, dynamic id, Map<String, dynamic> result) {
     final socket = _clients[clientId];
     if (socket == null) return;
 
@@ -939,7 +1026,8 @@ class SignatureProvider {
 
   /// Send error response
   /// Include request id so website can correlate response with request
-  static void _sendError(String clientId, dynamic id, int code, String message) {
+  static void _sendError(
+      String clientId, dynamic id, int code, String message) {
     final socket = _clients[clientId];
     if (socket == null) return;
 
@@ -957,7 +1045,8 @@ class SignatureProvider {
   }
 
   /// Send response for a stored request (called after user approves)
-  static void sendRequestResponse(String requestId, Map<String, dynamic> result) {
+  static void sendRequestResponse(
+      String requestId, Map<String, dynamic> result) {
     final parts = requestId.split(':');
     if (parts.length < 2) return;
 

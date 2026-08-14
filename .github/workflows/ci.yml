@@ -1,0 +1,118 @@
+name: CLOAK security checks
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: cloak-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  FLUTTER_VERSION: '3.22.2'
+  FLUTTER_COMMIT: '761747bfc538b5af34aa0d3fac380f1bc331ec49'
+  RUST_VERSION: '1.80.1'
+
+jobs:
+  flutter-security:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          submodules: recursive
+      - shell: bash
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch "$FLUTTER_VERSION" \
+            https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
+          [[ "$(git -C "$RUNNER_TEMP/flutter" rev-parse HEAD)" == "$FLUTTER_COMMIT" ]]
+          echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
+      - shell: bash
+        run: |
+          set -euo pipefail
+          flutter pub get
+          dart run build_runner build -d
+          flutter analyze --no-fatal-infos --no-fatal-warnings \
+            lib/security lib/update lib/appsettings.dart lib/main.dart \
+            lib/init.dart lib/pages/more/more.dart lib/pages/more/about.dart \
+            lib/cloak/block_direct_sync_result.dart \
+            lib/cloak/bridge_init_protocol.dart \
+            lib/cloak/params_manager.dart \
+            lib/cloak/pending_wallet_operation.dart \
+            lib/cloak/protocol_compatibility.dart \
+            lib/cloak/send_recovery.dart \
+            lib/cloak/shielded_ft_balance.dart \
+            lib/cloak/signature_provider.dart \
+            lib/cloak/wallet_operation_coordinator.dart
+          flutter test \
+            test/block_direct_sync_result_test.dart \
+            test/bridge_init_protocol_test.dart \
+            test/desktop_update_installer_test.dart \
+            test/ed25519_verifier_test.dart \
+            test/params_manifest_test.dart \
+            test/protocol_compatibility_test.dart \
+            test/send_recovery_test.dart \
+            test/shielded_ft_balance_test.dart \
+            test/update_health_test.dart \
+            test/update_manifest_test.dart \
+            test/update_downloader_test.dart \
+            test/update_install_gate_test.dart \
+            test/update_preferences_test.dart \
+            test/wallet_operation_coordinator_test.dart
+          bash -n install.sh install-macos.sh \
+            assets/updater/linux-update.sh \
+            build-scripts/mac/codesign-mac.sh \
+            scripts/provision-release-manifest-key.sh \
+            scripts/provision-sparkle-key.sh \
+            scripts/provision-android-keystore.sh
+          bash scripts/test-linux-update-helper.sh
+          python3 - <<'PY'
+          from pathlib import Path
+          compile(
+              Path('scripts/generate-update-manifest.py').read_text(),
+              'scripts/generate-update-manifest.py',
+              'exec',
+          )
+          PY
+
+  protocol-security:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          submodules: recursive
+      - shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install "$RUST_VERSION" --profile minimal
+          rustup default "$RUST_VERSION"
+          cargo check --manifest-path zeos-caterpillar/Cargo.toml \
+            --release --locked --all-targets
+          cargo test --manifest-path zeos-caterpillar/Cargo.toml \
+            --release --locked soundness_tests -- --test-threads=1
+          cargo test --manifest-path zeos-caterpillar/Cargo.toml \
+            --release --locked wallet::tests -- --test-threads=1
+          cargo test --manifest-path zeos-caterpillar/Cargo.toml \
+            --release --locked --lib \
+            circuit::mint::tests::test_mint_circuit_utxo \
+            -- --exact --test-threads=1
+          cargo test --manifest-path zeos-caterpillar/Cargo.toml \
+            --release --locked --lib \
+            circuit::mint::tests::test_mint_circuit_auth \
+            -- --exact --test-threads=1
+          cargo test --manifest-path zeos-caterpillar/Cargo.toml \
+            --release --locked --lib \
+            circuit::output::tests::test_output_circuit \
+            -- --exact --test-threads=1
+          cargo test --manifest-path zeos-caterpillar/Cargo.toml \
+            --release --locked --lib \
+            circuit::spend::tests::test_spend_circuit \
+            -- --exact --test-threads=1
+          cargo test --manifest-path zeos-caterpillar/Cargo.toml \
+            --release --locked --lib \
+            circuit::spend_output::tests::test_spendoutput_circuit \
+            -- --exact --test-threads=1

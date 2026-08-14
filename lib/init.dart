@@ -1,4 +1,4 @@
-import 'dart:io' show Directory, Platform, exit;
+import 'dart:io' show Directory, Platform;
 
 import 'accounts.dart';
 import 'appsettings.dart';
@@ -12,6 +12,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 import 'package:flex_color_scheme/flex_color_scheme.dart';
 import 'theme/zashi_tokens.dart';
+import 'update/update_shutdown.dart';
 
 import 'coin/coins.dart';
 import 'generated/intl/messages.dart';
@@ -59,13 +60,15 @@ Future<void> restoreWindow() async {
   final maxScreenHeight = (logicalScreenHeight * 0.90).clamp(600.0, 820.0);
 
   // Default: 67% of screen height so "See all >" and below are visible
-  final defaultHeight = (logicalScreenHeight * 0.67).clamp(600.0, maxScreenHeight);
+  final defaultHeight =
+      (logicalScreenHeight * 0.67).clamp(600.0, maxScreenHeight);
   final defaultSize = Size(390, defaultHeight);
   final desired = previewSize ??
       (width != null && height != null ? Size(width, height) : defaultSize);
   // Clamp to a reasonable phone preview range; if preview is set, honor exact height
   final clamped = previewSize != null
-      ? Size((desired.width).clamp(320.0, 430.0).toDouble(), previewSize.height.clamp(600.0, maxScreenHeight))
+      ? Size((desired.width).clamp(320.0, 430.0).toDouble(),
+          previewSize.height.clamp(600.0, maxScreenHeight))
       : Size(
           (desired.width).clamp(320.0, 430.0).toDouble(),
           (desired.height).clamp(600.0, maxScreenHeight).toDouble(),
@@ -121,7 +124,7 @@ class _OnWindow extends WindowListener {
 
   @override
   void onWindowClose() async {
-    exit(0);
+    await UpdateShutdown.gracefulExit();
   }
 }
 
@@ -220,51 +223,55 @@ class _AppState extends State<App> {
         aaSequence.settingsSeqno;
         final theme = _resolveTheme();
 
-      // Apply correct Zashi extension based on app's palette dark setting
-      final zashiExt = appSettings.palette.dark ? _zashiDark : _zashiLight;
-      return MaterialApp.router(
-        locale: Locale(appSettings.language),
-        title: APP_NAME,
-        debugShowCheckedModeBanner: false,
-        theme: theme.copyWith(extensions: [zashiExt]),
-        darkTheme: theme.copyWith(extensions: [zashiExt]),
-        scaffoldMessengerKey: rootScaffoldMessengerKey,
-        scrollBehavior: _DesktopTouchScrollBehavior(),
-        builder: (context, child) {
-          final size = _previewSize;
-          if (size != null && !isMobile() && child != null) {
-            final mq = MediaQuery.of(context);
-            final mqData = mq.copyWith(
-              size: size,
-              // Keep other metrics; we only force logical width/height
-            );
-            return Center(
-              child: MediaQuery(
-                data: mqData,
-                child: SizedBox(width: size.width, height: size.height, child: child),
-              ),
-            );
-          }
-          return child ?? const SizedBox.shrink();
-        },
-        localizationsDelegates: [
-          S.delegate,
-          GlobalMaterialLocalizations.delegate,
-          GlobalWidgetsLocalizations.delegate,
-          GlobalCupertinoLocalizations.delegate,
-          FormBuilderLocalizations.delegate,
-        ],
-        supportedLocales: [
-          Locale('en'),
-          Locale('es'),
-          Locale('pt'),
-          Locale('fr'),
-        ],
-        routerConfig: router,
-      );
+        // Apply correct Zashi extension based on app's palette dark setting
+        final zashiExt = appSettings.palette.dark ? _zashiDark : _zashiLight;
+        return MaterialApp.router(
+          locale: Locale(appSettings.language),
+          title: APP_NAME,
+          debugShowCheckedModeBanner: false,
+          theme: theme.copyWith(extensions: [zashiExt]),
+          darkTheme: theme.copyWith(extensions: [zashiExt]),
+          scaffoldMessengerKey: rootScaffoldMessengerKey,
+          scrollBehavior: _DesktopTouchScrollBehavior(),
+          builder: (context, child) {
+            final size = _previewSize;
+            if (size != null && !isMobile() && child != null) {
+              final mq = MediaQuery.of(context);
+              final mqData = mq.copyWith(
+                size: size,
+                // Keep other metrics; we only force logical width/height
+              );
+              return Center(
+                child: MediaQuery(
+                  data: mqData,
+                  child: SizedBox(
+                      width: size.width, height: size.height, child: child),
+                ),
+              );
+            }
+            return child ?? const SizedBox.shrink();
+          },
+          localizationsDelegates: [
+            S.delegate,
+            GlobalMaterialLocalizations.delegate,
+            GlobalWidgetsLocalizations.delegate,
+            GlobalCupertinoLocalizations.delegate,
+            FormBuilderLocalizations.delegate,
+          ],
+          supportedLocales: [
+            Locale('en'),
+            Locale('es'),
+            Locale('pt'),
+            Locale('fr'),
+          ],
+          routerConfig: router,
+        );
       } catch (e, st) {
         // Surface the real error to the console instead of the generic Observer message
-        debugPrint('Observer build error (App root): ' + e.toString() + '\n' + st.toString());
+        debugPrint('Observer build error (App root): ' +
+            e.toString() +
+            '\n' +
+            st.toString());
         return MaterialApp(
           home: Scaffold(
             body: Center(

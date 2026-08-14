@@ -6,10 +6,11 @@ import '../../accounts.dart';
 import '../../store2.dart';
 import '../../generated/intl/messages.dart';
 import '../utils.dart';
-import 'send.dart' show SendContext, BatchAsset;
+import 'send.dart' show SendContext;
 import '../../theme/zashi_tokens.dart';
 import '../../cloak/cloak_wallet_manager.dart';
-import '../../cloak/cloak_db.dart';
+import '../../cloak/send_recovery.dart';
+import '../../cloak/shielded_ft_balance.dart';
 import 'submit.dart' show BeatPulse, SendingEllipses;
 
 class CloakSubmitPage extends StatefulWidget {
@@ -23,11 +24,13 @@ class _CloakSubmitState extends State<CloakSubmitPage>
   String? txId;
   String? error;
   String _statusMessage = '';
+  final SendCancellationToken _sendCancellation = SendCancellationToken();
   late AnimationController _fadeController;
   late Animation<double> _fadeAnimation;
 
   @override
   void dispose() {
+    _sendCancellation.cancel();
     _fadeController.dispose();
     super.dispose();
   }
@@ -49,106 +52,110 @@ class _CloakSubmitState extends State<CloakSubmitPage>
         if (sc == null) throw 'No send context';
 
         setState(() => _statusMessage = 'Loading ZK parameters...');
-          if (!await CloakWalletManager.loadZkParams()) {
-            throw 'Failed to load ZK parameters';
-          }
+        if (!await CloakWalletManager.loadZkParams()) {
+          throw 'Failed to load ZK parameters';
+        }
 
-          final bool isNft = sc.nftId != null && sc.nftId!.isNotEmpty;
+        final bool isNft = sc.nftId != null && sc.nftId!.isNotEmpty;
 
-          String? result;
-          if (sc.isBatchWithdraw && sc.batchAssets != null && sc.vaultHash != null) {
-            // Batch vault withdrawal (Quick Withdraw)
-            final entries = sc.batchAssets!.map((ba) {
-              if (ba.nftId != null) {
-                return VaultWithdrawEntry(
-                  nftAssetIds: [ba.nftId!],
-                  nftContract: ba.contract,
-                  memo: '',
-                );
-              } else {
-                final whole = ba.amountUnits ~/ _pow10(ba.precision);
-                final frac = (ba.amountUnits % _pow10(ba.precision)).toString().padLeft(ba.precision, '0');
-                final quantity = '$whole.$frac ${ba.symbol}';
-                return VaultWithdrawEntry(
-                  quantity: quantity,
-                  tokenContract: ba.contract,
-                  memo: '',
-                );
-              }
-            }).toList();
-
-            result = await CloakWalletManager.authenticateVaultBatch(
-              vaultHash: sc.vaultHash!,
-              recipientAddress: sc.address,
-              entries: entries,
-              onStatus: (status) {
-                if (mounted) setState(() => _statusMessage = status);
-              },
-            );
-          } else if (sc.vaultHash != null && sc.vaultHash!.isNotEmpty) {
-            // Vault withdrawal via authenticate
-            if (isNft) {
-              // NFT vault withdrawal
-              result = await CloakWalletManager.authenticateVault(
-                vaultHash: sc.vaultHash!,
-                recipientAddress: sc.address,
-                quantity: '0.0000 CLOAK', // no fungible amount for NFT withdraw
-                tokenContract: 'thezeostoken',
-                nftAssetIds: [sc.nftId!],
-                nftContract: sc.nftContract,
-                memo: sc.memo?.memo ?? '',
-                onStatus: (status) {
-                  if (mounted) setState(() => _statusMessage = status);
-                },
+        String? result;
+        if (sc.isBatchWithdraw &&
+            sc.batchAssets != null &&
+            sc.vaultHash != null) {
+          // Batch vault withdrawal (Quick Withdraw)
+          final entries = sc.batchAssets!.map((ba) {
+            if (ba.nftId != null) {
+              return VaultWithdrawEntry(
+                nftAssetIds: [ba.nftId!],
+                nftContract: ba.contract,
+                memo: '',
               );
             } else {
-              // FT vault withdrawal
-              final precision = sc.tokenPrecision ?? 4;
-              final amtDouble = sc.amount.value / (10000).toDouble(); // CLOAK precision = 4
-              final quantity = '${amtDouble.toStringAsFixed(precision)} ${sc.tokenSymbol ?? 'CLOAK'}';
-              result = await CloakWalletManager.authenticateVault(
-                vaultHash: sc.vaultHash!,
-                recipientAddress: sc.address,
+              final quantity =
+                  '${formatAssetUnits(ba.amountUnits, ba.precision)} ${ba.symbol}';
+              return VaultWithdrawEntry(
                 quantity: quantity,
-                tokenContract: sc.tokenContract ?? 'thezeostoken',
-                memo: sc.memo?.memo ?? '',
-                onStatus: (status) {
-                  if (mounted) setState(() => _statusMessage = status);
-                },
+                tokenContract: ba.contract,
+                memo: '',
               );
             }
-          } else if (isNft) {
-            // Normal shielded NFT send (future: needs ZTransaction NFT variant)
-            throw 'NFT shielded sends are not yet supported. Use vault withdrawal to transfer NFTs.';
-          } else {
-            // Normal shielded send
-            result = await CloakWalletManager.sendTransaction(
+          }).toList();
+
+          result = await CloakWalletManager.authenticateVaultBatch(
+            vaultHash: sc.vaultHash!,
+            recipientAddress: sc.address,
+            entries: entries,
+            onStatus: (status) {
+              if (mounted) setState(() => _statusMessage = status);
+            },
+          );
+        } else if (sc.vaultHash != null && sc.vaultHash!.isNotEmpty) {
+          // Vault withdrawal via authenticate
+          if (isNft) {
+            // NFT vault withdrawal
+            result = await CloakWalletManager.authenticateVault(
+              vaultHash: sc.vaultHash!,
               recipientAddress: sc.address,
-              amount: sc.amount.value,
-              tokenSymbol: sc.tokenSymbol ?? 'CLOAK',
+              quantity: '0.0000 CLOAK', // no fungible amount for NFT withdraw
+              tokenContract: 'thezeostoken',
+              nftAssetIds: [sc.nftId!],
+              nftContract: sc.nftContract,
+              memo: sc.memo?.memo ?? '',
+              onStatus: (status) {
+                if (mounted) setState(() => _statusMessage = status);
+              },
+            );
+          } else {
+            // FT vault withdrawal
+            final precision = sc.tokenPrecision ?? 4;
+            final quantity =
+                '${formatAssetUnits(sc.amount.value, precision)} ${sc.tokenSymbol ?? 'CLOAK'}';
+            result = await CloakWalletManager.authenticateVault(
+              vaultHash: sc.vaultHash!,
+              recipientAddress: sc.address,
+              quantity: quantity,
               tokenContract: sc.tokenContract ?? 'thezeostoken',
               memo: sc.memo?.memo ?? '',
-              drain: sc.isDrainSend,
               onStatus: (status) {
                 if (mounted) setState(() => _statusMessage = status);
               },
             );
           }
+        } else if (isNft) {
+          // Normal shielded NFT send (future: needs ZTransaction NFT variant)
+          throw 'NFT shielded sends are not yet supported. Use vault withdrawal to transfer NFTs.';
+        } else {
+          // Normal shielded send
+          result = await CloakWalletManager.sendTransaction(
+            recipientAddress: sc.address,
+            amount: sc.amount.value,
+            tokenSymbol: sc.tokenSymbol ?? 'CLOAK',
+            tokenContract: sc.tokenContract ?? 'thezeostoken',
+            tokenPrecision: sc.tokenPrecision ?? 4,
+            memo: sc.memo?.memo ?? '',
+            drain: sc.isDrainSend,
+            cancellationToken: _sendCancellation,
+            onStatus: (status) {
+              if (mounted) setState(() => _statusMessage = status);
+            },
+          );
+        }
 
-          if (result == null) throw 'Transaction failed. Check wallet balance and try again.';
-          txId = result;
-          // txId will be fetched on-demand when viewing transaction details
-          // Force TX list refresh immediately after send so eager wallet
-          // update (outgoing notes added during zsign) shows in the TX list
-          // before the next sync cycle.
-          aa.update(null);
-          // Refresh vault balance after successful withdrawal/deposit so the
-          // hero balance updates immediately (queries on-chain vault state).
-          // Wait briefly for the TX to be confirmed on-chain (Telos ~0.5s blocks).
-          if (isVaultMode) {
-            await Future.delayed(const Duration(milliseconds: 1500));
-            await refreshActiveVaultBalance();
-          }
+        if (result == null)
+          throw 'Transaction failed. Check wallet balance and try again.';
+        txId = result;
+        // txId will be fetched on-demand when viewing transaction details
+        // Force TX list refresh immediately after send so eager wallet
+        // update (outgoing notes added during zsign) shows in the TX list
+        // before the next sync cycle.
+        aa.update(null);
+        // Refresh vault balance after successful withdrawal/deposit so the
+        // hero balance updates immediately (queries on-chain vault state).
+        // Wait briefly for the TX to be confirmed on-chain (Telos ~0.5s blocks).
+        if (isVaultMode) {
+          await Future.delayed(const Duration(milliseconds: 1500));
+          await refreshActiveVaultBalance();
+        }
       } catch (e) {
         error = e.toString();
       }
@@ -208,13 +215,13 @@ class _CloakSubmitState extends State<CloakSubmitPage>
             duration: const Duration(milliseconds: 1400)),
         const Gap(8),
         SendingEllipses(
-            style: t.textTheme.titleLarge
-                ?.copyWith(fontWeight: FontWeight.w600),
+            style:
+                t.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w600),
             duration: const Duration(milliseconds: 2400)),
         const Gap(8),
         Text(_statusMessage,
-            style: t.textTheme.bodySmall?.copyWith(
-                color: t.colorScheme.onSurface.withOpacity(0.7))),
+            style: t.textTheme.bodySmall
+                ?.copyWith(color: t.colorScheme.onSurface.withOpacity(0.7))),
         const Gap(8),
         Text(
             (SendContext.instance?.isBatchWithdraw == true)
@@ -235,7 +242,8 @@ class _CloakSubmitState extends State<CloakSubmitPage>
 
   Widget _buildSuccess(BuildContext context, ThemeData t, S s) {
     final balanceFontFamily = t.textTheme.displaySmall?.fontFamily;
-    final balanceColor = t.extension<ZashiThemeExt>()?.balanceAmountColor ?? const Color(0xFFBDBDBD);
+    final balanceColor = t.extension<ZashiThemeExt>()?.balanceAmountColor ??
+        const Color(0xFFBDBDBD);
 
     final sc = SendContext.instance;
     final full = (sc?.address ?? '').trim();
@@ -243,7 +251,8 @@ class _CloakSubmitState extends State<CloakSubmitPage>
     final previewAddr = full.isNotEmpty ? '${full.substring(0, cut)}...' : '';
 
     final bool isNft = sc?.nftId != null && sc!.nftId!.isNotEmpty;
-    final bool isVaultWithdraw = sc?.vaultHash != null && sc!.vaultHash!.isNotEmpty;
+    final bool isVaultWithdraw =
+        sc?.vaultHash != null && sc!.vaultHash!.isNotEmpty;
     final bool isBatch = sc?.isBatchWithdraw == true;
 
     return Stack(children: [
@@ -297,10 +306,14 @@ class _CloakSubmitState extends State<CloakSubmitPage>
             ),
             clipBehavior: Clip.antiAlias,
             child: sc!.nftImageUrl!.startsWith('asset:')
-              ? Image.asset(sc.nftImageUrl!.substring(6), fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) => Icon(Icons.diamond_outlined, size: 64, color: balanceColor))
-              : Image.network(sc.nftImageUrl!, fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) => Icon(Icons.diamond_outlined, size: 64, color: balanceColor)),
+                ? Image.asset(sc.nftImageUrl!.substring(6),
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) => Icon(Icons.diamond_outlined,
+                        size: 64, color: balanceColor))
+                : Image.network(sc.nftImageUrl!,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) => Icon(Icons.diamond_outlined,
+                        size: 64, color: balanceColor)),
           ),
         ),
       // Center content — pushed down when NFT image is shown
@@ -311,7 +324,8 @@ class _CloakSubmitState extends State<CloakSubmitPage>
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             Text(isVaultWithdraw ? 'Withdrawn!' : 'Sent!',
-                style: t.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w600)),
+                style: t.textTheme.titleLarge
+                    ?.copyWith(fontWeight: FontWeight.w600)),
             if (isNft && !isBatch) ...[
               const Gap(4),
               Text(
@@ -355,7 +369,9 @@ class _CloakSubmitState extends State<CloakSubmitPage>
                           child: Center(
                             child: Text(
                               s.openInExplorer,
-                              style: (t.textTheme.titleSmall ?? const TextStyle()).copyWith(
+                              style:
+                                  (t.textTheme.titleSmall ?? const TextStyle())
+                                      .copyWith(
                                 fontFamily: balanceFontFamily,
                                 fontWeight: FontWeight.w600,
                                 color: t.colorScheme.onSurface,
@@ -395,7 +411,8 @@ class _CloakSubmitState extends State<CloakSubmitPage>
                     child: Center(
                       child: Text(
                         'Close',
-                        style: (t.textTheme.titleSmall ?? const TextStyle()).copyWith(
+                        style: (t.textTheme.titleSmall ?? const TextStyle())
+                            .copyWith(
                           fontFamily: balanceFontFamily,
                           fontWeight: FontWeight.w600,
                           color: t.colorScheme.background,
@@ -414,13 +431,15 @@ class _CloakSubmitState extends State<CloakSubmitPage>
 
   Widget _buildError(BuildContext context, ThemeData t) {
     final balanceFontFamily = t.textTheme.displaySmall?.fontFamily;
-    final balanceColor = t.extension<ZashiThemeExt>()?.balanceAmountColor ?? const Color(0xFFBDBDBD);
+    final balanceColor = t.extension<ZashiThemeExt>()?.balanceAmountColor ??
+        const Color(0xFFBDBDBD);
 
     // Clean up the error message for display
     String displayError = error ?? 'Unknown error';
     if (displayError.contains('InsufficientFunds')) {
       final sym = SendContext.instance?.tokenSymbol ?? 'CLOAK';
-      displayError = 'Insufficient $sym balance to cover the transaction amount and network fees.';
+      displayError =
+          'Insufficient $sym balance to cover the transaction amount and network fees.';
     }
 
     return Stack(children: [
@@ -471,7 +490,8 @@ class _CloakSubmitState extends State<CloakSubmitPage>
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               Text('Transaction Failed',
-                  style: t.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w600)),
+                  style: t.textTheme.titleLarge
+                      ?.copyWith(fontWeight: FontWeight.w600)),
               const Gap(12),
               Text(displayError,
                   textAlign: TextAlign.center,
@@ -505,7 +525,8 @@ class _CloakSubmitState extends State<CloakSubmitPage>
                     child: Center(
                       child: Text(
                         'Cancel Transaction',
-                        style: (t.textTheme.titleSmall ?? const TextStyle()).copyWith(
+                        style: (t.textTheme.titleSmall ?? const TextStyle())
+                            .copyWith(
                           fontFamily: balanceFontFamily,
                           fontWeight: FontWeight.w600,
                           color: t.colorScheme.background,
@@ -540,10 +561,4 @@ class _CloakSubmitState extends State<CloakSubmitPage>
       GoRouter.of(context).go('/account');
     });
   }
-}
-
-int _pow10(int exp) {
-  int result = 1;
-  for (int i = 0; i < exp; i++) result *= 10;
-  return result;
 }

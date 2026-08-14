@@ -11,10 +11,12 @@ import 'accounts.dart';
 import 'cloak/cloak_wallet_manager.dart';
 import 'cloak/cloak_db.dart';
 import 'cloak/signature_provider.dart';
-import 'router.dart' show initialLocation;
+import 'router.dart' show initialLocation, rootNavigatorKey;
 import 'store2.dart';
 import 'main.reflectable.dart';
 import './pages/utils.dart';
+import 'update/update_coordinator.dart';
+import 'update/update_ui.dart';
 
 import 'init.dart';
 
@@ -30,11 +32,12 @@ var CLOAKUNIT_DECIMAL = Decimal.parse('10000');
 
 final GlobalKey<NavigatorState> navigatorKey = new GlobalKey<NavigatorState>();
 
-void main() async {
+void main(List<String> arguments) async {
   WidgetsFlutterBinding.ensureInitialized();
   initializeReflectable();
   await restoreSettings();
-  await initUiPrefs();  // Load UI prefs (always-on-top) before window setup
+  await initUiPrefs(); // Load UI prefs (always-on-top) before window setup
+  await UpdateCoordinator.instance.loadPreferences();
   await initCoins();
   await restoreWindow();
   initNotifications();
@@ -46,6 +49,7 @@ void main() async {
   final walletFileExists = File(walletFilePath).existsSync();
 
   bool walletReady = false;
+  bool updateHealthPreflightFailed = false;
 
   if (pinSet && walletFileExists) {
     // PIN is set and wallet exists — defer all DB/wallet init to PIN login page.
@@ -58,18 +62,23 @@ void main() async {
     try {
       await CloakWalletManager.init(dbPassword: appStore.dbPassword);
     } catch (e) {
+      updateHealthPreflightFailed = true;
       print('[init] FATAL: CloakWalletManager.init() failed: $e');
       // Continue to runApp() so the user sees splash instead of white screen
     }
 
     try {
       if (walletFileExists) {
-        await CloakWalletManager.loadWallet();
+        final loaded = await CloakWalletManager.loadWallet();
+        if (!loaded) {
+          throw StateError('Wallet native state could not be loaded');
+        }
         await refreshCloakAccountsCache();
         walletReady = true;
 
         // Validate wallet configuration
-        final validationErrors = await CloakWalletManager.validateWalletConfiguration();
+        final validationErrors =
+            await CloakWalletManager.validateWalletConfiguration();
         if (validationErrors.isNotEmpty) {
           appStore.cloakWalletValidationErrors = validationErrors;
         }
@@ -79,17 +88,24 @@ void main() async {
       } else {
         // Auto-restore if we have a seed in the DB but no wallet file
         final account = await CloakDb.getFirstAccount();
-        if (account != null && account['seed'] != null && (account['seed'] as String).isNotEmpty) {
+        if (account != null &&
+            account['seed'] != null &&
+            (account['seed'] as String).isNotEmpty) {
           await CloakWalletManager.restoreWallet(
             account['name'] as String,
             account['seed'] as String,
           );
-          await CloakWalletManager.loadWallet();
+          final loaded = await CloakWalletManager.loadWallet();
+          if (!loaded) {
+            throw StateError(
+                'Restored wallet native state could not be loaded');
+          }
           await refreshCloakAccountsCache();
           walletReady = true;
         }
       }
     } catch (e) {
+      updateHealthPreflightFailed = true;
       print('[init] Error initializing wallet: $e');
     }
   }
@@ -139,6 +155,16 @@ void main() async {
     }
   }
 
+  WidgetsBinding.instance.addPostFrameCallback((_) async {
+    // A replacement build is healthy only after native/wallet preflight and
+    // the first Flutter frame. A construction/render crash must roll back.
+    if (!updateHealthPreflightFailed) {
+      await UpdateCoordinator.acknowledgeHealthCheck(arguments);
+    }
+    await Future<void>.delayed(const Duration(seconds: 8));
+    final context = rootNavigatorKey.currentContext;
+    if (context != null) await UpdateUi.maybePrompt(context);
+  });
   runApp(App());
 }
 

@@ -33,7 +33,9 @@ class _CloakSplashPageState extends State<CloakSplashPage> {
   Future<void> _checkParams() async {
     try {
       final dir = await ParamsManager.getParamsDirectory();
-      final exist = await ParamsManager.paramsExist(dir);
+      // Startup readiness requires full hashes, not just filenames/sizes. A
+      // corrupt same-size file must return to the repair/download UI.
+      final exist = await ParamsManager.verifyAll(dir);
       if (mounted) {
         setState(() {
           _checkingParams = false;

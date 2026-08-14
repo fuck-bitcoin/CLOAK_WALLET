@@ -32,7 +32,7 @@ fn find_group_hash(m: &[u8], personalization: &[u8; 8]) -> SubgroupPoint {
 pub const GH_FIRST_BLOCK: &[u8; 64] = b"096b36a5804bfacef1691e173c366a47ff5ba84a44f26ddd7e8d9f79d5b42df0";
 
 /// Merkle Tree Depth
-pub const MERKLE_TREE_DEPTH: usize = 20;
+pub const MERKLE_TREE_DEPTH: usize = 12;
 
 /// BLAKE2s7r Personalization for Merkle Tree
 pub const MERKLE_TREE_PERSONALIZATION: &[u8; 8] = b"ZEOStree";
