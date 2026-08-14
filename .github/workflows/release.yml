@@ -458,7 +458,8 @@ jobs:
             https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
           [[ "$(git -C "$RUNNER_TEMP/flutter" rev-parse HEAD)" == "$FLUTTER_COMMIT" ]]
           echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
-          sdkmanager "ndk;$ANDROID_NDK_VERSION" 'platforms;android-34' \
+          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" \
+            "ndk;$ANDROID_NDK_VERSION" 'platforms;android-34' \
             'build-tools;34.0.0'
           rustup toolchain install "$RUST_VERSION" --profile minimal
           rustup default "$RUST_VERSION"
