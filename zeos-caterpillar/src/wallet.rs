@@ -25,6 +25,19 @@ use sha2::Sha256;
 
 type HmacSha256 = Hmac<Sha256>;
 
+const WALLET_EXTENSION_MAGIC: &[u8; 8] = b"CLOAKW21";
+const WALLET_EXTENSION_VERSION: u16 = 1;
+const MAX_WALLET_EXTENSION_SIZE: usize = 1024;
+const FULL_VIEWING_KEY_SIZE: usize = 128;
+pub const LEGACY_PROTOCOL_GENERATION: &str = "legacy";
+pub const MIGRATING_PROTOCOL_GENERATION: &str = "migrating-v1.1.0-12";
+pub const CURRENT_PROTOCOL_GENERATION: &str = "v1.1.0-12";
+
+fn legacy_protocol_generation() -> String
+{
+    LEGACY_PROTOCOL_GENERATION.to_string()
+}
+
 // empty merkle tree roots
 lazy_static! {
     static ref EMPTY_ROOTS: Vec<ScalarBytes> = {
@@ -75,7 +88,11 @@ pub struct Wallet
     merkle_tree: HashMap<u64, ScalarBytes>,
 
     // storage of all unpublished notes
-    unpublished_notes: HashMap<u64, HashMap<String, Vec<String>>>
+    unpublished_notes: HashMap<u64, HashMap<String, Vec<String>>>,
+
+    // appended binary extension; absent in pre-v2.1 wallet files
+    #[serde(default = "legacy_protocol_generation")]
+    protocol_generation: String
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -103,6 +120,10 @@ impl Wallet
     {
         if is_ivk { if seed.len() != 64 { log("ivk length must equal 64 bytes"); return None; } }
         else      { if seed.len() < 32  { log("seed length must equal at least 32 bytes"); return None; } }
+        if fvk_bytes.as_ref().is_some_and(|bytes| bytes.len() != FULL_VIEWING_KEY_SIZE) {
+            log("fvk length must equal 128 bytes");
+            return None;
+        }
 
         let ivk = if is_ivk {
             let ivk = IncomingViewingKey::from_bytes(&seed.try_into().unwrap());
@@ -134,7 +155,8 @@ impl Wallet
             spent_notes: vec![],
             outgoing_notes: vec![],
             merkle_tree: HashMap::new(),
-            unpublished_notes: HashMap::new()
+            unpublished_notes: HashMap::new(),
+            protocol_generation: CURRENT_PROTOCOL_GENERATION.to_string()
         })
     }
 
@@ -187,14 +209,22 @@ impl Wallet
 
         // Write FVK bytes (128 bytes) if present, 0 length if not
         match &self.fvk_bytes {
-            Some(bytes) => {
+            Some(bytes) if bytes.len() == FULL_VIEWING_KEY_SIZE => {
                 writer.write_u32::<LittleEndian>(bytes.len() as u32)?;
                 writer.write_all(bytes)?;
+            }
+            Some(_) => {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "invalid full viewing key length",
+                ));
             }
             None => {
                 writer.write_u32::<LittleEndian>(0)?;
             }
         }
+
+        self.write_extension(&mut writer)?;
 
         Ok(())
     }
@@ -281,7 +311,8 @@ impl Wallet
             spent_notes,
             outgoing_notes,
             merkle_tree,
-            unpublished_notes: HashMap::new()
+            unpublished_notes: HashMap::new(),
+            protocol_generation: LEGACY_PROTOCOL_GENERATION.to_string()
         };
 
         for _ in 0..leaf_count
@@ -297,17 +328,31 @@ impl Wallet
         reader.read_exact(&mut unpublished_notes_bytes)?;
         wallet.unpublished_notes = serde_json::from_str(&String::from_utf8(unpublished_notes_bytes).unwrap()).unwrap();
 
-        // Read FVK bytes if present (backward compatible: EOF means no FVK)
-        wallet.fvk_bytes = match reader.read_u32::<LittleEndian>() {
-            Ok(len) if len > 0 => {
-                let mut bytes = vec![0u8; len as usize];
-                reader.read_exact(&mut bytes)?;
-                Some(bytes)
-            }
-            Ok(_) => None,
-            Err(ref e) if e.kind() == io::ErrorKind::UnexpectedEof => None,
-            Err(e) => return Err(e),
+        // Wallets older than FVK support ended exactly here. Read the first
+        // length byte separately so only a clean EOF is treated as that legacy
+        // format; a one-to-three-byte truncated length is corrupt.
+        let mut fvk_len_bytes = [0u8; 4];
+        wallet.fvk_bytes = match reader.read(&mut fvk_len_bytes[..1])? {
+            0 => None,
+            1 => {
+                reader.read_exact(&mut fvk_len_bytes[1..])?;
+                let len = u32::from_le_bytes(fvk_len_bytes) as usize;
+                match len {
+                    0 => None,
+                    FULL_VIEWING_KEY_SIZE => {
+                        let mut bytes = vec![0u8; FULL_VIEWING_KEY_SIZE];
+                        reader.read_exact(&mut bytes)?;
+                        Some(bytes)
+                    },
+                    _ => return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "invalid full viewing key length",
+                    )),
+                }
+            },
+            _ => unreachable!("a one-byte read cannot return more than one byte"),
         };
+        wallet.protocol_generation = Self::read_extension(&mut reader)?;
 
         Ok(wallet)
     }
@@ -347,7 +392,8 @@ impl Wallet
         4 +                                 // unpublished_notes.len()
         serde_json::to_string(&self.unpublished_notes).unwrap().as_bytes().len() +
         4 +                                 // fvk_bytes.len()
-        self.fvk_bytes.as_ref().map_or(0, |b| b.len())
+        self.fvk_bytes.as_ref().map_or(0, |b| b.len()) +
+        self.extension_size()
 
         // less verbose but much heavier alternative:
         //let mut v = vec![];
@@ -398,6 +444,124 @@ impl Wallet
     pub fn set_auth_count(&mut self, count: u64)
     {
         self.auth_count = count;
+    }
+
+    pub fn protocol_generation(&self) -> &str
+    {
+        &self.protocol_generation
+    }
+
+    /// Idempotently enter the depth-12 migration state. Unknown future
+    /// generations are never overwritten or downgraded.
+    pub fn begin_protocol_migration(&mut self) -> Result<(), &'static str>
+    {
+        match self.protocol_generation.as_str() {
+            LEGACY_PROTOCOL_GENERATION => {
+                self.protocol_generation = MIGRATING_PROTOCOL_GENERATION.to_string();
+                Ok(())
+            },
+            MIGRATING_PROTOCOL_GENERATION | CURRENT_PROTOCOL_GENERATION => Ok(()),
+            _ => Err("unsupported wallet protocol generation")
+        }
+    }
+
+    /// Idempotently mark a successfully resynced wallet current.
+    pub fn complete_protocol_migration(&mut self) -> Result<(), &'static str>
+    {
+        match self.protocol_generation.as_str() {
+            MIGRATING_PROTOCOL_GENERATION | CURRENT_PROTOCOL_GENERATION => {
+                self.protocol_generation = CURRENT_PROTOCOL_GENERATION.to_string();
+                Ok(())
+            },
+            LEGACY_PROTOCOL_GENERATION => Err("legacy wallet migration has not begun"),
+            _ => Err("unsupported wallet protocol generation")
+        }
+    }
+
+    fn extension_size(&self) -> usize
+    {
+        8 + // magic
+        2 + // extension version
+        4 + // payload length
+        2 + // protocol generation length
+        self.protocol_generation.as_bytes().len()
+    }
+
+    fn write_extension<W: Write>(&self, mut writer: W) -> io::Result<()>
+    {
+        let generation = self.protocol_generation.as_bytes();
+        if generation.is_empty() || generation.len() > u16::MAX as usize {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "invalid wallet protocol generation",
+            ));
+        }
+        let payload_len = 2usize + generation.len();
+        if payload_len > MAX_WALLET_EXTENSION_SIZE {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "wallet extension is too large",
+            ));
+        }
+
+        writer.write_all(WALLET_EXTENSION_MAGIC)?;
+        writer.write_u16::<LittleEndian>(WALLET_EXTENSION_VERSION)?;
+        writer.write_u32::<LittleEndian>(payload_len as u32)?;
+        writer.write_u16::<LittleEndian>(generation.len() as u16)?;
+        writer.write_all(generation)?;
+        Ok(())
+    }
+
+    fn read_extension<R: Read>(mut reader: R) -> io::Result<String>
+    {
+        let mut magic = [0u8; 8];
+        let first_read = reader.read(&mut magic)?;
+        if first_read == 0 {
+            return Ok(LEGACY_PROTOCOL_GENERATION.to_string());
+        }
+        if first_read < magic.len() {
+            reader.read_exact(&mut magic[first_read..])?;
+        }
+        if &magic != WALLET_EXTENSION_MAGIC {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "unknown trailing wallet data",
+            ));
+        }
+
+        let version = reader.read_u16::<LittleEndian>()?;
+        if version != WALLET_EXTENSION_VERSION {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "unsupported wallet extension version",
+            ));
+        }
+        let payload_len = reader.read_u32::<LittleEndian>()? as usize;
+        if payload_len < 2 || payload_len > MAX_WALLET_EXTENSION_SIZE {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "invalid wallet extension length",
+            ));
+        }
+
+        let mut payload = vec![0u8; payload_len];
+        reader.read_exact(&mut payload)?;
+        let mut payload_reader = &payload[..];
+        let generation_len = payload_reader.read_u16::<LittleEndian>()? as usize;
+        if generation_len == 0 || generation_len != payload_reader.len() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "invalid protocol generation extension",
+            ));
+        }
+        let mut generation = vec![0u8; generation_len];
+        payload_reader.read_exact(&mut generation)?;
+        String::from_utf8(generation).map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                "protocol generation is not UTF-8",
+            )
+        })
     }
 
     /// Returns the maximum block_ts across all note pools (unspent, spent, outgoing).
@@ -598,12 +762,16 @@ impl Wallet
             }
         }
         let mut v = vec![];
-        for k in map.keys()
+        for (k, amount) in map
         {
+            // A zero-value FT change note remains part of wallet state so it
+            // can be serialized and reconciled, but it is not an owned
+            // balance. One-unit dust is deliberately retained.
+            if amount == 0 { continue; }
             v.push(ExtendedAsset::new(Asset::new(
-                *map.get(k).unwrap() as i64,
-                Symbol((*k >> 64) as u64)).unwrap(),
-                Name(*k as u64)
+                amount as i64,
+                Symbol((k >> 64) as u64)).unwrap(),
+                Name(k as u64)
             ))
         }
         v
@@ -1535,9 +1703,17 @@ impl Wallet
 #[cfg(test)]
 mod tests
 {
+    use std::{collections::HashMap, io::ErrorKind};
+
     use crate::{
-        wallet::Wallet,
-        note::{Note, Rseed},
+        wallet::{
+            Wallet,
+            CURRENT_PROTOCOL_GENERATION,
+            FULL_VIEWING_KEY_SIZE,
+            LEGACY_PROTOCOL_GENERATION,
+            MIGRATING_PROTOCOL_GENERATION,
+        },
+        note::{Note, NoteEx, Rseed},
         eosio::{Authorization, Name, Transaction, Action, ExtendedAsset},
         contract::{PlsMint, ScalarBytes, AffineProofBytesLE},
         note_encryption::{NoteEncryption, TransmittedNoteCiphertext, derive_esk, ka_derive_public},
@@ -1610,6 +1786,233 @@ mod tests
 
         println!("{}", serde_json::to_string_pretty(&w.balances()).unwrap());
         println!("{}", serde_json::to_string_pretty(&w.non_fungible_tokens(&Name(0))).unwrap());
+    }
+
+    #[test]
+    fn balances_omit_zero_value_fts_but_retain_notes_and_identity()
+    {
+        let mut rng = OsRng.clone();
+        let seed = b"this is a sample seed which should be at least 32 bytes long...";
+        let mut w = Wallet::create(
+            seed,
+            false,
+            [0; 32],
+            Name::from_string("zeos4privacy").unwrap(),
+            Name::from_string("thezeosvault").unwrap(),
+            Authorization::from_string("thezeosalias@public").unwrap(),
+            None,
+        ).unwrap();
+        let recipient = w.default_address().unwrap();
+        let assets = [
+            "0.0000 SAME@token.zero",
+            "0.0001 SAME@token.one",
+            "2.0000 SAME@token.two",
+            "123@atomicassets",
+            "0@thezeostoken",
+        ];
+
+        for (index, asset) in assets.iter().enumerate()
+        {
+            let note = Note::from_parts(
+                0,
+                recipient.clone(),
+                Name(0),
+                ExtendedAsset::from_string(asset).unwrap(),
+                Rseed::new(&mut rng),
+                [0; 512],
+            );
+            w.unspent_notes.push(NoteEx::from_parts(
+                1,
+                2,
+                3,
+                index as u64,
+                note,
+            ));
+        }
+
+        // Serialization keeps the exact-zero change note and all other notes.
+        let mut serialized = vec![];
+        w.write(&mut serialized).unwrap();
+        let restored = Wallet::read(&serialized[..]).unwrap();
+        assert_eq!(restored.unspent_notes().len(), assets.len());
+
+        let mut balances: Vec<String> = restored.balances().iter()
+            .map(|asset| asset.to_string())
+            .collect();
+        balances.sort();
+        assert_eq!(balances, vec![
+            "0.0001 SAME@token.one".to_string(),
+            "2.0000 SAME@token.two".to_string(),
+        ]);
+
+        // NFT and authentication-token classification remains independent of
+        // the public fungible-token balance API.
+        assert_eq!(restored.non_fungible_tokens(&Name(0)).len(), 1);
+        assert_eq!(restored.authentication_tokens(&Name(0), false).len(), 1);
+    }
+
+    #[test]
+    fn protocol_extension_migrates_legacy_wallets_without_changing_keys()
+    {
+        let seed = b"this is a sample seed which should be at least 32 bytes long...";
+        let wallet = Wallet::create(
+            seed,
+            false,
+            [7; 32],
+            Name::from_string("zeos4privacy").unwrap(),
+            Name::from_string("thezeosvault").unwrap(),
+            Authorization::from_string("thezeosalias@public").unwrap(),
+            None,
+        ).unwrap();
+        assert_eq!(wallet.protocol_generation(), CURRENT_PROTOCOL_GENERATION);
+
+        let mut already_current = wallet.clone();
+        already_current.begin_protocol_migration().unwrap();
+        assert_eq!(
+            already_current.protocol_generation(),
+            CURRENT_PROTOCOL_GENERATION,
+        );
+
+        let mut current_bytes = vec![];
+        wallet.write(&mut current_bytes).unwrap();
+        assert_eq!(current_bytes.len(), wallet.size());
+
+        // Pre-extension wallets ended immediately after the optional FVK field.
+        let extension_start = current_bytes.len() - wallet.extension_size();
+        let legacy = Wallet::read(&current_bytes[..extension_start]).unwrap();
+        assert_eq!(legacy.protocol_generation(), LEGACY_PROTOCOL_GENERATION);
+        assert_eq!(legacy.seed(), wallet.seed());
+        assert_eq!(legacy.chain_id(), wallet.chain_id());
+        assert_eq!(legacy.diversifiers, wallet.diversifiers);
+
+        // Even older wallets ended before the optional zero-length FVK field.
+        let fvk_length_start = extension_start - 4;
+        let oldest = Wallet::read(&current_bytes[..fvk_length_start]).unwrap();
+        assert_eq!(oldest.protocol_generation(), LEGACY_PROTOCOL_GENERATION);
+        assert_eq!(oldest.seed(), wallet.seed());
+
+        // Once any FVK-length byte is present, the complete four-byte field is
+        // mandatory. A torn write must not be mistaken for the older format.
+        for partial_length_bytes in 1..4 {
+            let error = Wallet::read(
+                &current_bytes[..fvk_length_start + partial_length_bytes],
+            ).unwrap_err();
+            assert_eq!(error.kind(), ErrorKind::UnexpectedEof);
+        }
+
+        // Only the absent/zero and exact 128-byte encodings are valid.
+        let mut invalid_fvk_length = current_bytes[..extension_start].to_vec();
+        invalid_fvk_length[fvk_length_start..extension_start]
+            .copy_from_slice(&127u32.to_le_bytes());
+        let error = Wallet::read(&invalid_fvk_length[..]).unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::InvalidData);
+
+        let mut migrating = legacy;
+        migrating.diversifiers.push(42);
+        migrating.block_num = 99;
+        migrating.auth_count = 17;
+        migrating.add_leaves(&[23u8; 32]);
+        let note = Note::dummy(&mut OsRng.clone(), None, None).2;
+        let note_ex = NoteEx::from_parts(1, 2, 3, 0, note);
+        migrating.unspent_notes.push(note_ex.clone());
+        migrating.spent_notes.push(note_ex.clone());
+        migrating.outgoing_notes.push(note_ex);
+        migrating.unpublished_notes.insert(
+            123,
+            HashMap::from([(
+                "vault".to_string(),
+                vec!["encrypted unpublished note".to_string()],
+            )]),
+        );
+        let preserved_seed = migrating.seed.clone();
+        let preserved_ivk = migrating.ivk.to_bytes();
+        let preserved_fvk = migrating.fvk_bytes.clone();
+        let preserved_diversifiers = migrating.diversifiers.clone();
+        let preserved_chain_id = migrating.chain_id;
+        let preserved_protocol_contract = migrating.protocol_contract;
+        let preserved_vault_contract = migrating.vault_contract;
+        let preserved_alias_authority = migrating.alias_authority.clone();
+        let preserved_unpublished = migrating.unpublished_notes.clone();
+
+        migrating.begin_protocol_migration().unwrap();
+        assert_eq!(
+            migrating.protocol_generation(),
+            MIGRATING_PROTOCOL_GENERATION
+        );
+        migrating.reset_chain_state();
+        assert_eq!(migrating.seed, preserved_seed);
+        assert_eq!(migrating.ivk.to_bytes(), preserved_ivk);
+        assert_eq!(migrating.fvk_bytes, preserved_fvk);
+        assert_eq!(migrating.diversifiers, preserved_diversifiers);
+        assert_eq!(migrating.chain_id, preserved_chain_id);
+        assert_eq!(migrating.protocol_contract, preserved_protocol_contract);
+        assert_eq!(migrating.vault_contract, preserved_vault_contract);
+        assert_eq!(migrating.alias_authority, preserved_alias_authority);
+        assert_eq!(migrating.unpublished_notes, preserved_unpublished);
+        assert_eq!(migrating.block_num, 0);
+        assert_eq!(migrating.leaf_count, 0);
+        assert_eq!(migrating.auth_count, 0);
+        assert!(migrating.unspent_notes.is_empty());
+        assert!(migrating.spent_notes.is_empty());
+        assert!(migrating.outgoing_notes.is_empty());
+        assert!(migrating.merkle_tree.is_empty());
+
+        let mut migrating_bytes = vec![];
+        migrating.write(&mut migrating_bytes).unwrap();
+        let mut restored = Wallet::read(&migrating_bytes[..]).unwrap();
+        assert_eq!(
+            restored.protocol_generation(),
+            MIGRATING_PROTOCOL_GENERATION
+        );
+
+        restored.complete_protocol_migration().unwrap();
+        assert_eq!(restored.protocol_generation(), CURRENT_PROTOCOL_GENERATION);
+
+        // Unknown future generations load for an update-required UI, but cannot
+        // be silently downgraded by the current migration implementation.
+        restored.protocol_generation = "v9.0.0-99".to_string();
+        assert!(restored.begin_protocol_migration().is_err());
+        assert_eq!(restored.protocol_generation(), "v9.0.0-99");
+    }
+
+    #[test]
+    fn full_viewing_key_wallet_round_trips_and_rejects_truncation()
+    {
+        let source_seed = b"this is a different sample seed which is at least 32 bytes";
+        let fvk = FullViewingKey::from_spending_key(&SpendingKey::from_seed(source_seed));
+        let fvk_bytes = fvk.to_bytes().to_vec();
+        let ivk_bytes = fvk.ivk().to_bytes();
+        let wallet = Wallet::create(
+            &ivk_bytes,
+            true,
+            [9; 32],
+            Name::from_string("zeos4privacy").unwrap(),
+            Name::from_string("thezeosvault").unwrap(),
+            Authorization::from_string("thezeosalias@public").unwrap(),
+            Some(fvk_bytes.clone()),
+        ).unwrap();
+
+        let mut bytes = vec![];
+        wallet.write(&mut bytes).unwrap();
+        let restored = Wallet::read(&bytes[..]).unwrap();
+        assert_eq!(restored.fvk_bytes, Some(fvk_bytes));
+        assert_eq!(restored.ivk.to_bytes(), ivk_bytes);
+
+        let extension_start = bytes.len() - wallet.extension_size();
+        let truncated_payload = &bytes[..extension_start - 1];
+        let error = Wallet::read(truncated_payload).unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::UnexpectedEof);
+
+        // Creation and serialization independently enforce the fixed encoding.
+        assert!(Wallet::create(
+            &ivk_bytes,
+            true,
+            [9; 32],
+            Name::from_string("zeos4privacy").unwrap(),
+            Name::from_string("thezeosvault").unwrap(),
+            Authorization::from_string("thezeosalias@public").unwrap(),
+            Some(vec![0; FULL_VIEWING_KEY_SIZE - 1]),
+        ).is_none());
     }
 
     #[test]

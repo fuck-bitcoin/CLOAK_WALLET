@@ -1,0 +1,94 @@
+name: Secure CLOAK parameter release
+
+on:
+  push:
+    tags: ['params-v*']
+  workflow_dispatch:
+
+concurrency:
+  group: cloak-params-v1.1.0-12
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  verify-sign-and-release:
+    runs-on: ubuntu-22.04
+    environment: release
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+
+      - name: Validate release source
+        if: github.ref_type == 'tag'
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF_NAME" == 'params-v1.1.0-12' ]] || {
+            echo 'Only params-v1.1.0-12 is supported by this generation workflow' >&2
+            exit 1
+          }
+          git fetch --no-tags origin main
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main || {
+            echo 'Parameter release tags must point to a commit on main' >&2
+            exit 1
+          }
+
+      - name: Extract and independently verify production parameters
+        shell: bash
+        run: |
+          set -euo pipefail
+          tool/prepare_params_release.sh dist
+
+      - name: Sign exact manifest bytes
+        shell: bash
+        env:
+          RELEASE_PRIVATE_KEY_B64: ${{ secrets.CLOAK_RELEASE_MANIFEST_PRIVATE_KEY_B64 }}
+          EXPECTED_PUBLIC_KEY: ${{ vars.CLOAK_RELEASE_MANIFEST_PUBLIC_KEY }}
+        run: |
+          set -euo pipefail
+          [[ -n "$RELEASE_PRIVATE_KEY_B64" && -n "$EXPECTED_PUBLIC_KEY" ]] || {
+            echo 'Release-manifest signing identity is not configured' >&2
+            exit 1
+          }
+          committed_public="$(tr -d '\r\n' \
+            < release/keys/release-manifest-public.base64)"
+          [[ "$EXPECTED_PUBLIC_KEY" == "$committed_public" ]] || {
+            echo 'Configured manifest key differs from the reviewed trust root' >&2
+            exit 1
+          }
+          private_key="$RUNNER_TEMP/release-manifest-private.pem"
+          printf '%s' "$RELEASE_PRIVATE_KEY_B64" | base64 --decode > "$private_key"
+          chmod 600 "$private_key"
+          tool/sign_detached_manifest.sh \
+            dist/params-manifest-v1.json \
+            "$private_key" \
+            dist/params-manifest-v1.json.sig \
+            "$EXPECTED_PUBLIC_KEY"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: verified-params-v1.1.0-12
+          path: dist/
+          if-no-files-found: error
+
+      - name: Publish immutable generation
+        if: github.ref_type == 'tag'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF_TYPE" == 'tag' && "$GITHUB_REF_NAME" == 'params-v1.1.0-12' ]] || {
+            echo 'Parameter publication requires the immutable params-v1.1.0-12 tag' >&2
+            exit 1
+          }
+          gh release create "$GITHUB_REF_NAME" --verify-tag --draft --latest=false \
+            --title 'CLOAK proving parameters v1.1.0-12' \
+            --notes 'Verified depth-12 production parameters. The four derived verifying keys match the live Telos verifier. Ceremony transcript provenance remains unavailable; see the repository protocol documentation.' \
+            dist/*
+          gh release edit "$GITHUB_REF_NAME" --draft=false --latest=false

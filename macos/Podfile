@@ -30,6 +30,8 @@ target 'Runner' do
   use_frameworks!
   use_modular_headers!
 
+  # Exact pin: update archive/appcast verification is part of the trust boundary.
+  pod 'Sparkle', '2.9.5'
   flutter_install_all_macos_pods File.dirname(File.realpath(__FILE__))
 end
 

@@ -103,7 +103,8 @@ class _RequestApprovalPageState extends State<RequestApprovalPage> {
               children: [
                 Text(
                   request.typeDescription,
-                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                  style: const TextStyle(
+                      fontSize: 14, fontWeight: FontWeight.bold),
                 ),
                 const Gap(4),
                 Text(
@@ -126,7 +127,8 @@ class _RequestApprovalPageState extends State<RequestApprovalPage> {
           if (request.type == SignatureRequestType.sign) ...[
             const Gap(16),
             _WarningCard(
-              message: 'This will sign a transaction. Review carefully before approving.',
+              message:
+                  'This will sign a transaction. Review carefully before approving.',
             ),
           ],
 
@@ -238,9 +240,11 @@ class _RequestApprovalPageState extends State<RequestApprovalPage> {
               style: OutlinedButton.styleFrom(
                 foregroundColor: t.colorScheme.error,
                 side: BorderSide(color: t.colorScheme.error),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12)),
               ),
-              child: const Text('DECLINE', style: TextStyle(fontWeight: FontWeight.bold)),
+              child: const Text('DECLINE',
+                  style: TextStyle(fontWeight: FontWeight.bold)),
             ),
           ),
         ),
@@ -255,15 +259,18 @@ class _RequestApprovalPageState extends State<RequestApprovalPage> {
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.green,
                 foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12)),
               ),
               child: _processing
                   ? const SizedBox(
                       width: 24,
                       height: 24,
-                      child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                      child: CircularProgressIndicator(
+                          color: Colors.white, strokeWidth: 2),
                     )
-                  : const Text('APPROVE', style: TextStyle(fontWeight: FontWeight.bold)),
+                  : const Text('APPROVE',
+                      style: TextStyle(fontWeight: FontWeight.bold)),
             ),
           ),
         ),
@@ -296,7 +303,8 @@ class _RequestApprovalPageState extends State<RequestApprovalPage> {
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Request approved'), backgroundColor: Colors.green),
+          const SnackBar(
+              content: Text('Request approved'), backgroundColor: Colors.green),
         );
         GoRouter.of(context).pop();
       }
@@ -333,8 +341,8 @@ class _RequestApprovalPageState extends State<RequestApprovalPage> {
 
   Future<Map<String, dynamic>> _processSign(SignatureRequest request) async {
     // The web app (app.cloak.today) sends a sign request with a transaction object.
-    // We sign it using the wallet's ZK proof infrastructure via CloakApi.transactPacked,
-    // then return the signed transaction data back to the web app.
+    // We sign it through the manager's coordinated/durable proof lifecycle,
+    // then return the exact transaction id and signed bytes to the web app.
     final tx = request.params['transaction'] as Map<String, dynamic>?;
     if (tx == null) throw Exception('No transaction provided');
 
@@ -346,21 +354,13 @@ class _RequestApprovalPageState extends State<RequestApprovalPage> {
     // This matches the format expected by wallet_transact_packed in the Rust FFI.
     final ztxJson = jsonEncode(tx);
 
-    // Ensure ZK params are loaded (may already be cached)
-    if (!CloakWalletManager.zkParamsReady) {
-      throw Exception('ZK params not loaded. Please wait for initialization to complete.');
-    }
-
-    // Call the wallet manager to build and sign the transaction
-    final signedTx = await CloakWalletManager.buildTransaction(
-      recipients: [],
+    // Build under the native-wallet coordinator and bind the eager proof state
+    // to the exact externally submitted transaction id before returning it.
+    final signedTx = await CloakWalletManager.prepareExternalProofHandoff(
+      ztxJson: ztxJson,
       feeTokenContract: tx['fee_token_contract'] as String? ?? 'thezeostoken',
-      feeAmount: tx['fee_amount'] as String? ?? '0.1000 CLOAK',
+      operationKind: 'website-sign',
     );
-
-    if (signedTx == null) {
-      throw Exception('Transaction signing failed');
-    }
 
     return {
       'result': signedTx,
@@ -487,7 +487,9 @@ class _JsonViewState extends State<_JsonView> {
             borderRadius: BorderRadius.circular(8),
           ),
           child: SelectableText(
-            _expanded ? jsonString : preview + (hasMore && !_expanded ? '\n...' : ''),
+            _expanded
+                ? jsonString
+                : preview + (hasMore && !_expanded ? '\n...' : ''),
             style: TextStyle(
               fontFamily: 'monospace',
               fontSize: 12,
@@ -501,7 +503,8 @@ class _JsonViewState extends State<_JsonView> {
             children: [
               TextButton.icon(
                 onPressed: () => setState(() => _expanded = !_expanded),
-                icon: Icon(_expanded ? Icons.expand_less : Icons.expand_more, size: 16),
+                icon: Icon(_expanded ? Icons.expand_less : Icons.expand_more,
+                    size: 16),
                 label: Text(_expanded ? 'Show less' : 'Show more'),
               ),
               const Spacer(),

@@ -8,6 +8,7 @@ import 'package:flutter/foundation.dart';
 import 'package:cloak_api/cloak_api.dart';
 
 import 'cloak_wallet_manager.dart';
+import 'block_direct_sync_result.dart';
 import 'cloak_db.dart';
 import 'eosio_client.dart';
 import 'ffi_isolate.dart';
@@ -49,7 +50,8 @@ String _convertMerkleEntriesToHexInIsolate(_MerkleHexParams params) {
   }
   leaves.sort((a, b) => (a['idx'] as int).compareTo(b['idx'] as int));
 
-  final newLeaves = params.skip > 0 ? leaves.skip(params.skip).toList() : leaves;
+  final newLeaves =
+      params.skip > 0 ? leaves.skip(params.skip).toList() : leaves;
 
   final buffer = StringBuffer();
   for (final entry in newLeaves) {
@@ -95,8 +97,16 @@ class CloakSync {
   /// Prevents data races between sync FFI calls and transactPacked FFI calls on the
   /// same Wallet pointer from different isolates.
   static bool _walletLocked = false;
-  static void lockWallet() { _walletLocked = true; print('[CloakSync] Wallet LOCKED for transaction'); }
-  static void unlockWallet() { _walletLocked = false; print('[CloakSync] Wallet UNLOCKED'); }
+  static bool get isWalletLocked => _walletLocked;
+  static void lockWallet() {
+    _walletLocked = true;
+    print('[CloakSync] Wallet LOCKED for transaction');
+  }
+
+  static void unlockWallet() {
+    _walletLocked = false;
+    print('[CloakSync] Wallet UNLOCKED');
+  }
 
   /// Cache of TX details extracted from block-direct synced blocks.
   /// Keyed by block timestamp (ms since epoch) → list of TransactionDetails.
@@ -108,7 +118,8 @@ class CloakSync {
   /// Value is true while the first syncFromTables() call is running,
   /// false once it completes (or on error). Subsequent periodic syncs
   /// do NOT set this to true again.
-  static final ValueNotifier<bool> initialSyncNotifier = ValueNotifier<bool>(false);
+  static final ValueNotifier<bool> initialSyncNotifier =
+      ValueNotifier<bool>(false);
   static bool _initialSyncDone = false;
 
   // ZEOS protocol deployment block on Telos mainnet
@@ -134,12 +145,14 @@ class CloakSync {
   static bool _vaultsReimported = false;
   static bool _vaultDiscoveryDone = false;
 
-  // Cached global state for "nothing changed" fast path
-  static int _lastLeafCount = -1;
-  static int _lastAuthCount = -1;
-
   // Consecutive sync failures — skip every other tick to avoid hammering a dead API
   static int _consecutiveFailures = 0;
+
+  // A block-direct failure can happen after leaves were inserted in memory but
+  // before the wallet was persisted. Keep the fast path disabled until the
+  // missing block has been retried successfully (a restart reloads the prior
+  // on-disk wallet, so this only needs to be session-local).
+  static bool _blockDirectRetryRequired = false;
 
   // Hyperion failure tracking for block-direct fallback during full syncs.
   // After 5 consecutive Hyperion failures, switch to fetching individual blocks
@@ -182,8 +195,6 @@ class CloakSync {
   /// Clear cached counters to force full sync on next cycle.
   /// Called during chain state reset to ensure fresh data fetch.
   static void clearCachedCounters() {
-    _lastLeafCount = -1;
-    _lastAuthCount = -1;
     _autoHealAttempted = false;
     _vaultsReimported = false;
     _vaultDiscoveryDone = false;
@@ -191,6 +202,7 @@ class CloakSync {
     _hyperionConsecutiveFailures = 0;
     _fullSyncSlowMode = false;
     _incrementalHyperionFailures = 0;
+    _blockDirectRetryRequired = false;
     // Reset slow mode flags so resync starts fresh with Hyperion.
     // Without this, a previous session's Hyperion failures would cause
     // resync to skip Hyperion entirely and fall back to block-direct.
@@ -206,14 +218,13 @@ class CloakSync {
     await CloakDb.setProperty('hyperion_session_failures', '0');
     _permanentSlowMode = false;
     _sessionSlowMode = false;
-    print('[CloakSync] Cleared permanent slow mode and session failure history');
+    print(
+        '[CloakSync] Cleared permanent slow mode and session failure history');
   }
 
   /// Full reset of all static sync state. Called when the last account is
   /// deleted so a subsequent create/restore starts completely fresh.
   static void resetAll() {
-    _lastLeafCount = -1;
-    _lastAuthCount = -1;
     _autoHealAttempted = false;
     _vaultsReimported = false;
     _vaultDiscoveryDone = false;
@@ -227,6 +238,7 @@ class CloakSync {
     _cachedNullifiers = null;
     _hyperionConsecutiveFailures = 0;
     _fullSyncSlowMode = false;
+    _blockDirectRetryRequired = false;
     _incrementalHyperionFailures = 0;
     _sessionSlowMode = false;
     // Note: _permanentSlowMode is NOT reset here — it is persisted to DB
@@ -240,7 +252,8 @@ class CloakSync {
     if (_client != null) return;
 
     // Get endpoint from coin settings
-    final endpoint = cloak.lwd.isNotEmpty ? cloak.lwd.first.url : 'https://telos.eosusa.io';
+    final endpoint =
+        cloak.lwd.isNotEmpty ? cloak.lwd.first.url : 'https://telos.eosusa.io';
     _client = EosioClient(endpoint);
 
     // Load persisted synced height from database
@@ -286,8 +299,7 @@ class CloakSync {
       if (global != null) {
         _latestHeight = global.blockNum;
       }
-    } catch (e) {
-    }
+    } catch (e) {}
   }
 
   /// Get the current block number from the wallet (Rust side)
@@ -318,26 +330,18 @@ class CloakSync {
   /// that could cause block-direct queries to miss recent blocks.
   static Future<void> setInitialHeightForNewAccount() async {
     await init();
-    try {
-      final global = await _client!.getZeosGlobal();
-      if (global != null) {
-        _syncedHeight = global.blockNum;
-        _latestHeight = global.blockNum;
-        await _saveSyncedHeight(global.blockNum);
-      } else {
-        // Fallback: use updateLatestHeight (now also HEAD-based)
-        await updateLatestHeight();
-        _syncedHeight = _latestHeight;
-        await _saveSyncedHeight(_latestHeight);
-      }
-    } catch (e) {
-      await updateLatestHeight();
-      _syncedHeight = _latestHeight;
-      await _saveSyncedHeight(_latestHeight);
+    final global = await _client!.getZeosGlobal();
+    if (global == null) {
+      throw StateError(
+          'Could not validate the CLOAK protocol before initializing sync');
     }
+    CloakWalletManager.requireProtocolSyncCompatibility(global.treeDepth);
+    _syncedHeight = global.blockNum;
+    _latestHeight = global.blockNum;
+    await _saveSyncedHeight(global.blockNum);
     _isNewAccount = true;
   }
-  
+
   /// Main sync function - fetches blocks and processes them
   /// NOTE: Full block sync is currently disabled due to Rust panic issues.
   /// For now, we just update the chain status without processing blocks.
@@ -362,112 +366,126 @@ class CloakSync {
     try {
       if (_client == null) await init();
 
-      // Get persisted synced height from database (survives app restarts)
-      final persistedHeight = await getPersistedHeight();
-      _syncedHeight = persistedHeight;
-      print('CloakSync: sync START — syncedHeight=$_syncedHeight latestHeight=$_latestHeight '
-          'failures=$_consecutiveFailures walletBlockNum=${getWalletBlockNum()}');
+      // Serialize every raw-wallet read/mutation, the persistence commit, and
+      // the migration/full-sync database commit as one operation. Manager
+      // save/reset helpers are zone-reentrant, so nested saves do not deadlock.
+      return await CloakWalletManager.runNativeWalletOperation<bool>(
+        'wallet-sync',
+        (_) async {
+          // Get persisted synced height from database (survives app restarts)
+          final persistedHeight = await getPersistedHeight();
+          _syncedHeight = persistedHeight;
+          print(
+              'CloakSync: sync START — syncedHeight=$_syncedHeight latestHeight=$_latestHeight '
+              'failures=$_consecutiveFailures walletBlockNum=${getWalletBlockNum()}');
 
-      // Auto-heal: detect wallets stuck with high synced_height but never
-      // actually synced. This happens when restoreWallet() called createWallet()
-      // which set synced_height to latest block (~450M), but table sync never ran.
-      // Only attempt once per app session to avoid repeated banner/sync loops.
-      if (!_autoHealAttempted &&
-          _syncedHeight >= ZEOS_GENESIS_BLOCK &&
-          !_isNewAccount &&
-          await CloakDb.getProperty('full_sync_done') != 'true') {
-        _autoHealAttempted = true;
-        print('CloakSync: Auto-heal — synced_height=$_syncedHeight but full_sync_done not set, resetting to 0');
-        _syncedHeight = 0;
-        await _saveSyncedHeight(0);
-        _isNewAccount = false;
-      }
-
-      // Determine if this is a full sync (restore) or normal sync
-      // Full sync = synced height is 0 or below genesis AND not a new account
-      isFullSync = (_syncedHeight < ZEOS_GENESIS_BLOCK) && !_isNewAccount;
-
-      // Only show the sync banner for full syncs (seed import/restore),
-      // NOT on every normal cold start.
-      if (isFullSync && !_initialSyncDone) {
-        initialSyncNotifier.value = true;
-      }
-
-      if (isFullSync) {
-        _syncedHeight = ZEOS_GENESIS_BLOCK;
-      } else if (_isNewAccount) {
-        await updateLatestHeight();
-        if (_syncedHeight < _latestHeight) {
-          // Just update the height, don't fetch tables (no transactions possible yet)
-          _syncedHeight = _latestHeight;
-          await _saveSyncedHeight(_latestHeight);
-        }
-        _syncing = false;
-        _initialSyncDone = true;
-        return false;
-      }
-
-      // Perform table-based sync
-      final result = await syncFromTables(isFullSync: isFullSync);
-
-      if (result.success) {
-        // S32: If block-direct processed 0 blocks, invalidate the fast-path
-        // cache so next tick retries. Heights/full_sync_done are only written
-        // when !blockDirectFailed (below). No consecutive failure penalty —
-        // 0 blocks is normal during API propagation lag.
-        final blockDirectFailed = result.usedBlockDirect && result.blockDirectProcessed <= 0;
-        if (blockDirectFailed) {
-          // S32 fix: 0 blocks can happen normally (API propagation lag, blocks
-          // table not yet indexed). Don't penalize with consecutive failure
-          // backoff — just invalidate cache and retry on next 1s tick.
-          // Heights and full_sync_done are guarded below (!blockDirectFailed).
-          // Nullifiers were still synced (S32 nullifier fix), so spent notes
-          // are properly marked even when 0 blocks processed.
-          print('CloakSync: Block-direct processed 0 blocks — no penalty, will retry next tick');
-          _lastLeafCount = -1;
-          _lastAuthCount = -1;
-        }
-
-        _consecutiveFailures = 0;
-        final global = result.global!;
-
-        // Only update persisted heights and mark full_sync_done when
-        // block-direct actually processed blocks (or wasn't used at all).
-        // When 0 blocks processed, syncFromTables() already skipped its
-        // internal height/cache update — mirror that here.
-        if (!blockDirectFailed) {
-          _syncedHeight = global.blockNum;
-          _latestHeight = global.blockNum;
-          await _saveSyncedHeight(global.blockNum);
-
-          if (isFullSync) {
-            // S33 fix: Validate wallet actually has data before marking done.
-            // Without this, Hyperion silent failure → 0 notes → full_sync_done=true
-            // → needsFullSync() returns false forever → wallet permanently empty.
-            final walletLeavesAfter = CloakWalletManager.wallet != null
-                ? (CloakApi.getLeafCount(CloakWalletManager.wallet!) ?? 0) : 0;
-            if (walletLeavesAfter > 0) {
-              await CloakDb.setProperty('full_sync_done', 'true');
-              print('CloakSync: full_sync_done=true — wallet has $walletLeavesAfter leaves');
-            } else {
-              print('CloakSync: NOT setting full_sync_done — wallet still has 0 leaves');
-            }
+          // Auto-heal: detect wallets stuck with high synced_height but never
+          // actually synced. This happens when restoreWallet() called createWallet()
+          // which set synced_height to latest block (~450M), but table sync never ran.
+          // Only attempt once per app session to avoid repeated banner/sync loops.
+          if (!_autoHealAttempted &&
+              _syncedHeight >= ZEOS_GENESIS_BLOCK &&
+              !_isNewAccount &&
+              await CloakDb.getProperty('full_sync_done') != 'true') {
+            _autoHealAttempted = true;
+            print(
+                'CloakSync: Auto-heal — synced_height=$_syncedHeight but full_sync_done not set, resetting to 0');
+            _syncedHeight = 0;
+            await _saveSyncedHeight(0);
+            _isNewAccount = false;
           }
 
-          // Preload ZK params in background so first send is instant
-          CloakWalletManager.ensureZkParamsLoaded();
-        }
+          // Determine if this is a full sync (restore) or normal sync
+          // Full sync = synced height is 0 or below genesis AND not a new account
+          isFullSync = (_syncedHeight < ZEOS_GENESIS_BLOCK) && !_isNewAccount;
 
-        print('CloakSync: sync DONE in ${syncSw.elapsedMilliseconds}ms — '
-            'syncedHeight=$_syncedHeight blockDirectFailed=$blockDirectFailed');
-        return blockDirectFailed ? false : isFullSync;
-      } else {
-        print('CloakSync: Table sync failed in ${syncSw.elapsedMilliseconds}ms: ${result.error}');
-        // Don't mark as synced — let the timer retry after a backoff
-        _consecutiveFailures = (_consecutiveFailures + 5).clamp(0, 15);
-        return false;
-      }
+          // Only show the sync banner for full syncs (seed import/restore),
+          // NOT on every normal cold start.
+          if (isFullSync && !_initialSyncDone) {
+            initialSyncNotifier.value = true;
+          }
 
+          if (isFullSync) {
+            _syncedHeight = ZEOS_GENESIS_BLOCK;
+          } else if (_isNewAccount) {
+            final global = await _client!.getZeosGlobal();
+            if (global == null) {
+              throw StateError(
+                  'Could not validate the CLOAK protocol before syncing');
+            }
+            CloakWalletManager.requireProtocolSyncCompatibility(
+                global.treeDepth);
+            _latestHeight = global.blockNum;
+            if (_syncedHeight < global.blockNum) {
+              // Just update the height, don't fetch tables (no transactions possible yet)
+              _syncedHeight = global.blockNum;
+              await _saveSyncedHeight(global.blockNum);
+            }
+            _syncing = false;
+            _initialSyncDone = true;
+            return false;
+          }
+
+          // Perform table-based sync
+          final result = await syncFromTables(isFullSync: isFullSync);
+
+          if (result.success) {
+            _consecutiveFailures = 0;
+            final global = result.global!;
+
+            if (isFullSync) {
+              // The global row read at the beginning of this sync is the completion
+              // boundary. Do not complete migration against a partial/newer/different
+              // leaf set, and do not advance DB state until the exact wallet bytes are
+              // durably persisted.
+              final wallet = CloakWalletManager.wallet;
+              final walletLeavesAfter =
+                  wallet == null ? -1 : (CloakApi.getLeafCount(wallet) ?? -1);
+              if (walletLeavesAfter != global.leafCount) {
+                print('CloakSync: full sync incomplete — wallet has '
+                    '$walletLeavesAfter of ${global.leafCount} captured leaves');
+                return false;
+              }
+              if (!await CloakWalletManager.saveWallet()) {
+                print('CloakSync: full sync wallet persistence failed');
+                return false;
+              }
+              final migrationComplete =
+                  await CloakWalletManager.completeProtocolMigrationAfterResync(
+                expectedLeafCount: global.leafCount,
+              );
+              if (!migrationComplete) {
+                print(
+                    'CloakSync: migration completion was not persisted; resync remains pending');
+                return false;
+              }
+              _syncedHeight = global.blockNum;
+              _latestHeight = global.blockNum;
+              await _saveSyncedHeight(global.blockNum);
+              await CloakDb.setProperty('full_sync_done', 'true');
+              print('CloakSync: full_sync_done=true — wallet has '
+                  '$walletLeavesAfter leaves');
+            } else {
+              _syncedHeight = global.blockNum;
+              _latestHeight = global.blockNum;
+              await _saveSyncedHeight(global.blockNum);
+            }
+
+            // Preload ZK params in background so first send is instant
+            CloakWalletManager.ensureZkParamsLoaded();
+
+            print('CloakSync: sync DONE in ${syncSw.elapsedMilliseconds}ms — '
+                'syncedHeight=$_syncedHeight');
+            return isFullSync;
+          } else {
+            print(
+                'CloakSync: Table sync failed in ${syncSw.elapsedMilliseconds}ms: ${result.error}');
+            // Don't mark as synced — let the timer retry after a backoff
+            _consecutiveFailures = (_consecutiveFailures + 5).clamp(0, 15);
+            return false;
+          }
+        },
+      );
     } catch (e) {
       print('CloakSync: Sync failed: $e');
       _consecutiveFailures = (_consecutiveFailures + 5).clamp(0, 15);
@@ -498,7 +516,8 @@ class CloakSync {
   /// - Only ~60 merkle tree entries vs 280M+ blocks
   /// - Direct table access vs processing every block
   /// - Returns exactly the data we need
-  static Future<ZeosSyncResult> syncFromTables({bool isFullSync = false}) async {
+  static Future<ZeosSyncResult> syncFromTables(
+      {bool isFullSync = false}) async {
     if (_client == null) await init();
 
     try {
@@ -507,15 +526,25 @@ class CloakSync {
       final global = await _client!.getZeosGlobal();
       if (global == null) {
         print('CloakSync: Failed to get ZEOS global state');
-        return ZeosSyncResult(success: false, error: 'Failed to get global state');
+        return ZeosSyncResult(
+            success: false, error: 'Failed to get global state');
+      }
+      try {
+        CloakWalletManager.requireProtocolSyncCompatibility(global.treeDepth);
+      } catch (error) {
+        final message = '$error';
+        onStepChanged?.call(message);
+        return ZeosSyncResult(success: false, error: message);
       }
       // S33: Get wallet's actual leaf/auth counts from Rust FFI (authoritative).
-      // Used for fast-path check and leaf gap routing, replacing the Dart-side
-      // _lastLeafCount cache which could diverge from wallet state.
+      // Used for fast-path check and leaf-gap routing directly from native
+      // state, avoiding a Dart-side counter that could diverge.
       // Matches Matthias's Qt wallet approach: w_lc == g_lc → skip.
       final wallet0 = CloakWalletManager.wallet;
-      final walletLeaves0 = wallet0 != null ? (CloakApi.getLeafCount(wallet0) ?? 0) : 0;
-      final walletAuth0 = wallet0 != null ? (CloakApi.getAuthCount(wallet0) ?? 0) : 0;
+      final walletLeaves0 =
+          wallet0 != null ? (CloakApi.getLeafCount(wallet0) ?? 0) : 0;
+      final walletAuth0 =
+          wallet0 != null ? (CloakApi.getAuthCount(wallet0) ?? 0) : 0;
 
       // Report leaf gap for catch-up banner AND use for sync routing decision
       final leafGap = global.leafCount - walletLeaves0;
@@ -526,7 +555,7 @@ class CloakSync {
       // no new data exists on chain. Skip ALL expensive HTTP calls, FFI, and disk I/O.
       //
       // S33 fix: Uses wallet's actual Rust-side counts (set by addLeaves/digestBlock)
-      // instead of Dart-side _lastLeafCount cache.
+      // instead of a Dart-side counter cache.
       //
       // S34 fix: Changed == to >= to handle eager wallet update overshoot.
       // After a send, wallet_transact_packed() adds output commitments to the local
@@ -538,19 +567,26 @@ class CloakSync {
       // new to process." The overshoot cap (<=10) prevents masking genuine corruption
       // that should trigger the auto-repair path (overshoot >20 at step 5a).
       final leafOvershoot = walletLeaves0 - global.leafCount;
-      final authOvershoot = walletAuth0 - global.authCount;
-      if (walletLeaves0 >= global.leafCount && walletAuth0 >= global.authCount && walletLeaves0 > 0 && leafOvershoot <= 10) {
+      if (!isFullSync &&
+          !_blockDirectRetryRequired &&
+          walletLeaves0 >= global.leafCount &&
+          walletAuth0 >= global.authCount &&
+          walletLeaves0 > 0 &&
+          leafOvershoot <= 10) {
         // Update block height but skip everything else
         _syncedHeight = global.blockNum;
         _latestHeight = global.blockNum;
-        _lastLeafCount = global.leafCount;  // Keep Dart cache in sync with CHAIN value
-        _lastAuthCount = global.authCount;
         _cachedGlobal = global;
-        return ZeosSyncResult(success: true, global: global, merkleEntries: _cachedMerkleEntries, nullifiers: _cachedNullifiers);
+        return ZeosSyncResult(
+            success: true,
+            global: global,
+            merkleEntries: _cachedMerkleEntries,
+            nullifiers: _cachedNullifiers);
       }
 
       // Fast-path missed — chain has data the wallet doesn't have yet
-      print('CloakSync: fast-path MISS — wallet leaves=$walletLeaves0 chain=${global.leafCount} '
+      print(
+          'CloakSync: fast-path MISS — wallet leaves=$walletLeaves0 chain=${global.leafCount} '
           'wallet auth=$walletAuth0 chain=${global.authCount} '
           'leafGap=$leafGap blockNum=${global.blockNum}');
 
@@ -570,8 +606,8 @@ class CloakSync {
       final isViewOnly0 = CloakWalletManager.isViewOnly;
       final useIncrementalBlockDirect = !isFullSync &&
           !isViewOnly0 &&
-          leafGap > 0 &&
-          leafGap <= _incrementalBlockDirectThreshold;
+          (_blockDirectRetryRequired ||
+              (leafGap > 0 && leafGap <= _incrementalBlockDirectThreshold));
 
       print('CloakSync: sync routing selected');
 
@@ -608,18 +644,24 @@ class CloakSync {
         // from other users' spends affecting our notes won't be caught.
         // The full table fetch ensures mark_notes_spent() runs at Step 5c.
         nullifiers = await _client!.getZeosNullifiers();
-        print('CloakSync: incremental nullifiers fetched: ${nullifiers.length}');
+        print(
+            'CloakSync: incremental nullifiers fetched: ${nullifiers.length}');
       } else {
         // EXISTING PATHS (Hyperion bulk or slow-mode table-only)
-        final skipHyperion = (_fullSyncSlowMode && isFullSync) ||
-                             _sessionSlowMode || _permanentSlowMode;
+        // IVK/FVK-only wallets cannot use digest_block(), which derives the
+        // spending key from a seed. They must keep retrying Hyperion.
+        final skipHyperion = !isViewOnly0 &&
+            ((_fullSyncSlowMode && isFullSync) ||
+                _sessionSlowMode ||
+                _permanentSlowMode);
 
         if (skipHyperion) {
           // Slow mode: skip Hyperion entirely, fetch merkle+nullifiers only
           // S33 fix: Use getZeosMerkleLeaves (leaves only, ~6 requests) instead of
           // getZeosMerkleTree (ALL nodes including internal, ~70 requests / 113s).
           final tableResults = await Future.wait([
-            _client!.getZeosMerkleLeaves(treeDepth: global.treeDepth, startLeafIdx: walletLeaves0),
+            _client!.getZeosMerkleLeaves(
+                treeDepth: global.treeDepth, startLeafIdx: walletLeaves0),
             _client!.getZeosNullifiers(),
           ]);
           merkleEntries = tableResults[0] as List<ZeosMerkleEntry>;
@@ -629,14 +671,17 @@ class CloakSync {
           // S33 fix: Use getZeosMerkleLeaves (leaves only) instead of getZeosMerkleTree
           // (all nodes). Reduces HTTP requests from ~70 to ~1 and time from ~113s to ~2s.
           final merkleNullFuture = Future.wait([
-            _client!.getZeosMerkleLeaves(treeDepth: global.treeDepth, startLeafIdx: walletLeaves0),
+            _client!.getZeosMerkleLeaves(
+                treeDepth: global.treeDepth, startLeafIdx: walletLeaves0),
             _client!.getZeosNullifiers(),
           ]);
 
           // Wrap Hyperion call in try/catch for failure tracking
           List<ZeosActionTrace> fetchedActions = [];
           try {
-            fetchedActions = await _client!.getZeosActions();
+            fetchedActions = await _client!.getZeosActions(
+              expectedCiphertextCount: isFullSync ? global.leafCount : null,
+            );
             _hyperionConsecutiveFailures = 0;
             _incrementalHyperionFailures = 0;
           } catch (e) {
@@ -646,27 +691,37 @@ class CloakSync {
                 '(full=$_hyperionConsecutiveFailures, incr=$_incrementalHyperionFailures): $e');
 
             // Full sync: 5-strike threshold -> block-direct fallback
-            if (isFullSync && _hyperionConsecutiveFailures >= 5) {
+            if (isFullSync &&
+                !isViewOnly0 &&
+                _hyperionConsecutiveFailures >= 5) {
               _fullSyncSlowMode = true;
               onSlowModeChanged?.call(true);
-              print('CloakSync: Switching to block-direct slow mode after $_hyperionConsecutiveFailures Hyperion failures');
+              print(
+                  'CloakSync: Switching to block-direct slow mode after $_hyperionConsecutiveFailures Hyperion failures');
             }
 
             // Incremental sync: 3-strike threshold -> session slow mode
             if (!isFullSync && _incrementalHyperionFailures >= 3) {
               _sessionSlowMode = true;
               onSlowModeChanged?.call(true);
-              print('CloakSync: Session slow mode activated after $_incrementalHyperionFailures incremental Hyperion failures');
+              print(
+                  'CloakSync: Session slow mode activated after $_incrementalHyperionFailures incremental Hyperion failures');
               await _recordSessionFallback();
             }
 
             // CRITICAL: If we haven't switched to slow mode (block-direct), we must
             // NOT continue with empty actions — that would save leaves without notes,
-            // cache _lastLeafCount, and cause fast-path to skip forever. Rethrow so
+            // advance wallet leaves and cause fast-path to skip forever. Rethrow so
             // the entire sync fails and retries on next tick (preserving old behavior).
-            if (!_fullSyncSlowMode && !_sessionSlowMode && !_permanentSlowMode) {
+            if (!_fullSyncSlowMode &&
+                !_sessionSlowMode &&
+                !_permanentSlowMode) {
               // Still need to await merkleNullFuture to avoid unhandled async error
-              await merkleNullFuture.catchError((_) => <Object>[]);
+              try {
+                await merkleNullFuture;
+              } catch (_) {
+                // Preserve the original Hyperion error below.
+              }
               rethrow;
             }
           }
@@ -678,10 +733,45 @@ class CloakSync {
         }
       }
 
+      final fullSyncWillUseBlockDirect =
+          isFullSync && _fullSyncSlowMode && !isViewOnly0;
+      if (isFullSync && !fullSyncWillUseBlockDirect) {
+        final ciphertextCount = actions.fold<int>(
+          0,
+          (count, action) => count + action.noteCiphertexts.length,
+        );
+        if (!FullSyncCoverage.hyperionCoversCapturedLeaves(
+          capturedLeafCount: global.leafCount,
+          ciphertextCount: ciphertextCount,
+        )) {
+          if (!isViewOnly0) {
+            _fullSyncSlowMode = true;
+            onSlowModeChanged?.call(true);
+          }
+          return ZeosSyncResult(
+            success: false,
+            error: 'Full sync ciphertext coverage incomplete: '
+                '$ciphertextCount/${global.leafCount}',
+            global: global,
+            merkleEntries: merkleEntries,
+            nullifiers: nullifiers,
+          );
+        }
+      }
+
       onProgress?.call(40, 100);
 
       // 5. Pass data to Rust wallet for trial decryption
-      int blockDirectSuccessCount = 0;
+      BlockDirectSyncResult blockDirectResult =
+          const BlockDirectSyncResult.empty();
+      final blockDirectPlanned =
+          ((_fullSyncSlowMode && isFullSync) || useIncrementalBlockDirect) &&
+              !isViewOnly0;
+      if (blockDirectPlanned) {
+        // Set before any native mutation. Exceptions and failed persistence
+        // must leave the fast path disabled until a complete retry is saved.
+        _blockDirectRetryRequired = true;
+      }
       var wallet = CloakWalletManager.wallet;
       if (wallet != null) {
         // 5a-pre. Sync auth_count from on-chain global to wallet
@@ -696,16 +786,18 @@ class CloakSync {
 
         final walletLeafCount = CloakApi.getLeafCount(wallet) ?? 0;
         final onChainLeafCount = global.leafCount;
-        final _isViewOnly = CloakApi.isViewOnly(wallet!) ?? false;
+        final _isViewOnly = CloakApi.isViewOnly(wallet) ?? false;
 
         // 5a. Add ALL merkle tree leaves from table data (ALWAYS runs).
         // This populates the complete merkle tree — digest_block() needs
         // leaves already in the tree to match note commitments during
         // trial decryption (add_notes searches the tree, doesn't add leaves).
-        final merkleEntriesMaps = merkleEntries.map((e) => {
-          'idx': e.idx,
-          'val': e.val.toJson(),
-        }).toList();
+        final merkleEntriesMaps = merkleEntries
+            .map((e) => {
+                  'idx': e.idx,
+                  'val': e.val.toJson(),
+                })
+            .toList();
 
         onStepChanged?.call('Processing merkle leaves...');
         onProgress?.call(50, 100);
@@ -718,19 +810,21 @@ class CloakSync {
             _MerkleHexParams(merkleEntriesMaps, global.treeDepth, skipCount),
           );
           if (leavesHex.isNotEmpty) {
-            await FfiIsolate.addLeaves(wallet: wallet!, leavesHex: leavesHex);
+            await FfiIsolate.addLeaves(wallet: wallet, leavesHex: leavesHex);
             // S33 fix: Update leafGap immediately after addLeaves so the UI
             // reflects progress during the sync, not only on the next tick.
-            final updatedLeaves = CloakApi.getLeafCount(wallet!) ?? 0;
+            final updatedLeaves = CloakApi.getLeafCount(wallet) ?? 0;
             final updatedGap = global.leafCount - updatedLeaves;
             onLeafGapChanged?.call(updatedGap > 0 ? updatedGap : 0);
-            print('CloakSync: addLeaves done — wallet now has $updatedLeaves leaves (gap: $updatedGap)');
+            print(
+                'CloakSync: addLeaves done — wallet now has $updatedLeaves leaves (gap: $updatedGap)');
           }
         } else if (walletLeafCount > onChainLeafCount) {
           final overshoot = walletLeafCount - onChainLeafCount;
           if (overshoot > 20) {
             if (_isViewOnly) {
-              print('CloakSync: view-only wallet has extra leaves, skipping auto-repair');
+              print(
+                  'CloakSync: view-only wallet has extra leaves, skipping auto-repair');
             } else {
               print('CloakSync: auto-repairing wallet state');
               final account = await CloakDb.getFirstAccount();
@@ -746,7 +840,8 @@ class CloakSync {
                     _MerkleHexParams(merkleEntriesMaps, global.treeDepth, 0),
                   );
                   if (leavesHex.isNotEmpty) {
-                    await FfiIsolate.addLeaves(wallet: wallet!, leavesHex: leavesHex);
+                    await FfiIsolate.addLeaves(
+                        wallet: wallet, leavesHex: leavesHex);
                   }
                 }
               }
@@ -759,7 +854,8 @@ class CloakSync {
         // For full sync fallback: Hyperion down, process blocks directly.
         // MUST run AFTER addLeaves — digest_block() searches the pre-populated
         // merkle tree to find matching commitments during trial decryption.
-        if (((_fullSyncSlowMode && isFullSync) || useIncrementalBlockDirect) && !_isViewOnly) {
+        if (((_fullSyncSlowMode && isFullSync) || useIncrementalBlockDirect) &&
+            !_isViewOnly) {
           usedBlockDirect = true;
           onStepChanged?.call('Decrypting notes from blocks...');
           onProgress?.call(60, 100);
@@ -773,9 +869,11 @@ class CloakSync {
           final afterBlock = useIncrementalBlockDirect
               ? (walletBn > _syncedHeight ? walletBn : _syncedHeight)
               : null;
-          print('CloakSync: block-direct routing — _syncedHeight=$_syncedHeight wallet.block_num=$walletBn afterBlock=$afterBlock');
-          blockDirectSuccessCount = await _syncViaBlockDirect(
-            wallet!, global.blockNum,
+          print(
+              'CloakSync: block-direct routing — _syncedHeight=$_syncedHeight wallet.block_num=$walletBn afterBlock=$afterBlock');
+          blockDirectResult = await _syncViaBlockDirect(
+            wallet,
+            global.blockNum,
             afterBlock: afterBlock,
           );
         }
@@ -788,15 +886,15 @@ class CloakSync {
         int totalAts = 0;
         int spentCount = 0;
         if (!usedBlockDirect) {
-          int totalNotes = 0;
           final noteActions = <Map<String, dynamic>>[];
           for (final action in actions) {
             if (action.noteCiphertexts.isEmpty) continue;
-            totalNotes += action.noteCiphertexts.length;
             int blockTsMs = 0;
             if (action.blockTime.isNotEmpty) {
               String ts = action.blockTime;
-              if (!ts.endsWith('Z') && !ts.contains('+') && !RegExp(r'T.+[-]').hasMatch(ts)) {
+              if (!ts.endsWith('Z') &&
+                  !ts.contains('+') &&
+                  !RegExp(r'T.+[-]').hasMatch(ts)) {
                 ts += 'Z';
               }
               final dt = DateTime.tryParse(ts);
@@ -828,12 +926,34 @@ class CloakSync {
         onStepChanged?.call('Marking spent notes...');
         onProgress?.call(85, 100);
         if (nullifiers.isNotEmpty) {
-          final nullifierMaps = nullifiers.map((nf) => {'val': nf.val.toJson()}).toList();
+          final nullifierMaps =
+              nullifiers.map((nf) => {'val': nf.val.toJson()}).toList();
           final nullifierHex = await compute(
             _convertNullifiersToHexInIsolate,
             _NullifierHexParams(nullifierMaps),
           );
-          spentCount = await FfiIsolate.addNullifiers(wallet: wallet!, nullifiersHex: nullifierHex);
+          spentCount = await FfiIsolate.addNullifiers(
+              wallet: wallet!, nullifiersHex: nullifierHex);
+        }
+
+        if (usedBlockDirect &&
+            !blockDirectResult.isCompleteFor(
+              allowEmpty: global.leafCount == 0,
+            )) {
+          _blockDirectRetryRequired = true;
+          return ZeosSyncResult(
+            success: false,
+            error: 'Block-direct sync incomplete: '
+                '${blockDirectResult.succeeded}/${blockDirectResult.attempted} '
+                'required blocks succeeded',
+            global: global,
+            merkleEntries: merkleEntries,
+            nullifiers: nullifiers,
+            usedBlockDirect: true,
+            blockDirectAttempted: blockDirectResult.attempted,
+            blockDirectProcessed: blockDirectResult.succeeded,
+            blockDirectFailed: blockDirectResult.failed,
+          );
         }
         // 5d. Save wallet state (only if data changed — new leaves, notes, nullifiers, or block-direct)
         onStepChanged?.call('Saving wallet...');
@@ -844,7 +964,9 @@ class CloakSync {
             walletAuthCount != chainAuthCount ||
             spentCount > 0;
         if (dataChanged) {
-          await CloakWalletManager.saveWallet();
+          if (!await CloakWalletManager.saveWallet()) {
+            throw StateError('Failed to persist synchronized wallet state');
+          }
         }
 
         // 5e. Re-import vault auth tokens from DB into Rust wallet (once per session)
@@ -871,22 +993,11 @@ class CloakSync {
         if (usedBlockDirect || (totalFts + totalNfts + totalAts) > 0) {
           await _extractMessagesFromHistory();
         }
+        if (usedBlockDirect) _blockDirectRetryRequired = false;
       }
 
-      // 7. Update sync state and cached counters
-      // Skip height/cache update if block-direct was used but processed 0 blocks —
-      // writing chain height (~454M) would make needsFullSync() return false and
-      // caching leaf/auth counts would make the fast-path skip future retries.
-      final blockDirectFailed = usedBlockDirect && blockDirectSuccessCount <= 0;
-      if (!blockDirectFailed) {
-        _syncedHeight = global.blockNum;
-        _latestHeight = global.blockNum;
-        await _saveSyncedHeight(global.blockNum);
-        _lastLeafCount = global.leafCount;
-        _lastAuthCount = global.authCount;
-      }
-
-      // Cache the data (safe even on block-direct failure — just HTTP response data)
+      // Cache the HTTP data after all native changes were persisted. The caller
+      // advances the durable synced height after its completion checks.
       _cachedGlobal = global;
       _cachedMerkleEntries = merkleEntries;
       _cachedNullifiers = nullifiers;
@@ -897,7 +1008,9 @@ class CloakSync {
         merkleEntries: merkleEntries,
         nullifiers: nullifiers,
         usedBlockDirect: usedBlockDirect,
-        blockDirectProcessed: blockDirectSuccessCount,
+        blockDirectAttempted: blockDirectResult.attempted,
+        blockDirectProcessed: blockDirectResult.succeeded,
+        blockDirectFailed: blockDirectResult.failed,
       );
     } catch (e) {
       print('CloakSync: Table sync failed: $e');
@@ -916,36 +1029,49 @@ class CloakSync {
     if (newCount >= 15) {
       _permanentSlowMode = true;
       await CloakDb.setProperty('hyperion_permanent_slow', 'true');
-      print('[CloakSync] Permanent slow mode activated after $newCount session fallbacks');
+      print(
+          '[CloakSync] Permanent slow mode activated after $newCount session fallbacks');
     }
   }
 
   /// Sync via block-direct: fetch individual ZEOS-relevant blocks from peer API
   /// nodes, then pass each block through Rust's digest_block which handles leaves,
   /// notes, and nullifiers internally. Used as fallback when Hyperion is down.
-  static Future<int> _syncViaBlockDirect(Pointer<Void> wallet, int chainBlockNum, {int? afterBlock}) async {
+  static Future<BlockDirectSyncResult> _syncViaBlockDirect(
+    Pointer<Void> wallet,
+    int chainBlockNum, {
+    int? afterBlock,
+  }) async {
     final sw = Stopwatch()..start();
     final peerManager = PeerManager();
     final walletBlockNum = afterBlock ?? (CloakApi.getBlockNum(wallet) ?? 0);
-    print('CloakSync: block-direct START — afterBlock=$walletBlockNum chainBlock=$chainBlockNum (wallet.block_num=${CloakApi.getBlockNum(wallet) ?? 0}, override=${afterBlock != null})');
+    print(
+        'CloakSync: block-direct START — afterBlock=$walletBlockNum chainBlock=$chainBlockNum (wallet.block_num=${CloakApi.getBlockNum(wallet) ?? 0}, override=${afterBlock != null})');
 
     // Fetch list of block numbers containing ZEOS activity
     onStepChanged?.call('Fetching ZEOS block list...');
-    final blockNums = await _client!.getZeosBlockNumbers(afterBlockNum: walletBlockNum);
-    print('CloakSync: block-direct — getZeosBlockNumbers took ${sw.elapsedMilliseconds}ms');
+    final blockNums =
+        await _client!.getZeosBlockNumbers(afterBlockNum: walletBlockNum);
+    print(
+        'CloakSync: block-direct — getZeosBlockNumbers took ${sw.elapsedMilliseconds}ms');
     if (blockNums.isEmpty) {
-      print('CloakSync: block-direct — no new ZEOS blocks after $walletBlockNum');
-      return 0;
+      print(
+          'CloakSync: block-direct — no new ZEOS blocks after $walletBlockNum');
+      return const BlockDirectSyncResult.empty();
     }
-    print('CloakSync: block-direct — ${blockNums.length} ZEOS blocks to process');
+    print(
+        'CloakSync: block-direct — ${blockNums.length} ZEOS blocks to process');
 
-    int processed = 0;
+    int attempted = 0;
+    int succeeded = 0;
     int failed = 0;
     for (final blockNum in blockNums) {
       // Progress: 60% to 80% range across all blocks (leaves=50%, blocks=60-80%, nullifiers=85%)
-      final pct = 60 + ((processed / blockNums.length) * 20).round();
-      onStepChanged?.call('Decrypting block ${processed + 1}/${blockNums.length}...');
+      final pct = 60 + ((attempted / blockNums.length) * 20).round();
+      onStepChanged
+          ?.call('Decrypting block ${attempted + 1}/${blockNums.length}...');
       onProgress?.call(pct, 100);
+      attempted++;
 
       // Retry each block up to 3 times with different peers
       bool blockSuccess = false;
@@ -956,7 +1082,8 @@ class CloakSync {
           try {
             final blockData = await tempClient.getBlock(blockNum);
             final blockJson = jsonEncode(blockData);
-            final digest = await FfiIsolate.digestBlock(wallet: wallet, blockJson: blockJson);
+            final digest = await FfiIsolate.digestBlock(
+                wallet: wallet, blockJson: blockJson);
             if (digest != null) {
               peerManager.reportSuccess(peerUrl);
               blockSuccess = true;
@@ -970,16 +1097,29 @@ class CloakSync {
         } catch (e) {
           peerManager.reportFailure(peerUrl);
           if (attempt == 2) {
-            print('CloakSync: block-direct — failed block $blockNum after 3 attempts: $e');
+            print(
+                'CloakSync: block-direct — failed block $blockNum after 3 attempts: $e');
           }
         }
       }
-      if (!blockSuccess) failed++;
-      processed++;
+      if (blockSuccess) {
+        succeeded++;
+      } else {
+        // Stop at the first gap. Processing later blocks could advance the
+        // wallet block number past the missing one and make it unrecoverable on
+        // the next incremental attempt.
+        failed++;
+        break;
+      }
     }
 
-    print('CloakSync: block-direct complete — $processed processed, $failed failed, total ${sw.elapsedMilliseconds}ms');
-    return processed - failed;
+    print('CloakSync: block-direct complete — $succeeded/$attempted '
+        'succeeded, $failed failed, total ${sw.elapsedMilliseconds}ms');
+    return BlockDirectSyncResult(
+      attempted: attempted,
+      succeeded: succeeded,
+      failed: failed,
+    );
   }
 
   /// Extract ZEOS transaction details from a raw block and cache them.
@@ -1010,7 +1150,10 @@ class CloakSync {
           final account = action['account'] as String? ?? '';
           final name = action['name'] as String? ?? '';
           if (account == 'thezeosalias' &&
-              (name == 'mint' || name == 'spend' || name == 'publishnotes' || name == 'authenticate')) {
+              (name == 'mint' ||
+                  name == 'spend' ||
+                  name == 'publishnotes' ||
+                  name == 'authenticate')) {
             hasZeosAction = true;
             if (actionName.isEmpty) actionName = name;
           }
@@ -1084,7 +1227,10 @@ class CloakSync {
         final contractU64 = eosioNameToU64(dbContract);
 
         final notesJson = CloakApi.createUnpublishedAuthNote(
-          wallet, seed, contractU64, address,
+          wallet,
+          seed,
+          contractU64,
+          address,
         );
         if (notesJson == null) continue;
 
@@ -1097,7 +1243,8 @@ class CloakSync {
       }
 
       if (imported > 0) {
-        await Future.delayed(Duration.zero); // yield before wallet serialization
+        await Future.delayed(
+            Duration.zero); // yield before wallet serialization
         await CloakWalletManager.saveWallet();
       }
     } catch (e) {
@@ -1158,9 +1305,11 @@ class CloakSync {
 
         // Get transaction details
         final idTx = tx['id_tx'] as int? ?? tx['id'] as int? ?? 0;
-        final timestamp = tx['timestamp'] as int? ?? tx['block_ts'] as int? ??
+        final timestamp = tx['timestamp'] as int? ??
+            tx['block_ts'] as int? ??
             (DateTime.now().millisecondsSinceEpoch ~/ 1000);
-        final blockNum = tx['block_num'] as int? ?? tx['block_ts'] as int? ?? _syncedHeight;
+        final blockNum =
+            tx['block_num'] as int? ?? tx['block_ts'] as int? ?? _syncedHeight;
         final incoming = tx['incoming'] as bool? ?? true;
         final txAddress = tx['address'] as String? ?? '';
 
@@ -1204,13 +1353,12 @@ class CloakSync {
           sender: incoming ? sender : null,
           recipient: recipient,
           subject: subject,
-          body: memo,  // Store full memo so UI can parse v1 headers
+          body: memo, // Store full memo so UI can parse v1 headers
           timestamp: timestamp,
           height: blockNum,
           read: false,
         );
       }
-
     } catch (e) {
       print('CloakSync: Error extracting messages: $e');
     }
@@ -1218,9 +1366,13 @@ class CloakSync {
 
   /// Force re-extract all messages (useful after restore)
   static Future<int> extractAllMessages() async {
-    await _extractMessagesFromHistory();
-    final count = await CloakDb.getUnreadMessageCount(CloakWalletManager.accountId);
-    return count;
+    return CloakWalletManager.runNativeWalletOperation<int>(
+      'extract-wallet-messages',
+      (_) async {
+        await _extractMessagesFromHistory();
+        return CloakDb.getUnreadMessageCount(CloakWalletManager.accountId);
+      },
+    );
   }
 }
 
@@ -1232,7 +1384,9 @@ class ZeosSyncResult {
   final List<ZeosMerkleEntry>? merkleEntries;
   final List<ZeosNullifier>? nullifiers;
   final bool usedBlockDirect;
+  final int blockDirectAttempted;
   final int blockDirectProcessed;
+  final int blockDirectFailed;
 
   ZeosSyncResult({
     required this.success,
@@ -1241,6 +1395,8 @@ class ZeosSyncResult {
     this.merkleEntries,
     this.nullifiers,
     this.usedBlockDirect = false,
+    this.blockDirectAttempted = 0,
     this.blockDirectProcessed = 0,
+    this.blockDirectFailed = 0,
   });
 }

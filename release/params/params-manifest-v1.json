@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "generation": "v1.1.0-12",
+  "merkle_tree_depth": 12,
+  "source_bundle": "https://downloads.cloak.today/cloak-gui-v1.26.06.2-windows.zip",
+  "files": [
+    {
+      "name": "mint.params",
+      "size_bytes": 15600764,
+      "sha256": "502c145d1329e83a72f52b0a3091237b54b238178d05d9e3e484c909a597107a",
+      "verifying_key_sha256": "64d3fd942cc195a3a274c07c4059dffb7b1cdccae04cdc09b9ee9e79bf3ac40e"
+    },
+    {
+      "name": "spend-output.params",
+      "size_bytes": 116049020,
+      "sha256": "e187e4e0690fc1c053f171b14d9353405d554c07b2a6777d2fe93a4c4c4a50e2",
+      "verifying_key_sha256": "90a69e8bf2a40df9e29b79de51749623cc5fc70c2ec3dd96953c9d8130273c38"
+    },
+    {
+      "name": "spend.params",
+      "size_bytes": 114333500,
+      "sha256": "0b37b4873684e3fefb459eabd59d1da2a8be2ffadf261401eaa4d843a280b33c",
+      "verifying_key_sha256": "af9dafc133cf2453904e04ae1b17bce885e2476eed5cf458cff61005c5369540"
+    },
+    {
+      "name": "output.params",
+      "size_bytes": 3070652,
+      "sha256": "7c6b056ed748e842739b2148496d6dbfc387463f98c3b4bddb08c1be60a9aa6b",
+      "verifying_key_sha256": "2963b173d0fa297441500ef075654063feff8979d5bc5464313c9eae70484e52"
+    }
+  ]
+}

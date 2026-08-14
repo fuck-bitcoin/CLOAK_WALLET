@@ -18,6 +18,13 @@ class NativeLibrary {
   late final _caterpillar_initPtr = _lookup<ffi.NativeFunction<ffi.Void Function()>>('caterpillar_init');
   late final _caterpillar_init = _caterpillar_initPtr.asFunction<void Function()>();
 
+  /// Merkle-tree depth compiled into the native circuits and wallet engine.
+  int caterpillar_merkle_tree_depth() {
+    return _caterpillar_merkle_tree_depth();
+  }
+  late final _caterpillar_merkle_tree_depthPtr = _lookup<ffi.NativeFunction<ffi.Uint32 Function()>>('caterpillar_merkle_tree_depth');
+  late final _caterpillar_merkle_tree_depth = _caterpillar_merkle_tree_depthPtr.asFunction<int Function()>();
+
   // ============== Memory Management ==============
 
   void free_string(ffi.Pointer<ffi.Char> ptr) {
@@ -246,6 +253,39 @@ class NativeLibrary {
     ffi.Uint8 Function(ffi.Pointer<ffi.Void>)
   >>('wallet_reset_chain_state');
   late final _wallet_reset_chain_state = _wallet_reset_chain_statePtr.asFunction<
+    int Function(ffi.Pointer<ffi.Void>)
+  >();
+
+  bool wallet_protocol_generation(
+    ffi.Pointer<ffi.Void> wallet,
+    ffi.Pointer<ffi.Pointer<ffi.Char>> out_generation,
+  ) {
+    return _wallet_protocol_generation(wallet, out_generation) != 0;
+  }
+  late final _wallet_protocol_generationPtr = _lookup<ffi.NativeFunction<
+    ffi.Uint8 Function(ffi.Pointer<ffi.Void>, ffi.Pointer<ffi.Pointer<ffi.Char>>)
+  >>('wallet_protocol_generation');
+  late final _wallet_protocol_generation = _wallet_protocol_generationPtr.asFunction<
+    int Function(ffi.Pointer<ffi.Void>, ffi.Pointer<ffi.Pointer<ffi.Char>>)
+  >();
+
+  bool wallet_begin_protocol_migration(ffi.Pointer<ffi.Void> wallet) {
+    return _wallet_begin_protocol_migration(wallet) != 0;
+  }
+  late final _wallet_begin_protocol_migrationPtr = _lookup<ffi.NativeFunction<
+    ffi.Uint8 Function(ffi.Pointer<ffi.Void>)
+  >>('wallet_begin_protocol_migration');
+  late final _wallet_begin_protocol_migration = _wallet_begin_protocol_migrationPtr.asFunction<
+    int Function(ffi.Pointer<ffi.Void>)
+  >();
+
+  bool wallet_complete_protocol_migration(ffi.Pointer<ffi.Void> wallet) {
+    return _wallet_complete_protocol_migration(wallet) != 0;
+  }
+  late final _wallet_complete_protocol_migrationPtr = _lookup<ffi.NativeFunction<
+    ffi.Uint8 Function(ffi.Pointer<ffi.Void>)
+  >>('wallet_complete_protocol_migration');
+  late final _wallet_complete_protocol_migration = _wallet_complete_protocol_migrationPtr.asFunction<
     int Function(ffi.Pointer<ffi.Void>)
   >();
 

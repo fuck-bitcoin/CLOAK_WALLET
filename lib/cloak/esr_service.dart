@@ -12,19 +12,28 @@ import 'package:eosdart/eosdart.dart' as eosdart;
 import 'package:eosdart_ecc/eosdart_ecc.dart' as ecc;
 import 'package:crypto/crypto.dart' as crypto;
 
+import 'send_recovery.dart';
+
 /// ESR Protocol Version 2
 const int ESR_VERSION = 2;
 
 /// Chain ID aliases (from ESR spec)
 const Map<String, int> CHAIN_ALIASES = {
-  'aca376f206b8fc25a6ed44dbdc66547c36c6c33e3a119ffbeaef943642f0e906': 1, // EOS Mainnet
-  '4667b205c6838ef70ff7988f6e8257e8be0e1284a2f59699054a018f743b1d11': 2, // Telos Mainnet (NOT 4 - that's CryptoKylin!)
+  'aca376f206b8fc25a6ed44dbdc66547c36c6c33e3a119ffbeaef943642f0e906':
+      1, // EOS Mainnet
+  '4667b205c6838ef70ff7988f6e8257e8be0e1284a2f59699054a018f743b1d11':
+      2, // Telos Mainnet (NOT 4 - that's CryptoKylin!)
 };
 
 /// Service for creating and handling EOSIO Signing Requests (ESR)
 class EsrService {
+  static const _broadcastConnectTimeout = Duration(seconds: 10);
+  static const _broadcastRequestTimeout = Duration(seconds: 20);
+  static const _broadcastBodyTimeout = Duration(seconds: 10);
+
   // Telos Mainnet chain ID
-  static const telosChainId = '4667b205c6838ef70ff7988f6e8257e8be0e1284a2f59699054a018f743b1d11';
+  static const telosChainId =
+      '4667b205c6838ef70ff7988f6e8257e8be0e1284a2f59699054a018f743b1d11';
 
   // ESR actor/permission placeholders
   // These are uint64 values that Anchor replaces with the user's account
@@ -33,11 +42,27 @@ class EsrService {
 
   // thezeosalias@public private key (published, anyone can use)
   // This key signs the begin/mint/end actions on behalf of the ZEOS protocol
-  static const _aliasPrivateKey = '5KUxZHKVvF3mzHbCRAHCPJd4nLBewjnxHkDkG8LzVggX4GtnHn6';
+  static const _aliasPrivateKey =
+      '5KUxZHKVvF3mzHbCRAHCPJd4nLBewjnxHkDkG8LzVggX4GtnHn6';
 
   // Store pre-computed thezeosalias signature for use after Anchor returns
   static String? _lastPresignature;
   static Uint8List? _lastTxBytes;
+
+  static String? get pendingTransactionId => _lastTxBytes == null
+      ? null
+      : crypto.sha256.convert(_lastTxBytes!).toString();
+
+  static DateTime? get pendingTransactionExpiration {
+    final bytes = _lastTxBytes;
+    if (bytes == null || bytes.length < 4) return null;
+    final seconds =
+        bytes[0] | (bytes[1] << 8) | (bytes[2] << 16) | (bytes[3] << 24);
+    return DateTime.fromMillisecondsSinceEpoch(
+      seconds * 1000,
+      isUtc: true,
+    );
+  }
 
   /// Clear pre-computed signature so addSignatureAndBroadcast uses
   /// the fallback path that re-signs over Anchor's actual transaction bytes.
@@ -75,7 +100,8 @@ class EsrService {
 
     // Calculate ref_block_num and ref_block_prefix from head_block_id
     final headBlockId = chainInfo['head_block_id'] as String;
-    final refBlockNum = int.parse(headBlockId.substring(0, 8), radix: 16) & 0xFFFF;
+    final refBlockNum =
+        int.parse(headBlockId.substring(0, 8), radix: 16) & 0xFFFF;
     final refBlockPrefix = _reverseHex(headBlockId.substring(16, 24));
 
     // 2. Build the transaction
@@ -102,10 +128,13 @@ class EsrService {
     final contextFreeHash = Uint8List(32); // 32 zero bytes
 
     // Create signing digest: sha256(chainId + transaction + contextFreeHash)
-    final digestInput = Uint8List(chainIdBytes.length + txBytes.length + contextFreeHash.length);
+    final digestInput = Uint8List(
+        chainIdBytes.length + txBytes.length + contextFreeHash.length);
     digestInput.setRange(0, chainIdBytes.length, chainIdBytes);
-    digestInput.setRange(chainIdBytes.length, chainIdBytes.length + txBytes.length, txBytes);
-    digestInput.setRange(chainIdBytes.length + txBytes.length, digestInput.length, contextFreeHash);
+    digestInput.setRange(
+        chainIdBytes.length, chainIdBytes.length + txBytes.length, txBytes);
+    digestInput.setRange(chainIdBytes.length + txBytes.length,
+        digestInput.length, contextFreeHash);
 
     final digest = crypto.sha256.convert(digestInput);
 
@@ -149,7 +178,7 @@ class EsrService {
     // Build the cosig value: varuint32(1) + uint8(0) + 65 bytes
     final cosigValue = EsrBuffer();
     cosigValue.pushVarint32(1); // 1 signature in the array
-    cosigValue.pushUint8(0);    // variant 0 = K1 curve
+    cosigValue.pushUint8(0); // variant 0 = K1 curve
     cosigValue.pushRaw(sigRawBytes); // 65 bytes of signature data
     final cosigBytes = cosigValue.asUint8List();
     buffer.pushVarint32(cosigBytes.length);
@@ -328,7 +357,8 @@ class EsrService {
   /// Unlike _serializeActionToEsr which sends JSON for Anchor to ABI-serialize,
   /// this sends already-serialized binary data. This avoids Anchor needing to
   /// fetch ABIs for custom contracts (thezeosalias) which it may not support.
-  static void _serializeActionToEsrBinary(EsrBuffer buffer, Map<String, dynamic> action) {
+  static void _serializeActionToEsrBinary(
+      EsrBuffer buffer, Map<String, dynamic> action) {
     // account (name)
     buffer.pushName(action['account'] as String);
     // action name
@@ -344,13 +374,16 @@ class EsrService {
     }
     // data - pre-serialize using our own ABI encoder
     final rawData = action['data'];
-    final data = rawData is Map ? Map<String, dynamic>.from(rawData) : rawData as Map<String, dynamic>;
+    final data = rawData is Map
+        ? Map<String, dynamic>.from(rawData)
+        : rawData as Map<String, dynamic>;
     final dataBytes = _serializeActionData(actionName, data);
     buffer.pushBytes(dataBytes);
   }
 
   /// Serialize an action into the ESR buffer (for variant 1 action list)
-  static void _serializeActionToEsr(EsrBuffer buffer, Map<String, dynamic> action) {
+  static void _serializeActionToEsr(
+      EsrBuffer buffer, Map<String, dynamic> action) {
     // account (name)
     buffer.pushName(action['account'] as String);
     // action name
@@ -384,7 +417,8 @@ class EsrService {
     if (chainInfo == null) throw Exception('Failed to fetch chain info');
 
     final headBlockId = chainInfo['head_block_id'] as String;
-    final refBlockNum = int.parse(headBlockId.substring(0, 8), radix: 16) & 0xFFFF;
+    final refBlockNum =
+        int.parse(headBlockId.substring(0, 8), radix: 16) & 0xFFFF;
     final refBlockPrefix = _reverseHex(headBlockId.substring(16, 24));
     final expiration = DateTime.now().add(const Duration(minutes: 10));
 
@@ -461,7 +495,8 @@ class EsrService {
 
   /// Base58 decode (same alphabet as Bitcoin/EOSIO)
   static Uint8List base58Decode(String input) {
-    const _alphabet = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+    const _alphabet =
+        '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
     BigInt result = BigInt.zero;
     for (int i = 0; i < input.length; i++) {
       final idx = _alphabet.indexOf(input[i]);
@@ -552,7 +587,7 @@ class EsrService {
     //    - variant index 1 = full chain_id (checksum256, 32 bytes)
     // Using chain alias (simpler, single byte) - Telos = 2 (NOT 4, that's CryptoKylin!)
     buffer.pushVarint32(0); // variant index 0 = chain_alias
-    buffer.pushUint8(2);    // Telos chain alias = 2
+    buffer.pushUint8(2); // Telos chain alias = 2
 
     // 2. Request - action[] (variant index 1)
     buffer.pushVarint32(1); // variant index 1 = action[]
@@ -576,7 +611,7 @@ class EsrService {
     final payload = buffer.asUint8List();
 
     // Create header byte: bits 0-6 = version, bit 7 = compression flag
-    final header = ESR_VERSION | 0x80;  // version 2, compressed = 0x82 = 130
+    final header = ESR_VERSION | 0x80; // version 2, compressed = 0x82 = 130
 
     // Compress payload with zlib deflate (raw deflate, not zlib wrapper)
     final codec = ZLibCodec(level: 9, raw: true);
@@ -622,8 +657,8 @@ class EsrService {
 
       // Extract header
       final header = bytes[0];
-      final version = header & 0x7F;  // bits 0-6
-      final compressed = (header & 0x80) != 0;  // bit 7
+      final version = header & 0x7F; // bits 0-6
+      final compressed = (header & 0x80) != 0; // bit 7
 
       // Decompress if needed
       Uint8List payload;
@@ -685,14 +720,17 @@ class EsrService {
     // Action data - serialize according to action type
     final actionName = action['name'] as String;
     final rawData = action['data'];
-    final data = rawData is Map ? Map<String, dynamic>.from(rawData) : rawData as Map<String, dynamic>;
+    final data = rawData is Map
+        ? Map<String, dynamic>.from(rawData)
+        : rawData as Map<String, dynamic>;
 
     final dataBytes = _serializeActionData(actionName, data);
     buffer.pushBytes(dataBytes);
   }
 
   /// Serialize action data based on action type using eosdart
-  static Uint8List _serializeActionData(String actionName, Map<String, dynamic> data) {
+  static Uint8List _serializeActionData(
+      String actionName, Map<String, dynamic> data) {
     try {
       // Check if we have pre-serialized ABI data from Rust (hex_data)
       // This is set by CloakWalletManager when using wallet_transact_packed
@@ -760,7 +798,8 @@ class EsrService {
   ///   proof: bytes     // ZK proof (variable length)
   /// }
   /// ```
-  static void _serializeMintData(eosdart.SerialBuffer sb, Map<String, dynamic> data) {
+  static void _serializeMintData(
+      eosdart.SerialBuffer sb, Map<String, dynamic> data) {
     try {
       // 1. Serialize 'actions' array (pls_mint[])
       final actions = data['actions'];
@@ -797,7 +836,8 @@ class EsrService {
 
   /// Serialize a single pls_mint struct
   /// Fields in order: cm (bytes), value (uint64), symbol (uint64), contract (name), proof (bytes)
-  static void _serializePlsMint(eosdart.SerialBuffer sb, Map<String, dynamic> action, int index) {
+  static void _serializePlsMint(
+      eosdart.SerialBuffer sb, Map<String, dynamic> action, int index) {
     // 1. cm (bytes) - commitment
     final cm = action['cm'];
     final cmBytes = _toBytes(cm, 'cm');
@@ -1005,7 +1045,8 @@ class EsrService {
     if (Platform.isAndroid) {
       try {
         final esrUri = Uri.parse(esrUrl);
-        final launched = await launchUrl(esrUri, mode: LaunchMode.externalApplication);
+        final launched =
+            await launchUrl(esrUri, mode: LaunchMode.externalApplication);
         if (launched) {
           return true;
         }
@@ -1017,7 +1058,8 @@ class EsrService {
 
     try {
       if (await canLaunchUrl(esrUri)) {
-        final launched = await launchUrl(esrUri, mode: LaunchMode.externalApplication);
+        final launched =
+            await launchUrl(esrUri, mode: LaunchMode.externalApplication);
         if (launched) {
           return true;
         }
@@ -1027,7 +1069,8 @@ class EsrService {
     // Fallback: Open eosio.to web resolver
     try {
       final webUrl = Uri.parse('https://eosio.to/$esrUrl');
-      final launched = await launchUrl(webUrl, mode: LaunchMode.externalApplication);
+      final launched =
+          await launchUrl(webUrl, mode: LaunchMode.externalApplication);
       if (launched) {
         return true;
       }
@@ -1396,7 +1439,8 @@ class EsrService {
     }
 
     final headBlockId = chainInfo['head_block_id'] as String;
-    final refBlockNum = int.parse(headBlockId.substring(0, 8), radix: 16) & 0xFFFF;
+    final refBlockNum =
+        int.parse(headBlockId.substring(0, 8), radix: 16) & 0xFFFF;
     final refBlockPrefix = _reverseHex(headBlockId.substring(16, 24));
 
     // 2. Build the complete 5-action transaction
@@ -1481,16 +1525,20 @@ class EsrService {
     final chainIdBytes = hexToBytes(telosChainId);
     final contextFreeHash = Uint8List(32);
 
-    final digestInput = Uint8List(chainIdBytes.length + txBytes.length + contextFreeHash.length);
+    final digestInput = Uint8List(
+        chainIdBytes.length + txBytes.length + contextFreeHash.length);
     digestInput.setRange(0, chainIdBytes.length, chainIdBytes);
-    digestInput.setRange(chainIdBytes.length, chainIdBytes.length + txBytes.length, txBytes);
-    digestInput.setRange(chainIdBytes.length + txBytes.length, digestInput.length, contextFreeHash);
+    digestInput.setRange(
+        chainIdBytes.length, chainIdBytes.length + txBytes.length, txBytes);
+    digestInput.setRange(chainIdBytes.length + txBytes.length,
+        digestInput.length, contextFreeHash);
 
     final digest = crypto.sha256.convert(digestInput);
 
     // 4. Sign with thezeosalias@public key
     final privateKey = ecc.EOSPrivateKey.fromString(_aliasPrivateKey);
-    final aliasSignature = privateKey.signHash(Uint8List.fromList(digest.bytes));
+    final aliasSignature =
+        privateKey.signHash(Uint8List.fromList(digest.bytes));
 
     // 5. Combine signatures (user's + ours)
     final allSignatures = [...userSignatures, aliasSignature.toString()];
@@ -1513,8 +1561,8 @@ class EsrService {
   /// 2. Use the pre-stored _lastPresignature (computed at ESR creation time)
   ///    since we signed the same transaction bytes
   /// 3. Broadcast with both signatures via push_transaction API
-  static Future<String> addSignatureAndBroadcast(Map<String, dynamic> anchorResponse) async {
-
+  static Future<String> addSignatureAndBroadcast(
+      Map<String, dynamic> anchorResponse) async {
     // Extract the serialized transaction from Anchor's response
     // Anchor Link returns: { signatures: [...], serializedTransaction: "hex...", ... }
     String? packedTrx;
@@ -1549,7 +1597,8 @@ class EsrService {
     }
 
     if (packedTrx == null || packedTrx.isEmpty) {
-      throw Exception('No serialized transaction in Anchor response. Keys: ${anchorResponse.keys}');
+      throw Exception(
+          'No serialized transaction in Anchor response. Keys: ${anchorResponse.keys}');
     }
 
     if (userSignatures.isEmpty) {
@@ -1569,15 +1618,19 @@ class EsrService {
       final chainIdBytes = hexToBytes(telosChainId);
       final contextFreeHash = Uint8List(32); // 32 zero bytes
 
-      final digestInput = Uint8List(chainIdBytes.length + txBytes.length + contextFreeHash.length);
+      final digestInput = Uint8List(
+          chainIdBytes.length + txBytes.length + contextFreeHash.length);
       digestInput.setRange(0, chainIdBytes.length, chainIdBytes);
-      digestInput.setRange(chainIdBytes.length, chainIdBytes.length + txBytes.length, txBytes);
-      digestInput.setRange(chainIdBytes.length + txBytes.length, digestInput.length, contextFreeHash);
+      digestInput.setRange(
+          chainIdBytes.length, chainIdBytes.length + txBytes.length, txBytes);
+      digestInput.setRange(chainIdBytes.length + txBytes.length,
+          digestInput.length, contextFreeHash);
 
       final digest = crypto.sha256.convert(digestInput);
 
       final privateKey = ecc.EOSPrivateKey.fromString(_aliasPrivateKey);
-      final aliasSignature = privateKey.signHash(Uint8List.fromList(digest.bytes));
+      final aliasSignature =
+          privateKey.signHash(Uint8List.fromList(digest.bytes));
       aliasSignatureStr = aliasSignature.toString();
     }
 
@@ -1603,10 +1656,12 @@ class EsrService {
   /// This is used when Anchor Desktop shows the raw signature and user
   /// copies/pastes it into our app. We combine it with the pre-computed
   /// thezeosalias signature and broadcast.
-  static Future<String> broadcastWithManualSignature(String userSignature) async {
+  static Future<String> broadcastWithManualSignature(
+      String userSignature) async {
     // Validate we have the stored transaction data
     if (_lastTxBytes == null || _lastPresignature == null) {
-      throw Exception('No pending transaction. Please generate a new ESR first.');
+      throw Exception(
+          'No pending transaction. Please generate a new ESR first.');
     }
 
     // Validate signature format
@@ -1647,6 +1702,7 @@ class EsrService {
   static Future<String> _broadcastSignedTransaction({
     required String packedTrx,
     required List<String> signatures,
+    void Function()? onSubmitStarted,
   }) async {
     final signedTx = {
       'signatures': signatures,
@@ -1663,17 +1719,29 @@ class EsrService {
     ];
 
     String? lastError;
+    final failures = BroadcastFailureTracker();
     for (final endpoint in endpoints) {
+      HttpClient? client;
+      var attemptSubmissionStarted = false;
       try {
         final url = Uri.parse('$endpoint/v1/chain/push_transaction');
 
-        final client = HttpClient();
-        final request = await client.postUrl(url);
+        client = HttpClient()..connectionTimeout = _broadcastConnectTimeout;
+        final request =
+            await client.postUrl(url).timeout(_broadcastConnectTimeout);
         request.headers.set('Content-Type', 'application/json');
+        // From here a write failure is ambiguous: request bytes may have
+        // reached the node even if no response makes it back to the wallet.
+        attemptSubmissionStarted = true;
+        onSubmitStarted?.call();
         request.write(jsonEncode(signedTx));
-        final response = await request.close();
+        final response =
+            await request.close().timeout(_broadcastRequestTimeout);
 
-        final responseBody = await response.transform(utf8.decoder).join();
+        final responseBody = await response
+            .transform(utf8.decoder)
+            .join()
+            .timeout(_broadcastBodyTimeout);
         final result = jsonDecode(responseBody) as Map<String, dynamic>;
 
         if (response.statusCode == 200 || response.statusCode == 202) {
@@ -1688,21 +1756,32 @@ class EsrService {
           } else {
             lastError = error?['what']?.toString() ?? responseBody;
           }
+          failures.recordFailure(Exception(lastError));
           print('[EsrService] Broadcast error from $endpoint: $lastError');
           continue;
         }
       } catch (e) {
         print('[EsrService] Broadcast failed for $endpoint: $e');
         lastError = e.toString();
+        if (attemptSubmissionStarted) {
+          failures.recordAmbiguousFailure(e);
+        } else {
+          failures.recordFailure(e);
+        }
         continue;
+      } finally {
+        client?.close(force: true);
       }
     }
 
-    throw Exception(lastError ?? 'Failed to broadcast transaction to all endpoints');
+    throw failures.toException(
+      lastError ?? 'Failed to broadcast transaction to all endpoints',
+    );
   }
 
   /// Check if there's a pending transaction ready for manual signature
-  static bool get hasPendingTransaction => _lastTxBytes != null && _lastPresignature != null;
+  static bool get hasPendingTransaction =>
+      _lastTxBytes != null && _lastPresignature != null;
 
   // _serializeFullTransaction and _serializeActionForSigning were removed
   // to eliminate dual serialization divergence (Bug #2).
@@ -1817,6 +1896,17 @@ String bytesToHex(List<int> bytes) {
 
 /// Transaction signing and broadcasting utilities
 class EsrTransactionHelper {
+  /// Canonical packed transaction bytes used both for signing and for the
+  /// deterministic EOSIO transaction id (`sha256(packed_trx)`).
+  static Uint8List serializeTransaction(Map<String, dynamic> transaction) =>
+      _serializeTransaction(transaction);
+
+  static String transactionId(Map<String, dynamic> transaction) =>
+      crypto.sha256.convert(_serializeTransaction(transaction)).toString();
+
+  static String packedTransactionHex(Map<String, dynamic> transaction) =>
+      bytesToHex(_serializeTransaction(transaction));
+
   /// Sign the transaction with thezeosalias@public key
   ///
   /// This is needed because the shield transaction has actions that require
@@ -1833,7 +1923,8 @@ class EsrTransactionHelper {
   }) async {
     try {
       // Get the private key for thezeosalias@public
-      final privateKey = ecc.EOSPrivateKey.fromString(EsrService._aliasPrivateKey);
+      final privateKey =
+          ecc.EOSPrivateKey.fromString(EsrService._aliasPrivateKey);
 
       // The transaction needs to be serialized to get the signing digest
       // We need to create the digest from: chainId + serialized transaction + context-free data hash
@@ -1846,10 +1937,13 @@ class EsrTransactionHelper {
       final contextFreeDataHash = Uint8List(32);
 
       // Create the signing digest: sha256(chainId + transaction + contextFreeHash)
-      final digestInput = Uint8List(chainIdBytes.length + txBytes.length + contextFreeDataHash.length);
+      final digestInput = Uint8List(
+          chainIdBytes.length + txBytes.length + contextFreeDataHash.length);
       digestInput.setRange(0, chainIdBytes.length, chainIdBytes);
-      digestInput.setRange(chainIdBytes.length, chainIdBytes.length + txBytes.length, txBytes);
-      digestInput.setRange(chainIdBytes.length + txBytes.length, digestInput.length, contextFreeDataHash);
+      digestInput.setRange(
+          chainIdBytes.length, chainIdBytes.length + txBytes.length, txBytes);
+      digestInput.setRange(chainIdBytes.length + txBytes.length,
+          digestInput.length, contextFreeDataHash);
 
       final digest = crypto.sha256.convert(digestInput);
 
@@ -1876,23 +1970,28 @@ class EsrTransactionHelper {
     final expiration = transaction['expiration'];
     if (expiration is String) {
       // Ensure we parse as UTC - add 'Z' if not present
-      final expStrUtc = expiration.endsWith('Z') ? expiration : '${expiration}Z';
+      final expStrUtc =
+          expiration.endsWith('Z') ? expiration : '${expiration}Z';
       final dt = DateTime.parse(expStrUtc);
       sb.pushUint32(dt.millisecondsSinceEpoch ~/ 1000);
     } else if (expiration is int) {
       sb.pushUint32(expiration);
     } else {
       // Default to now + 30 minutes (UTC)
-      sb.pushUint32(DateTime.now().toUtc().millisecondsSinceEpoch ~/ 1000 + 600);
+      sb.pushUint32(
+          DateTime.now().toUtc().millisecondsSinceEpoch ~/ 1000 + 600);
     }
 
     // ref_block_num (uint16)
     final refBlockNum = transaction['ref_block_num'] ?? 0;
-    sb.pushUint16(refBlockNum is int ? refBlockNum : int.parse(refBlockNum.toString()));
+    sb.pushUint16(
+        refBlockNum is int ? refBlockNum : int.parse(refBlockNum.toString()));
 
     // ref_block_prefix (uint32)
     final refBlockPrefix = transaction['ref_block_prefix'] ?? 0;
-    sb.pushUint32(refBlockPrefix is int ? refBlockPrefix : int.parse(refBlockPrefix.toString()));
+    sb.pushUint32(refBlockPrefix is int
+        ? refBlockPrefix
+        : int.parse(refBlockPrefix.toString()));
 
     // max_net_usage_words (varuint32)
     sb.pushVaruint32(transaction['max_net_usage_words'] ?? 0);
@@ -1904,7 +2003,8 @@ class EsrTransactionHelper {
     sb.pushVaruint32(transaction['delay_sec'] ?? 0);
 
     // context_free_actions (action[])
-    final contextFreeActions = transaction['context_free_actions'] as List? ?? [];
+    final contextFreeActions =
+        transaction['context_free_actions'] as List? ?? [];
     sb.pushVaruint32(contextFreeActions.length);
     for (final action in contextFreeActions) {
       _serializeActionToBuffer(sb, action as Map<String, dynamic>);
@@ -1925,7 +2025,8 @@ class EsrTransactionHelper {
   }
 
   /// Serialize a single action to the buffer
-  static void _serializeActionToBuffer(eosdart.SerialBuffer sb, Map<String, dynamic> action) {
+  static void _serializeActionToBuffer(
+      eosdart.SerialBuffer sb, Map<String, dynamic> action) {
     // account (name)
     sb.pushName(action['account'] as String);
 
@@ -1970,11 +2071,13 @@ class EsrTransactionHelper {
   static Future<Map<String, dynamic>> broadcastTransaction({
     required Map<String, dynamic> transaction,
     required List<String> signatures,
+    void Function()? onSubmitStarted,
   }) async {
     final packedTrx = _serializeTransactionToHex(transaction);
     final txId = await EsrService._broadcastSignedTransaction(
       packedTrx: packedTrx,
       signatures: signatures,
+      onSubmitStarted: onSubmitStarted,
     );
 
     return {'transaction_id': txId};

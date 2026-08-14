@@ -19,7 +19,6 @@ NativeLibrary _init() {
   lib.caterpillar_init();
   return lib;
 }
-
 Pointer<Char> _toNative(String s) {
   return s.toNativeUtf8().cast<Char>();
 }
@@ -115,6 +114,10 @@ class CloakApi {
   static void closeWallet(Pointer<Void> wallet) {
     cloak_api_lib.wallet_close(wallet);
   }
+
+  /// Merkle-tree depth compiled into both the native circuits and wallet.
+  static int compiledMerkleTreeDepth() =>
+      cloak_api_lib.caterpillar_merkle_tree_depth();
 
   /// Get wallet size in bytes (for serialization)
   static int? getWalletSize(Pointer<Void> wallet) {
@@ -676,6 +679,38 @@ class CloakApi {
     if (!success) {
       final err = _getLastError();
       print('wallet_reset_chain_state failed: $err');
+    }
+    return success;
+  }
+
+  /// Persisted protocol migration state. Older wallet files return `legacy`.
+  static String? getProtocolGeneration(Pointer<Void> wallet) {
+    final outGeneration = calloc<Pointer<Char>>();
+    try {
+      if (!cloak_api_lib.wallet_protocol_generation(wallet, outGeneration)) {
+        print('wallet_protocol_generation failed: ${_getLastError()}');
+        return null;
+      }
+      return _fromNative(outGeneration.value);
+    } finally {
+      calloc.free(outGeneration);
+    }
+  }
+
+  /// Marks the wallet as migrating without altering keys or protocol notes.
+  static bool beginProtocolMigration(Pointer<Void> wallet) {
+    final success = cloak_api_lib.wallet_begin_protocol_migration(wallet);
+    if (!success) {
+      print('wallet_begin_protocol_migration failed: ${_getLastError()}');
+    }
+    return success;
+  }
+
+  /// Marks a fully resynced wallet as current. Caller must persist it.
+  static bool completeProtocolMigration(Pointer<Void> wallet) {
+    final success = cloak_api_lib.wallet_complete_protocol_migration(wallet);
+    if (!success) {
+      print('wallet_complete_protocol_migration failed: ${_getLastError()}');
     }
     return success;
   }

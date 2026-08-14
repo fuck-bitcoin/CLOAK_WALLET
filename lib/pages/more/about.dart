@@ -8,7 +8,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../generated/intl/messages.dart';
-import '../../src/version.dart';
 import '../../appsettings.dart';
 import '../utils.dart';
 
@@ -21,8 +20,9 @@ class AboutPage extends StatelessWidget {
     final s = S.of(context);
     final template = Template(contentTemplate);
     var content = template.renderString({'APP': APP_NAME});
-    final id = (commitId.length >= 8) ? commitId.substring(0, 8) : commitId;
-    final versionString = "${s.version}: $packageVersion/$id";
+    final id =
+        (appCommitId.length >= 8) ? appCommitId.substring(0, 8) : appCommitId;
+    final versionString = "${s.version}: $appVersion ($appBuildNumber)/$id";
     return Scaffold(
         appBar: AppBar(
           leading: IconButton(
@@ -40,7 +40,7 @@ class AboutPage extends StatelessWidget {
                 Padding(padding: EdgeInsets.symmetric(vertical: 8)),
                 TextButton(
                     child: Text(versionString),
-                    onPressed: () => openGithub(commitId)),
+                    onPressed: () => openGithub(appCommitId)),
               ],
             ),
           ),
@@ -48,7 +48,8 @@ class AboutPage extends StatelessWidget {
   }
 
   openGithub(String commitId) {
-    launchUrl(Uri.parse("https://github.com/fuck-bitcoin/CLOAK_WALLET/commit/$commitId"));
+    launchUrl(Uri.parse(
+        "https://github.com/fuck-bitcoin/CLOAK_WALLET/commit/$commitId"));
   }
 }
 

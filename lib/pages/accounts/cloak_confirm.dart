@@ -2,16 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:gap/gap.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'dart:convert';
-import 'dart:math' show pow;
-import 'dart:ui' show FontFeature;
 
 import '../../accounts.dart';
 import '../../appsettings.dart';
 import '../../store2.dart';
 import '../../theme/zashi_tokens.dart';
 import '../../cloak/cloak_wallet_manager.dart';
-import 'send.dart' show SendContext, BatchAsset;
+import '../../cloak/shielded_ft_balance.dart';
+import 'send.dart' show SendContext;
 import '../utils.dart';
 
 /// CLOAK send confirmation page — mirrors the Zcash TxPlanPage flow.
@@ -32,7 +30,8 @@ class _CloakConfirmState extends State<CloakConfirmPage> {
   bool _feeLoaded = false;
 
   // Fee in smallest units (10000 = 1.0 CLOAK)
-  int _feeUnits = 4000; // conservative default (0.4 CLOAK); overwritten by dynamic fetch
+  int _feeUnits =
+      4000; // conservative default (0.4 CLOAK); overwritten by dynamic fetch
   static const int _unitScale = 10000;
 
   @override
@@ -74,7 +73,8 @@ class _CloakConfirmState extends State<CloakConfirmPage> {
       return;
     }
 
-    final bool isVaultWithdraw = sc?.vaultHash != null && sc!.vaultHash!.isNotEmpty;
+    final bool isVaultWithdraw =
+        sc?.vaultHash != null && sc!.vaultHash!.isNotEmpty;
     final bool isVaultDeposit = sc?.isVaultDeposit == true;
 
     try {
@@ -119,17 +119,23 @@ class _CloakConfirmState extends State<CloakConfirmPage> {
 
     final t = Theme.of(context);
     final balanceFontFamily = t.textTheme.displaySmall?.fontFamily;
-    final balanceColor = t.extension<ZashiThemeExt>()?.balanceAmountColor ?? const Color(0xFFBDBDBD);
+    final balanceColor = t.extension<ZashiThemeExt>()?.balanceAmountColor ??
+        const Color(0xFFBDBDBD);
     const addressFillColor = Color(0xFF2E2C2C);
 
-    final bool isBatch = sc.isBatchWithdraw && sc.batchAssets != null && sc.batchAssets!.isNotEmpty;
+    final bool isBatch = sc.isBatchWithdraw &&
+        sc.batchAssets != null &&
+        sc.batchAssets!.isNotEmpty;
     final bool isNft = !isBatch && sc.nftId != null && sc.nftId!.isNotEmpty;
     final String symbol = isNft ? 'NFT' : (sc.tokenSymbol ?? 'CLOAK');
-    final String contract = isNft ? (sc.nftContract ?? 'atomicassets') : (sc.tokenContract ?? 'thezeostoken');
+    final String contract = isNft
+        ? (sc.nftContract ?? 'atomicassets')
+        : (sc.tokenContract ?? 'thezeostoken');
     final int precision = isNft ? 0 : (sc.tokenPrecision ?? 4);
-    final int tokenUnitScale = isNft ? 1 : pow(10, precision).toInt();
-    final bool isCloak = !isNft && symbol == 'CLOAK';
-    final bool isVaultWithdraw = sc.vaultHash != null && sc.vaultHash!.isNotEmpty;
+    final bool isCloak =
+        !isNft && symbol == 'CLOAK' && contract == 'thezeostoken';
+    final bool isVaultWithdraw =
+        sc.vaultHash != null && sc.vaultHash!.isNotEmpty;
 
     final int sendUnits = sc.amount.value;
     // Total only meaningful when both amount and fee are same token (CLOAK)
@@ -146,14 +152,23 @@ class _CloakConfirmState extends State<CloakConfirmPage> {
           final reduced = (base?.fontSize != null)
               ? base!.copyWith(fontSize: base.fontSize! * 0.75)
               : base;
-          return Text(isBatch ? 'QUICK WITHDRAWAL' : isVaultWithdraw ? 'VAULT WITHDRAWAL' : sc.isVaultDeposit ? 'DEPOSIT CONFIRMATION' : (isNft ? 'NFT CONFIRMATION' : 'CONFIRMATION'), style: reduced);
+          return Text(
+              isBatch
+                  ? 'QUICK WITHDRAWAL'
+                  : isVaultWithdraw
+                      ? 'VAULT WITHDRAWAL'
+                      : sc.isVaultDeposit
+                          ? 'DEPOSIT CONFIRMATION'
+                          : (isNft ? 'NFT CONFIRMATION' : 'CONFIRMATION'),
+              style: reduced);
         }),
         centerTitle: true,
         leading: IconButton(
           onPressed: () {
             final sc = SendContext.instance;
             if (sc?.fromThread == true && sc?.threadIndex != null) {
-              GoRouter.of(context).go('/messages/details?index=${sc!.threadIndex}');
+              GoRouter.of(context)
+                  .go('/messages/details?index=${sc!.threadIndex}');
             } else {
               GoRouter.of(context).go('/account');
             }
@@ -206,10 +221,18 @@ class _CloakConfirmState extends State<CloakConfirmPage> {
                                 ),
                                 clipBehavior: Clip.antiAlias,
                                 child: sc.nftImageUrl!.startsWith('asset:')
-                                  ? Image.asset(sc.nftImageUrl!.substring(6), fit: BoxFit.cover,
-                                      errorBuilder: (_, __, ___) => Icon(Icons.diamond_outlined, size: 48, color: balanceColor))
-                                  : Image.network(sc.nftImageUrl!, fit: BoxFit.cover,
-                                      errorBuilder: (_, __, ___) => Icon(Icons.diamond_outlined, size: 48, color: balanceColor)),
+                                    ? Image.asset(sc.nftImageUrl!.substring(6),
+                                        fit: BoxFit.cover,
+                                        errorBuilder: (_, __, ___) => Icon(
+                                            Icons.diamond_outlined,
+                                            size: 48,
+                                            color: balanceColor))
+                                    : Image.network(sc.nftImageUrl!,
+                                        fit: BoxFit.cover,
+                                        errorBuilder: (_, __, ___) => Icon(
+                                            Icons.diamond_outlined,
+                                            size: 48,
+                                            color: balanceColor)),
                               ),
                               // Sent badge — bottom-right corner
                               Positioned(
@@ -222,7 +245,9 @@ class _CloakConfirmState extends State<CloakConfirmPage> {
                                     shape: BoxShape.circle,
                                     color: balanceColor,
                                   ),
-                                  child: Icon(Icons.arrow_upward, size: 20, color: t.colorScheme.background),
+                                  child: Icon(Icons.arrow_upward,
+                                      size: 20,
+                                      color: t.colorScheme.background),
                                 ),
                               ),
                             ],
@@ -236,7 +261,10 @@ class _CloakConfirmState extends State<CloakConfirmPage> {
                             shape: BoxShape.circle,
                             color: const Color(0xFF2E2C2C),
                           ),
-                          child: Icon(isNft ? Icons.diamond_outlined : Icons.send, size: 24, color: balanceColor),
+                          child: Icon(
+                              isNft ? Icons.diamond_outlined : Icons.send,
+                              size: 24,
+                              color: balanceColor),
                         ),
                       ],
                       const Gap(8),
@@ -246,28 +274,38 @@ class _CloakConfirmState extends State<CloakConfirmPage> {
                             t.textTheme.titleMedium ??
                             t.textTheme.bodyMedium;
                         final style = base?.copyWith(
-                          fontSize: (base.fontSize ?? 18) * 0.7425,
-                        ) ?? const TextStyle();
+                              fontSize: (base.fontSize ?? 18) * 0.7425,
+                            ) ??
+                            const TextStyle();
                         if (isBatch) {
                           return Text('Withdrawing All Assets', style: style);
                         }
                         if (isNft) {
-                          return Text(isVaultWithdraw ? 'Withdrawing NFT' : 'Sending NFT', style: style);
+                          return Text(
+                              isVaultWithdraw
+                                  ? 'Withdrawing NFT'
+                                  : 'Sending NFT',
+                              style: style);
                         }
-                        return Text(isVaultWithdraw ? 'Withdrawing' : 'Sending', style: style);
+                        return Text(isVaultWithdraw ? 'Withdrawing' : 'Sending',
+                            style: style);
                       }),
                       const Gap(2),
                       // Amount or NFT name/ID display (batch shows asset count summary)
                       Builder(builder: (context) {
                         if (isBatch) {
-                          final batchFts = sc.batchAssets!.where((a) => !a.isNft).toList();
-                          final batchNfts = sc.batchAssets!.where((a) => a.isNft).toList();
+                          final batchFts =
+                              sc.batchAssets!.where((a) => !a.isNft).toList();
+                          final batchNfts =
+                              sc.batchAssets!.where((a) => a.isNft).toList();
                           final parts = <String>[];
                           if (batchFts.isNotEmpty) {
-                            parts.add('${batchFts.length} token${batchFts.length == 1 ? '' : 's'}');
+                            parts.add(
+                                '${batchFts.length} token${batchFts.length == 1 ? '' : 's'}');
                           }
                           if (batchNfts.isNotEmpty) {
-                            parts.add('${batchNfts.length} NFT${batchNfts.length == 1 ? '' : 's'}');
+                            parts.add(
+                                '${batchNfts.length} NFT${batchNfts.length == 1 ? '' : 's'}');
                           }
                           return Text(
                             parts.join(', '),
@@ -279,13 +317,16 @@ class _CloakConfirmState extends State<CloakConfirmPage> {
 
                         if (isNft) {
                           // Show NFT name prominently, ID + contract smaller underneath
-                          final nftDisplayName = sc.nftName ?? 'NFT #${sc.nftId!}';
+                          final nftDisplayName =
+                              sc.nftName ?? 'NFT #${sc.nftId!}';
                           return Column(
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               Text(
                                 nftDisplayName,
-                                style: (t.textTheme.titleLarge ?? const TextStyle()).copyWith(
+                                style: (t.textTheme.titleLarge ??
+                                        const TextStyle())
+                                    .copyWith(
                                   color: balanceColor,
                                   fontWeight: FontWeight.w600,
                                 ),
@@ -296,23 +337,27 @@ class _CloakConfirmState extends State<CloakConfirmPage> {
                                 '#${sc.nftId!}',
                                 style: t.textTheme.bodySmall?.copyWith(
                                   color: balanceColor.withOpacity(0.5),
-                                  fontFeatures: const [FontFeature.tabularFigures()],
+                                  fontFeatures: const [
+                                    FontFeature.tabularFigures()
+                                  ],
                                 ),
                               ),
                               const SizedBox(height: 2),
                               Text(
                                 sc.nftContract ?? 'atomicassets',
-                                style: t.textTheme.bodySmall?.copyWith(color: balanceColor.withOpacity(0.4)),
+                                style: t.textTheme.bodySmall?.copyWith(
+                                    color: balanceColor.withOpacity(0.4)),
                               ),
                             ],
                           );
                         }
 
-                        final amtToken = sendUnits / tokenUnitScale.toDouble();
-                        final amtStr = amtToken.toStringAsFixed(precision);
+                        final amtStr = formatAssetUnits(sendUnits, precision);
 
                         final Color amtColor = balanceColor;
-                        final TextStyle bigStyle = (t.textTheme.displaySmall ?? const TextStyle()).copyWith(
+                        final TextStyle bigStyle =
+                            (t.textTheme.displaySmall ?? const TextStyle())
+                                .copyWith(
                           color: amtColor,
                           fontFeatures: const [FontFeature.tabularFigures()],
                         );
@@ -328,8 +373,9 @@ class _CloakConfirmState extends State<CloakConfirmPage> {
                         if (isCloak) {
                           final fx = sc.fx ?? marketPrice.price;
                           if (fx != null && fx > 0) {
-                            final fiat = amtToken * fx;
-                            txtFiat = decimalFormat(fiat, 2, symbol: appSettings.currency);
+                            final fiat = (double.tryParse(amtStr) ?? 0) * fx;
+                            txtFiat = decimalFormat(fiat, 2,
+                                symbol: appSettings.currency);
                           }
                         }
 
@@ -339,7 +385,9 @@ class _CloakConfirmState extends State<CloakConfirmPage> {
                             amountWidget,
                             if (txtFiat != null) ...[
                               const SizedBox(height: 12),
-                              Text(txtFiat, style: t.textTheme.bodyMedium?.copyWith(color: balanceColor)),
+                              Text(txtFiat,
+                                  style: t.textTheme.bodyMedium
+                                      ?.copyWith(color: balanceColor)),
                             ],
                           ],
                         );
@@ -359,23 +407,28 @@ class _CloakConfirmState extends State<CloakConfirmPage> {
                           children: [
                             Text(
                               'Transaction Details',
-                              style: t.textTheme.titleSmall?.copyWith(fontFamily: balanceFontFamily),
+                              style: t.textTheme.titleSmall
+                                  ?.copyWith(fontFamily: balanceFontFamily),
                             ),
                             const Gap(12),
                             Material(
                               color: Colors.transparent,
                               child: InkWell(
                                 borderRadius: BorderRadius.circular(14),
-                                onTap: () => setState(() => _addrExpanded = !_addrExpanded),
+                                onTap: () => setState(
+                                    () => _addrExpanded = !_addrExpanded),
                                 child: Container(
                                   decoration: BoxDecoration(
                                     color: addressFillColor,
                                     borderRadius: BorderRadius.circular(14),
                                   ),
-                                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 16, vertical: 14),
                                   child: Builder(builder: (context) {
                                     final full = (sc.address).trim();
-                                    final textStyle = (t.textTheme.bodyMedium ?? const TextStyle()).copyWith(
+                                    final textStyle = (t.textTheme.bodyMedium ??
+                                            const TextStyle())
+                                        .copyWith(
                                       fontFamily: balanceFontFamily,
                                       color: t.colorScheme.onSurface,
                                     );
@@ -388,13 +441,22 @@ class _CloakConfirmState extends State<CloakConfirmPage> {
                                       color: t.colorScheme.onSurface,
                                     );
                                     return Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
                                       children: [
                                         Row(
-                                          crossAxisAlignment: CrossAxisAlignment.center,
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.center,
                                           children: [
                                             Expanded(
-                                              child: Text((isBatch || isVaultWithdraw) ? 'Withdrawing to' : 'Sending to', maxLines: 1, overflow: TextOverflow.ellipsis, style: textStyle),
+                                              child: Text(
+                                                  (isBatch || isVaultWithdraw)
+                                                      ? 'Withdrawing to'
+                                                      : 'Sending to',
+                                                  maxLines: 1,
+                                                  overflow:
+                                                      TextOverflow.ellipsis,
+                                                  style: textStyle),
                                             ),
                                             if ((sc.display ?? '').isNotEmpty)
                                               Row(
@@ -402,27 +464,44 @@ class _CloakConfirmState extends State<CloakConfirmPage> {
                                                 children: [
                                                   const SizedBox(width: 8),
                                                   ConstrainedBox(
-                                                    constraints: const BoxConstraints(maxWidth: 160),
-                                                    child: Text(sc.display!, maxLines: 1, overflow: TextOverflow.ellipsis, style: textStyle, textAlign: TextAlign.right),
+                                                    constraints:
+                                                        const BoxConstraints(
+                                                            maxWidth: 160),
+                                                    child: Text(sc.display!,
+                                                        maxLines: 1,
+                                                        overflow: TextOverflow
+                                                            .ellipsis,
+                                                        style: textStyle,
+                                                        textAlign:
+                                                            TextAlign.right),
                                                   ),
                                                   const SizedBox(width: 8),
                                                 ],
                                               ),
                                             AnimatedRotation(
-                                              duration: const Duration(milliseconds: 180),
+                                              duration: const Duration(
+                                                  milliseconds: 180),
                                               turns: _addrExpanded ? 0.5 : 0.0,
-                                              child: Icon(Icons.expand_more, color: t.colorScheme.onSurface),
+                                              child: Icon(Icons.expand_more,
+                                                  color:
+                                                      t.colorScheme.onSurface),
                                             ),
                                           ],
                                         ),
                                         AnimatedCrossFade(
-                                          duration: const Duration(milliseconds: 180),
+                                          duration:
+                                              const Duration(milliseconds: 180),
                                           firstChild: const SizedBox.shrink(),
                                           secondChild: Padding(
-                                            padding: const EdgeInsets.only(top: 8),
-                                            child: Text(full, style: monoStyle, softWrap: true),
+                                            padding:
+                                                const EdgeInsets.only(top: 8),
+                                            child: Text(full,
+                                                style: monoStyle,
+                                                softWrap: true),
                                           ),
-                                          crossFadeState: _addrExpanded ? CrossFadeState.showSecond : CrossFadeState.showFirst,
+                                          crossFadeState: _addrExpanded
+                                              ? CrossFadeState.showSecond
+                                              : CrossFadeState.showFirst,
                                         ),
                                       ],
                                     );
@@ -448,42 +527,74 @@ class _CloakConfirmState extends State<CloakConfirmPage> {
                             color: addressFillColor,
                             borderRadius: BorderRadius.circular(14),
                           ),
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 14),
                           child: Builder(builder: (context) {
-                            final labelStyle = (t.textTheme.bodyMedium ?? const TextStyle()).copyWith(
+                            final labelStyle =
+                                (t.textTheme.bodyMedium ?? const TextStyle())
+                                    .copyWith(
                               fontFamily: balanceFontFamily,
                               color: t.colorScheme.onSurface,
                             );
                             final valueStyle = labelStyle;
-                            final valueBold = valueStyle.copyWith(fontWeight: FontWeight.w700);
+                            final valueBold = valueStyle.copyWith(
+                                fontWeight: FontWeight.w700);
 
-                            Widget row(String label, String value, {bool bold = false}) {
+                            Widget row(String label, String value,
+                                {bool bold = false}) {
                               return Row(
                                 children: [
-                                  Expanded(child: Text(label, style: bold ? labelStyle.copyWith(fontWeight: FontWeight.w700) : labelStyle)),
-                                  Flexible(child: Text(value, style: bold ? valueBold : valueStyle, textAlign: TextAlign.right, overflow: TextOverflow.ellipsis)),
+                                  Expanded(
+                                      child: Text(label,
+                                          style: bold
+                                              ? labelStyle.copyWith(
+                                                  fontWeight: FontWeight.w700)
+                                              : labelStyle)),
+                                  Flexible(
+                                      child: Text(value,
+                                          style: bold ? valueBold : valueStyle,
+                                          textAlign: TextAlign.right,
+                                          overflow: TextOverflow.ellipsis)),
                                 ],
                               );
                             }
 
-                            final feeStr = (_feeUnits / _unitScale.toDouble()).toStringAsFixed(4);
+                            final feeStr = (_feeUnits / _unitScale.toDouble())
+                                .toStringAsFixed(4);
 
                             if (isBatch) {
                               // Batch withdrawal: list each asset + divider + fee
-                              final batchFts = sc.batchAssets!.where((a) => !a.isNft).toList();
-                              final batchNfts = sc.batchAssets!.where((a) => a.isNft).toList();
+                              final batchFts = sc.batchAssets!
+                                  .where((a) => !a.isNft)
+                                  .toList();
+                              final batchNfts = sc.batchAssets!
+                                  .where((a) => a.isNft)
+                                  .toList();
                               return Column(
                                 children: [
                                   for (int i = 0; i < batchFts.length; i++) ...[
-                                    row(batchFts[i].symbol, batchFts[i].formattedAmount),
-                                    if (i < batchFts.length - 1 || batchNfts.isNotEmpty) const Gap(8),
+                                    row(batchFts[i].symbol,
+                                        batchFts[i].formattedAmount),
+                                    if (i < batchFts.length - 1 ||
+                                        batchNfts.isNotEmpty)
+                                      const Gap(8),
                                   ],
-                                  for (int i = 0; i < batchNfts.length; i++) ...[
-                                    row('NFT', batchNfts[i].nftName ?? '#${batchNfts[i].nftId}'),
+                                  for (int i = 0;
+                                      i < batchNfts.length;
+                                      i++) ...[
+                                    row(
+                                        'NFT',
+                                        batchNfts[i].nftName ??
+                                            '#${batchNfts[i].nftId}'),
                                     if (i < batchNfts.length - 1) const Gap(8),
                                   ],
-                                  if (batchFts.isNotEmpty || batchNfts.isNotEmpty) const Gap(8),
-                                  Divider(color: t.colorScheme.onSurface.withOpacity(0.12), height: 1),
+                                  if (batchFts.isNotEmpty ||
+                                      batchNfts.isNotEmpty)
+                                    const Gap(8),
+                                  Divider(
+                                      color: t.colorScheme.onSurface
+                                          .withOpacity(0.12),
+                                      height: 1),
                                   const Gap(8),
                                   row('Fee', '$feeStr CLOAK', bold: true),
                                 ],
@@ -498,18 +609,20 @@ class _CloakConfirmState extends State<CloakConfirmPage> {
                                   const Gap(8),
                                   row('ID', '#${sc.nftId!}'),
                                   const Gap(8),
-                                  row('Contract', sc.nftContract ?? 'atomicassets'),
+                                  row('Contract',
+                                      sc.nftContract ?? 'atomicassets'),
                                   const Gap(8),
                                   row('Fee', '$feeStr CLOAK', bold: true),
                                 ],
                               );
                             }
 
-                            final sendStr = (sendUnits / tokenUnitScale.toDouble()).toStringAsFixed(precision);
+                            final sendStr =
+                                formatAssetUnits(sendUnits, precision);
 
                             if (isCloak) {
                               // Same token for amount + fee → show total
-                              final totalStr = (totalUnits / _unitScale.toDouble()).toStringAsFixed(4);
+                              final totalStr = formatAssetUnits(totalUnits, 4);
                               return Column(
                                 children: [
                                   row('Amount', '$sendStr CLOAK'),
@@ -548,29 +661,37 @@ class _CloakConfirmState extends State<CloakConfirmPage> {
                       final int walletCloakBalance;
                       if (isBatch || isVaultWithdraw || isVaultDeposit) {
                         int wBal = 0;
-                        try {
-                          final raw = CloakWalletManager.getBalancesJson();
-                          if (raw != null) {
-                            final List<dynamic> parsed = jsonDecode(raw);
-                            for (final entry in parsed) {
-                              final str = entry.toString();
-                              if (str.contains('CLOAK@thezeostoken')) {
-                                final atIdx = str.lastIndexOf('@');
-                                final qp = str.substring(0, atIdx);
-                                final si = qp.lastIndexOf(' ');
-                                if (si >= 0) {
-                                  wBal = ((double.tryParse(qp.substring(0, si)) ?? 0.0) * 10000).round();
-                                }
-                                break;
-                              }
-                            }
+                        for (final balance in parsePositiveShieldedFtBalances(
+                          CloakWalletManager.getBalancesJson(),
+                        )) {
+                          if (balance.symbol == 'CLOAK' &&
+                              balance.contract == 'thezeostoken') {
+                            wBal = balance.units;
+                            break;
                           }
-                        } catch (_) {}
+                        }
                         walletCloakBalance = wBal;
                       } else {
                         walletCloakBalance = aa.poolBalances.sapling;
                       }
-                      final vaultBalance = isVaultWithdraw ? aa.poolBalances.sapling : 0;
+                      int vaultBalance = 0;
+                      if (isVaultWithdraw) {
+                        for (final ft in activeVaultTokens?.fts ??
+                            const <Map<String, dynamic>>[]) {
+                          if (ft['symbol'] == symbol &&
+                              ft['contract'] == contract) {
+                            final rawAmount = ft['rawAmount'];
+                            vaultBalance = rawAmount is int
+                                ? rawAmount
+                                : parseAssetUnitsAtPrecision(
+                                      ft['amount']?.toString() ?? '',
+                                      precision,
+                                    ) ??
+                                    0;
+                            break;
+                          }
+                        }
+                      }
                       bool insufficient = false;
                       String insufficientMsg = 'Insufficient Balance';
                       if (isBatch) {
@@ -598,33 +719,22 @@ class _CloakConfirmState extends State<CloakConfirmPage> {
                         }
                       } else if (isCloak) {
                         // CLOAK: amount + fee must be covered by CLOAK balance
-                        insufficient = _feeLoaded && walletCloakBalance < totalUnits;
+                        insufficient =
+                            _feeLoaded && walletCloakBalance < totalUnits;
                         insufficientMsg = 'Insufficient CLOAK Balance';
                       } else {
                         // Non-CLOAK: need enough token for amount AND enough CLOAK for fee
                         // Get token balance from getBalancesJson
                         int tokenBalance = 0;
-                        try {
-                          final raw = CloakWalletManager.getBalancesJson();
-                          if (raw != null) {
-                            final List<dynamic> parsed = jsonDecode(raw);
-                            for (final entry in parsed) {
-                              final str = entry.toString();
-                              final atIdx = str.lastIndexOf('@');
-                              if (atIdx < 0) continue;
-                              final qp = str.substring(0, atIdx);
-                              final c = str.substring(atIdx + 1);
-                              final si = qp.lastIndexOf(' ');
-                              if (si < 0) continue;
-                              final sym = qp.substring(si + 1);
-                              final amt = qp.substring(0, si);
-                              if (sym == symbol && c == contract) {
-                                tokenBalance = ((double.tryParse(amt) ?? 0.0) * tokenUnitScale).round();
-                                break;
-                              }
-                            }
+                        for (final balance in parsePositiveShieldedFtBalances(
+                          CloakWalletManager.getBalancesJson(),
+                        )) {
+                          if (balance.symbol == symbol &&
+                              balance.contract == contract) {
+                            tokenBalance = balance.units;
+                            break;
                           }
-                        } catch (_) {}
+                        }
                         if (_feeLoaded) {
                           if (tokenBalance < sendUnits) {
                             insufficient = true;
@@ -652,7 +762,9 @@ class _CloakConfirmState extends State<CloakConfirmPage> {
                                   child: Center(
                                     child: Text(
                                       insufficientMsg,
-                                      style: (t.textTheme.titleSmall ?? const TextStyle()).copyWith(
+                                      style: (t.textTheme.titleSmall ??
+                                              const TextStyle())
+                                          .copyWith(
                                         fontFamily: balanceFontFamily,
                                         fontWeight: FontWeight.w600,
                                         color: Colors.redAccent,
@@ -683,8 +795,18 @@ class _CloakConfirmState extends State<CloakConfirmPage> {
                                   onTap: _doSend,
                                   child: Center(
                                     child: Text(
-                                      isBatch ? 'Withdraw All' : isVaultWithdraw ? 'Withdraw' : sc.isVaultDeposit ? 'Deposit' : (isNft ? 'Send NFT' : 'Send'),
-                                      style: (t.textTheme.titleSmall ?? const TextStyle()).copyWith(
+                                      isBatch
+                                          ? 'Withdraw All'
+                                          : isVaultWithdraw
+                                              ? 'Withdraw'
+                                              : sc.isVaultDeposit
+                                                  ? 'Deposit'
+                                                  : (isNft
+                                                      ? 'Send NFT'
+                                                      : 'Send'),
+                                      style: (t.textTheme.titleSmall ??
+                                              const TextStyle())
+                                          .copyWith(
                                         fontFamily: balanceFontFamily,
                                         fontWeight: FontWeight.w600,
                                         color: t.colorScheme.background,
@@ -737,7 +859,8 @@ class _CloakConfirmState extends State<CloakConfirmPage> {
     );
   }
 
-  Widget _buildMemoBox(BuildContext context, SendContext sc, ThemeData t, String? balanceFontFamily) {
+  Widget _buildMemoBox(BuildContext context, SendContext sc, ThemeData t,
+      String? balanceFontFamily) {
     const fill = Color(0xFF2E2C2C);
     final memoText = (sc.memo?.memo ?? '').trim();
     final hasMemo = memoText.isNotEmpty;
@@ -758,7 +881,8 @@ class _CloakConfirmState extends State<CloakConfirmPage> {
             children: [
               Text(
                 'Message',
-                style: t.textTheme.titleSmall?.copyWith(fontFamily: balanceFontFamily),
+                style: t.textTheme.titleSmall
+                    ?.copyWith(fontFamily: balanceFontFamily),
               ),
               const Gap(12),
               if (!hasMemo)
@@ -768,7 +892,8 @@ class _CloakConfirmState extends State<CloakConfirmPage> {
                     borderRadius: BorderRadius.circular(14),
                   ),
                   width: double.infinity,
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                   constraints: const BoxConstraints(minHeight: 52),
                 )
               else
@@ -783,7 +908,8 @@ class _CloakConfirmState extends State<CloakConfirmPage> {
                         borderRadius: BorderRadius.circular(14),
                       ),
                       width: double.infinity,
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 14),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
@@ -794,14 +920,17 @@ class _CloakConfirmState extends State<CloakConfirmPage> {
                                 child: Text(
                                   memoText,
                                   maxLines: _msgExpanded ? null : 1,
-                                  overflow: _msgExpanded ? null : TextOverflow.ellipsis,
+                                  overflow: _msgExpanded
+                                      ? null
+                                      : TextOverflow.ellipsis,
                                   style: previewStyle,
                                 ),
                               ),
                               AnimatedRotation(
                                 duration: const Duration(milliseconds: 180),
                                 turns: _msgExpanded ? 0.5 : 0.0,
-                                child: Icon(Icons.expand_more, color: t.colorScheme.onSurface),
+                                child: Icon(Icons.expand_more,
+                                    color: t.colorScheme.onSurface),
                               ),
                             ],
                           ),

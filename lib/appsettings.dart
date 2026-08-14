@@ -16,7 +16,20 @@ var coinSettings = CoinSettings();
 
 /// App version string — injected from git tag at CI build time via --dart-define=APP_VERSION
 /// Falls back to 'dev' for local debug builds
-const String appVersion = String.fromEnvironment('APP_VERSION', defaultValue: 'dev');
+const String appVersion =
+    String.fromEnvironment('APP_VERSION', defaultValue: 'dev');
+
+/// Monotonic native build number, injected by the release workflow.
+const int appBuildNumber = int.fromEnvironment(
+  'APP_BUILD_NUMBER',
+  defaultValue: 0,
+);
+
+/// Exact source commit for support and reproducible release diagnostics.
+const String appCommitId = String.fromEnvironment(
+  'APP_COMMIT',
+  defaultValue: 'dev',
+);
 
 /// Whether the bottom navigation bar is hidden.
 final hideBottomNav = ValueNotifier<bool>(false);
@@ -44,8 +57,7 @@ Future<void> toggleAlwaysOnTop() async {
   if (!(Platform.isAndroid || Platform.isIOS)) {
     try {
       await windowManager.setAlwaysOnTop(alwaysOnTop.value);
-    } catch (_) {
-    }
+    } catch (_) {}
   }
 }
 

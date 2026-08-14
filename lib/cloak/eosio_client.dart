@@ -356,16 +356,25 @@ class EosioClient {
   Future<List<ZeosActionTrace>> getZeosActions({
     String account = 'thezeosalias',
     int skip = 0,
+    int? expectedCiphertextCount,
   }) async {
     // Always use Hyperion v2 API - it supports filtering and returns all matching actions
     // The old v1/history/get_actions only returns the last 100 actions which misses older notes
-    return await _getZeosActionsHyperion(account, skip: skip);
+    return await _getZeosActionsHyperion(
+      account,
+      skip: skip,
+      expectedCiphertextCount: expectedCiphertextCount,
+    );
   }
 
   /// Get action history via Hyperion API (more reliable)
   /// [skip] - number of actions to skip (ascending order) for incremental fetch
   /// Paginates automatically to fetch ALL matching actions.
-  Future<List<ZeosActionTrace>> _getZeosActionsHyperion(String account, {int skip = 0}) async {
+  Future<List<ZeosActionTrace>> _getZeosActionsHyperion(
+    String account, {
+    int skip = 0,
+    int? expectedCiphertextCount,
+  }) async {
     // Use the shared Hyperion endpoints
     final hyperionEndpoints = _hyperionEndpoints;
 
@@ -397,11 +406,26 @@ class EosioClient {
           currentSkip += actions.length;
         }
 
-        if (allActions.isNotEmpty) return allActions;
+        if (allActions.isNotEmpty) {
+          final ciphertextCount = allActions.fold<int>(
+            0,
+            (count, action) => count + action.noteCiphertexts.length,
+          );
+          if (expectedCiphertextCount != null &&
+              ciphertextCount != expectedCiphertextCount) {
+            print('EosioClient: Hyperion endpoint $hyperion returned '
+                '$ciphertextCount of $expectedCiphertextCount captured '
+                'ciphertexts; trying another endpoint');
+            continue;
+          }
+          return allActions;
+        }
       } catch (e) {
         print('EosioClient: Hyperion endpoint $hyperion failed: $e');
       }
     }
+
+    if (expectedCiphertextCount == 0) return <ZeosActionTrace>[];
 
     // S33 fix: Throw instead of returning [] when all endpoints fail.
     // Returning [] silently was indistinguishable from "no actions exist",

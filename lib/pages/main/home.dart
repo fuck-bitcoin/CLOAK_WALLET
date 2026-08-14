@@ -16,7 +16,9 @@ import '../../accounts.dart';
 import '../../coin/coins.dart';
 import '../../cloak/cloak_db.dart';
 import '../../cloak/cloak_wallet_manager.dart';
-import '../../cloak/eosio_client.dart' show getTokenLogoUrl, fetchTelosTokenList;
+import '../../cloak/shielded_ft_balance.dart';
+import '../../cloak/eosio_client.dart'
+    show getTokenLogoUrl, fetchTelosTokenList;
 import '../../cloak/atomic_assets_service.dart';
 import '../../widgets/nft_image_widget.dart';
 import '../cloak/nft_lightbox.dart';
@@ -37,7 +39,8 @@ class HomePage extends StatelessWidget {
       aaSequence.seqno; // observe for MobX reactivity
       // Key changes ONLY on account/vault switch, NOT on sync/poll ticks.
       // Vault switches keep same coin+id, so include activeVaultHash.
-      final key = ValueKey('${aa.coin}:${aa.id}:${isVaultMode ? activeVaultHash : ""}');
+      final key =
+          ValueKey('${aa.coin}:${aa.id}:${isVaultMode ? activeVaultHash : ""}');
       return HomePageInner(key: key);
     });
   }
@@ -96,7 +99,8 @@ class _HomeState extends State<HomePageInner> {
 
   Future<void> _loadFeeFilter() async {
     final saved = await CloakDb.getProperty('tx_filters');
-    final hide = saved != null && saved.isNotEmpty && saved.split(',').contains('fees');
+    final hide =
+        saved != null && saved.isNotEmpty && saved.split(',').contains('fees');
     if (mounted && hide != _hideFees) {
       setState(() => _hideFees = hide);
     }
@@ -132,9 +136,9 @@ class _HomeState extends State<HomePageInner> {
                 ),
                 SizedBox(height: 16),
                 ...errors.map((e) => Padding(
-                  padding: EdgeInsets.only(bottom: 8),
-                  child: Text(e, style: TextStyle(color: Colors.red[700])),
-                )),
+                      padding: EdgeInsets.only(bottom: 8),
+                      child: Text(e, style: TextStyle(color: Colors.red[700])),
+                    )),
                 SizedBox(height: 16),
                 Text(
                   'To fix this, you need to:\n'
@@ -171,38 +175,40 @@ class _HomeState extends State<HomePageInner> {
   Widget build(BuildContext context) {
     final s = S.of(context);
     return SingleChildScrollView(
-          child: Observer(
-              builder: (context) {
-                aaSequence.seqno;
-                // Access pool balance properties to trigger MobX observation
-                aa.poolBalances.transparent;
-                aa.poolBalances.sapling;
-                aa.poolBalances.orchard;
-                syncStatus2.changed;
-                appStore.hideBalances; // Rebuild when eyeball toggle changes
-                // Track TX list changes so Observer rebuilds when txs.read() updates items
-                aa.txs.items.length;
-                aa.txs.version;
+      child: Observer(
+        builder: (context) {
+          aaSequence.seqno;
+          // Access pool balance properties to trigger MobX observation
+          aa.poolBalances.transparent;
+          aa.poolBalances.sapling;
+          aa.poolBalances.orchard;
+          syncStatus2.changed;
+          appStore.hideBalances; // Rebuild when eyeball toggle changes
+          // Track TX list changes so Observer rebuilds when txs.read() updates items
+          aa.txs.items.length;
+          aa.txs.version;
 
-                // For CLOAK wallets, check if view-only (IVK). For other coins, use canPay flag.
-                final bool isWatchOnly = aa.coin == CLOAK_COIN
-                  ? CloakWalletManager.isViewOnly
-                  : !aa.canPay;
-                return AnimatedSwitcher(
-                  // Lengthen further for a clearer crossfade
-                  duration: const Duration(milliseconds: 480),
-                  switchInCurve: Curves.easeInOutCubic,
-                  switchOutCurve: Curves.easeInOutCubic,
-                  child: KeyedSubtree(
-                    // Preserve subtree to avoid sudden rebuilds during switch
-                    key: ValueKey<int>(aa.id),
-                    child: Column(
-                    children: [
-                      // SyncStatusWidget manages its own visibility including fade-out animation
-                      SyncStatusWidget(),
-                      Padding(
-                          padding: EdgeInsets.symmetric(horizontal: 16),
-                          child: Column(children: [
+          // For CLOAK wallets, check if view-only (IVK). For other coins, use canPay flag.
+          final bool isWatchOnly = aa.coin == CLOAK_COIN
+              ? CloakWalletManager.isViewOnly
+              : !aa.canPay;
+          return AnimatedSwitcher(
+            // Lengthen further for a clearer crossfade
+            duration: const Duration(milliseconds: 480),
+            switchInCurve: Curves.easeInOutCubic,
+            switchOutCurve: Curves.easeInOutCubic,
+            child: KeyedSubtree(
+                // Preserve subtree to avoid sudden rebuilds during switch
+                key: ValueKey<int>(aa.id),
+                child: Column(
+                  children: [
+                    if (CloakWalletManager.isCloak(aa.coin))
+                      _ProtocolCompatibilityBanner(),
+                    // SyncStatusWidget manages its own visibility including fade-out animation
+                    SyncStatusWidget(),
+                    Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 16),
+                        child: Column(children: [
                           if (isWatchOnly)
                             Padding(
                               padding: const EdgeInsets.only(bottom: 8),
@@ -211,11 +217,14 @@ class _HomeState extends State<HomePageInner> {
                                 children: [
                                   Text(
                                     'VIEW ONLY',
-                                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                                      color: Colors.white.withOpacity(0.35),
-                                      letterSpacing: 1.2,
-                                      fontWeight: FontWeight.w600,
-                                    ),
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .labelSmall
+                                        ?.copyWith(
+                                          color: Colors.white.withOpacity(0.35),
+                                          letterSpacing: 1.2,
+                                          fontWeight: FontWeight.w600,
+                                        ),
                                   ),
                                 ],
                               ),
@@ -228,13 +237,17 @@ class _HomeState extends State<HomePageInner> {
                           Gap(24),
                           // Catalog-styled quick actions under rate line (responsive width)
                           Builder(builder: (context) {
-                            final screenWidth = MediaQuery.of(context).size.width;
-                            const horizontalPadding = 32.0; // matches symmetric(horizontal:16)
+                            final screenWidth =
+                                MediaQuery.of(context).size.width;
+                            const horizontalPadding =
+                                32.0; // matches symmetric(horizontal:16)
                             const gap = 6.0; // 50% tighter than before
                             final available = screenWidth - horizontalPadding;
                             if (isVaultMode) {
                               // Vault quick actions: Deposit, Withdraw (2 buttons)
-                              final tileSize = ((available - 1 * gap) / 2).clamp(72.0, 96.0).toDouble();
+                              final tileSize = ((available - 1 * gap) / 2)
+                                  .clamp(72.0, 96.0)
+                                  .toDouble();
                               return Row(
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
@@ -254,41 +267,48 @@ class _HomeState extends State<HomePageInner> {
                                 ],
                               );
                             } else if (isWatchOnly) {
-                              final tileSize = available.clamp(72.0, 96.0).toDouble();
+                              final tileSize =
+                                  available.clamp(72.0, 96.0).toDouble();
                               return Row(
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
                                   _QuickActionTile(
                                     label: 'Receive',
                                     asset: 'assets/icons/receive_quick.svg',
-                                    onTap: () => GoRouter.of(context).push('/account/receive'),
+                                    onTap: () => GoRouter.of(context)
+                                        .push('/account/receive'),
                                     tileSize: tileSize,
                                   ),
                                 ],
                               );
                             } else {
-                              final tileSize = ((available - 2 * gap) / 3).clamp(72.0, 96.0).toDouble();
+                              final tileSize = ((available - 2 * gap) / 3)
+                                  .clamp(72.0, 96.0)
+                                  .toDouble();
                               return Row(
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
                                   _QuickActionTile(
                                     label: 'Receive',
                                     asset: 'assets/icons/receive_quick.svg',
-                                    onTap: () => GoRouter.of(context).push('/account/receive'),
+                                    onTap: () => GoRouter.of(context)
+                                        .push('/account/receive'),
                                     tileSize: tileSize,
                                   ),
                                   const Gap(gap),
                                   _QuickActionTile(
                                     label: s.send,
                                     asset: 'assets/icons/send_quick.svg',
-                                    onTap: () => GoRouter.of(context).push('/account/quick_send'),
+                                    onTap: () => GoRouter.of(context)
+                                        .push('/account/quick_send'),
                                     tileSize: tileSize,
                                   ),
                                   const Gap(gap),
                                   _QuickActionTile(
                                     label: s.more,
                                     asset: 'assets/icons/more_quick.svg',
-                                    onTap: () => GoRouter.of(context).push('/more'),
+                                    onTap: () =>
+                                        GoRouter.of(context).push('/more'),
                                     tileSize: tileSize,
                                   ),
                                 ],
@@ -302,16 +322,26 @@ class _HomeState extends State<HomePageInner> {
                             builder: (context) {
                               final t = Theme.of(context);
                               final zashi = t.extension<ZashiThemeExt>();
-                              final color = zashi?.balanceAmountColor ?? const Color(0xFFBDBDBD);
-                              final base = t.textTheme.bodyMedium ?? t.textTheme.titleMedium ?? t.textTheme.bodySmall;
+                              final color = zashi?.balanceAmountColor ??
+                                  const Color(0xFFBDBDBD);
+                              final base = t.textTheme.bodyMedium ??
+                                  t.textTheme.titleMedium ??
+                                  t.textTheme.bodySmall;
                               final sized = (base?.fontSize != null)
-                                  ? base!.copyWith(fontSize: base.fontSize! * 1.15, fontWeight: FontWeight.w700)
-                                  : (base ?? const TextStyle(fontWeight: FontWeight.w700));
+                                  ? base!.copyWith(
+                                      fontSize: base.fontSize! * 1.15,
+                                      fontWeight: FontWeight.w700)
+                                  : (base ??
+                                      const TextStyle(
+                                          fontWeight: FontWeight.w700));
                               final style = sized.copyWith(color: color);
-                              final txTextColor = zashi?.balanceAmountColor ?? t.colorScheme.onSurface;
-                              final borderColor = zashi?.quickBorderColor ?? t.dividerColor;
+                              final txTextColor = zashi?.balanceAmountColor ??
+                                  t.colorScheme.onSurface;
+                              final borderColor =
+                                  zashi?.quickBorderColor ?? t.dividerColor;
                               // Flat fill to match transaction receive icon style (non‑gradient)
-                              final flatFill = t.colorScheme.onSurface.withOpacity(0.12);
+                              final flatFill =
+                                  t.colorScheme.onSurface.withOpacity(0.12);
 
                               // "See all >" pill widget (reused below)
                               Widget seeAllPill() => SizedBox(
@@ -326,29 +356,52 @@ class _HomeState extends State<HomePageInner> {
                                           child: Container(
                                             decoration: BoxDecoration(
                                               color: flatFill,
-                                              borderRadius: BorderRadius.circular(999),
-                                              border: Border.all(color: borderColor),
+                                              borderRadius:
+                                                  BorderRadius.circular(999),
+                                              border: Border.all(
+                                                  color: borderColor),
                                             ),
                                             child: InkWell(
-                                              borderRadius: BorderRadius.circular(999),
-                                              onTap: () => GoRouter.of(context).push('/activity_overlay').then((_) => _loadFeeFilter()),
+                                              borderRadius:
+                                                  BorderRadius.circular(999),
+                                              onTap: () => GoRouter.of(context)
+                                                  .push('/activity_overlay')
+                                                  .then(
+                                                      (_) => _loadFeeFilter()),
                                               child: Padding(
-                                                padding: const EdgeInsets.symmetric(horizontal: 7.1, vertical: 5.4),
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                        horizontal: 7.1,
+                                                        vertical: 5.4),
                                                 child: Row(
-                                                  mainAxisSize: MainAxisSize.min,
-                                                  mainAxisAlignment: MainAxisAlignment.center,
-                                                  crossAxisAlignment: CrossAxisAlignment.center,
+                                                  mainAxisSize:
+                                                      MainAxisSize.min,
+                                                  mainAxisAlignment:
+                                                      MainAxisAlignment.center,
+                                                  crossAxisAlignment:
+                                                      CrossAxisAlignment.center,
                                                   children: [
-                                                    SizedBox(width: ((base?.fontSize ?? 14.0) * 1.20) * 0.25),
+                                                    SizedBox(
+                                                        width:
+                                                            ((base?.fontSize ??
+                                                                        14.0) *
+                                                                    1.20) *
+                                                                0.25),
                                                     Text(
                                                       'See all',
-                                                      textAlign: TextAlign.center,
-                                                      style: TextStyle(fontWeight: FontWeight.w700, color: txTextColor),
+                                                      textAlign:
+                                                          TextAlign.center,
+                                                      style: TextStyle(
+                                                          fontWeight:
+                                                              FontWeight.w700,
+                                                          color: txTextColor),
                                                     ),
                                                     const SizedBox(width: 2),
                                                     Icon(
                                                       Icons.chevron_right,
-                                                      size: (base?.fontSize ?? 14.0) * 1.20,
+                                                      size: (base?.fontSize ??
+                                                              14.0) *
+                                                          1.20,
                                                       color: txTextColor,
                                                     ),
                                                   ],
@@ -364,16 +417,19 @@ class _HomeState extends State<HomePageInner> {
                               if (isVaultMode) {
                                 // Vault mode: always Tokens + NFTs (no Activity)
                                 final tabs = ['Tokens', 'NFTs'];
-                                final safeTab = _selectedTab.clamp(0, tabs.length - 1);
+                                final safeTab =
+                                    _selectedTab.clamp(0, tabs.length - 1);
                                 if (safeTab != _selectedTab) {
-                                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                                  WidgetsBinding.instance
+                                      .addPostFrameCallback((_) {
                                     setState(() => _selectedTab = safeTab);
                                   });
                                 }
                                 return _SegmentedToggle(
                                   selectedIndex: safeTab,
                                   labels: tabs,
-                                  onChanged: (i) => setState(() => _selectedTab = i),
+                                  onChanged: (i) =>
+                                      setState(() => _selectedTab = i),
                                 );
                               }
 
@@ -384,23 +440,28 @@ class _HomeState extends State<HomePageInner> {
                                     ? ['Activity', 'Tokens', 'NFTs']
                                     : ['Activity', 'Tokens'];
                                 // Clamp selectedTab if NFTs tab disappeared
-                                final safeTab = _selectedTab.clamp(0, tabs.length - 1);
+                                final safeTab =
+                                    _selectedTab.clamp(0, tabs.length - 1);
                                 if (safeTab != _selectedTab) {
-                                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                                  WidgetsBinding.instance
+                                      .addPostFrameCallback((_) {
                                     setState(() => _selectedTab = safeTab);
                                   });
                                 }
                                 return _SegmentedToggle(
                                   selectedIndex: safeTab,
                                   labels: tabs,
-                                  onChanged: (i) => setState(() => _selectedTab = i),
+                                  onChanged: (i) =>
+                                      setState(() => _selectedTab = i),
                                 );
                               }
 
                               // Non-CLOAK: original "Transactions" heading + pill
                               return Row(
                                 children: [
-                                  Expanded(child: Text('Transactions', style: style)),
+                                  Expanded(
+                                      child:
+                                          Text('Transactions', style: style)),
                                   seeAllPill(),
                                 ],
                               );
@@ -413,27 +474,36 @@ class _HomeState extends State<HomePageInner> {
                             Widget txList() {
                               var txs = aa.txs.items;
                               if (_hideFees) {
-                                txs = txs.where((tx) => !TxPageState.isFeeEntry(tx)).toList();
+                                txs = txs
+                                    .where((tx) => !TxPageState.isFeeEntry(tx))
+                                    .toList();
                               }
                               if (txs.isEmpty) {
                                 return Padding(
                                   key: const ValueKey('activity_empty'),
-                                  padding: const EdgeInsets.symmetric(vertical: 8),
+                                  padding:
+                                      const EdgeInsets.symmetric(vertical: 8),
                                   child: Text(
                                     'No transactions yet',
-                                    style: Theme.of(context).textTheme.bodyMedium,
+                                    style:
+                                        Theme.of(context).textTheme.bodyMedium,
                                   ),
                                 );
                               }
                               return Column(
                                 key: const ValueKey('activity_list'),
                                 children: [
-                                  for (int i = 0; i < txs.length.clamp(0, 5); i++) ...[
-                                    if (i > 0) Divider(
-                                      height: 8,
-                                      thickness: 0.5,
-                                      color: Theme.of(context).dividerColor.withOpacity(0.25),
-                                    ),
+                                  for (int i = 0;
+                                      i < txs.length.clamp(0, 5);
+                                      i++) ...[
+                                    if (i > 0)
+                                      Divider(
+                                        height: 8,
+                                        thickness: 0.5,
+                                        color: Theme.of(context)
+                                            .dividerColor
+                                            .withOpacity(0.25),
+                                      ),
                                     TxItem(txs[i], null, index: i),
                                   ],
                                 ],
@@ -443,95 +513,135 @@ class _HomeState extends State<HomePageInner> {
                             // Vault mode: Tokens (tab 0) and NFTs (tab 1) only
                             if (isVaultMode) {
                               return AnimatedSwitcher(
-                                  duration: const Duration(milliseconds: 200),
-                                  switchInCurve: Curves.easeIn,
-                                  switchOutCurve: Curves.easeOut,
-                                  layoutBuilder: (currentChild, previousChildren) => Stack(
-                                    alignment: Alignment.topCenter,
-                                    children: [...previousChildren, if (currentChild != null) currentChild],
-                                  ),
-                                  child: _selectedTab == 0
-                                      ? _VaultTokensTabContent(key: const ValueKey('vault_tokens'))
-                                      : _VaultNftsTabContent(key: const ValueKey('vault_nfts')),
+                                duration: const Duration(milliseconds: 200),
+                                switchInCurve: Curves.easeIn,
+                                switchOutCurve: Curves.easeOut,
+                                layoutBuilder:
+                                    (currentChild, previousChildren) => Stack(
+                                  alignment: Alignment.topCenter,
+                                  children: [
+                                    ...previousChildren,
+                                    if (currentChild != null) currentChild
+                                  ],
+                                ),
+                                child: _selectedTab == 0
+                                    ? _VaultTokensTabContent(
+                                        key: const ValueKey('vault_tokens'))
+                                    : _VaultNftsTabContent(
+                                        key: const ValueKey('vault_nfts')),
                               );
                             }
 
                             if (CloakWalletManager.isCloak(aa.coin)) {
                               final t = Theme.of(context);
                               final zashi = t.extension<ZashiThemeExt>();
-                              final txTextColor = zashi?.balanceAmountColor ?? t.colorScheme.onSurface;
-                              final borderColor = zashi?.quickBorderColor ?? t.dividerColor;
-                              final flatFill = t.colorScheme.onSurface.withOpacity(0.12);
-                              final base = t.textTheme.bodyMedium ?? t.textTheme.titleMedium ?? t.textTheme.bodySmall;
+                              final txTextColor = zashi?.balanceAmountColor ??
+                                  t.colorScheme.onSurface;
+                              final borderColor =
+                                  zashi?.quickBorderColor ?? t.dividerColor;
+                              final flatFill =
+                                  t.colorScheme.onSurface.withOpacity(0.12);
+                              final base = t.textTheme.bodyMedium ??
+                                  t.textTheme.titleMedium ??
+                                  t.textTheme.bodySmall;
 
                               return AnimatedSwitcher(
-                                  duration: const Duration(milliseconds: 200),
-                                  switchInCurve: Curves.easeIn,
-                                  switchOutCurve: Curves.easeOut,
-                                  layoutBuilder: (currentChild, previousChildren) => Stack(
-                                    alignment: Alignment.topCenter,
-                                    children: [...previousChildren, if (currentChild != null) currentChild],
-                                  ),
-                                  child: _selectedTab == 0
-                                      ? Column(
-                                          key: const ValueKey('activity'),
-                                          children: [
-                                            txList(),
-                                            const Gap(12),
-                                            Center(
-                                              child: Transform.scale(
-                                                scale: 0.8,
-                                                child: Material(
-                                                  color: Colors.transparent,
-                                                  shape: const StadiumBorder(),
-                                                  child: Container(
-                                                    decoration: BoxDecoration(
-                                                      color: flatFill,
-                                                      borderRadius: BorderRadius.circular(999),
-                                                      border: Border.all(color: borderColor),
-                                                    ),
-                                                    child: InkWell(
-                                                      borderRadius: BorderRadius.circular(999),
-                                                      onTap: () => GoRouter.of(context).push('/activity_overlay').then((_) => _loadFeeFilter()),
-                                                      child: Padding(
-                                                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                                                        child: Row(
-                                                          mainAxisSize: MainAxisSize.min,
-                                                          children: [
-                                                            Text(
-                                                              'See all',
-                                                              style: TextStyle(fontWeight: FontWeight.w700, color: txTextColor),
-                                                            ),
-                                                            const SizedBox(width: 2),
-                                                            Icon(
-                                                              Icons.chevron_right,
-                                                              size: (base?.fontSize ?? 14.0) * 1.20,
-                                                              color: txTextColor,
-                                                            ),
-                                                          ],
-                                                        ),
+                                duration: const Duration(milliseconds: 200),
+                                switchInCurve: Curves.easeIn,
+                                switchOutCurve: Curves.easeOut,
+                                layoutBuilder:
+                                    (currentChild, previousChildren) => Stack(
+                                  alignment: Alignment.topCenter,
+                                  children: [
+                                    ...previousChildren,
+                                    if (currentChild != null) currentChild
+                                  ],
+                                ),
+                                child: _selectedTab == 0
+                                    ? Column(
+                                        key: const ValueKey('activity'),
+                                        children: [
+                                          txList(),
+                                          const Gap(12),
+                                          Center(
+                                            child: Transform.scale(
+                                              scale: 0.8,
+                                              child: Material(
+                                                color: Colors.transparent,
+                                                shape: const StadiumBorder(),
+                                                child: Container(
+                                                  decoration: BoxDecoration(
+                                                    color: flatFill,
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                            999),
+                                                    border: Border.all(
+                                                        color: borderColor),
+                                                  ),
+                                                  child: InkWell(
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                            999),
+                                                    onTap: () => GoRouter.of(
+                                                            context)
+                                                        .push(
+                                                            '/activity_overlay')
+                                                        .then((_) =>
+                                                            _loadFeeFilter()),
+                                                    child: Padding(
+                                                      padding: const EdgeInsets
+                                                          .symmetric(
+                                                          horizontal: 14,
+                                                          vertical: 6),
+                                                      child: Row(
+                                                        mainAxisSize:
+                                                            MainAxisSize.min,
+                                                        children: [
+                                                          Text(
+                                                            'See all',
+                                                            style: TextStyle(
+                                                                fontWeight:
+                                                                    FontWeight
+                                                                        .w700,
+                                                                color:
+                                                                    txTextColor),
+                                                          ),
+                                                          const SizedBox(
+                                                              width: 2),
+                                                          Icon(
+                                                            Icons.chevron_right,
+                                                            size:
+                                                                (base?.fontSize ??
+                                                                        14.0) *
+                                                                    1.20,
+                                                            color: txTextColor,
+                                                          ),
+                                                        ],
                                                       ),
                                                     ),
                                                   ),
                                                 ),
                                               ),
                                             ),
-                                          ],
-                                        )
-                                      : _selectedTab == 1
-                                          ? _TokensTabContent(key: const ValueKey('tokens'))
-                                          : _NftsTabContent(key: const ValueKey('nfts')),
+                                          ),
+                                        ],
+                                      )
+                                    : _selectedTab == 1
+                                        ? _TokensTabContent(
+                                            key: const ValueKey('tokens'))
+                                        : _NftsTabContent(
+                                            key: const ValueKey('nfts')),
                               );
                             }
 
                             return txList();
                           }),
                         ])),
-                    ],
-                  )),
-                );
-              },
-            ),
+                  ],
+                )),
+          );
+        },
+      ),
     );
   }
 
@@ -553,7 +663,8 @@ class _HomeState extends State<HomePageInner> {
   /// Vault withdraw: show bottom sheet with Quick Withdraw / Custom Withdraw options
   void _showVaultWithdraw(BuildContext context) {
     final hash = activeVaultHash;
-    final vaultBalance = aa.poolBalances.sapling; // vault CLOAK balance in units
+    final vaultBalance =
+        aa.poolBalances.sapling; // vault CLOAK balance in units
     if (hash == null || hash.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('No active vault')),
@@ -627,10 +738,12 @@ class _HomeState extends State<HomePageInner> {
                         _doQuickWithdraw(context);
                       },
                       child: Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
+                        padding: const EdgeInsets.symmetric(
+                            vertical: 14, horizontal: 16),
                         child: Row(
                           children: [
-                            Icon(Icons.flash_on, size: 20, color: t.colorScheme.background),
+                            Icon(Icons.flash_on,
+                                size: 20, color: t.colorScheme.background),
                             const SizedBox(width: 10),
                             Expanded(
                               child: Text(
@@ -642,7 +755,8 @@ class _HomeState extends State<HomePageInner> {
                                 ),
                               ),
                             ),
-                            Icon(Icons.chevron_right, size: 20, color: t.colorScheme.background),
+                            Icon(Icons.chevron_right,
+                                size: 20, color: t.colorScheme.background),
                           ],
                         ),
                       ),
@@ -678,10 +792,12 @@ class _HomeState extends State<HomePageInner> {
                           color: cardColor,
                           borderRadius: BorderRadius.circular(14),
                         ),
-                        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
+                        padding: const EdgeInsets.symmetric(
+                            vertical: 14, horizontal: 16),
                         child: Row(
                           children: [
-                            Icon(Icons.tune, size: 20, color: t.colorScheme.onSurface),
+                            Icon(Icons.tune,
+                                size: 20, color: t.colorScheme.onSurface),
                             const SizedBox(width: 10),
                             Expanded(
                               child: Text(
@@ -693,7 +809,8 @@ class _HomeState extends State<HomePageInner> {
                                 ),
                               ),
                             ),
-                            Icon(Icons.chevron_right, size: 20, color: t.colorScheme.onSurface),
+                            Icon(Icons.chevron_right,
+                                size: 20, color: t.colorScheme.onSurface),
                           ],
                         ),
                       ),
@@ -721,10 +838,14 @@ class _HomeState extends State<HomePageInner> {
       final symbol = ft['symbol'] as String? ?? 'CLOAK';
       final contract = ft['contract'] as String? ?? 'thezeostoken';
       final amount = ft['amount'] as String? ?? '0';
-      final precision = ft['precision'] as int? ?? 4;
-      double scale = 1;
-      for (int i = 0; i < precision; i++) scale *= 10;
-      final units = ((double.tryParse(amount) ?? 0.0) * scale).round();
+      final parsed = parseFixedAssetAmount(amount);
+      final precision = ft['precision'] as int? ?? parsed?.precision ?? 4;
+      if (precision < 0 || precision > 18) continue;
+      final rawAmount = ft['rawAmount'];
+      final units = rawAmount is int
+          ? rawAmount
+          : parseAssetUnitsAtPrecision(amount, precision);
+      if (units == null) continue;
       if (units <= 0) continue;
       assets.add(BatchAsset(
         symbol: symbol,
@@ -764,24 +885,24 @@ class _HomeState extends State<HomePageInner> {
     // Set up SendContext for the confirm page
     SendContext.instance = SendContext(
       address,
-      0,            // pools (unused for CLOAK)
+      0, // pools (unused for CLOAK)
       Amount(0, false), // amount (batch mode uses batchAssets instead)
-      null,         // memo (no memo for vault withdrawals — privacy)
-      null,         // fx
+      null, // memo (no memo for vault withdrawals — privacy)
+      null, // fx
       'Your Wallet', // display
-      false,        // fromThread
-      null,         // threadIndex
-      null,         // threadCid
-      null,         // tokenSymbol
-      null,         // tokenContract
-      null,         // tokenPrecision
-      hash,         // vaultHash
-      null,         // nftId
-      null,         // nftContract
-      null,         // nftImageUrl
-      null,         // nftName
-      true,         // isBatchWithdraw
-      assets,       // batchAssets
+      false, // fromThread
+      null, // threadIndex
+      null, // threadCid
+      null, // tokenSymbol
+      null, // tokenContract
+      null, // tokenPrecision
+      hash, // vaultHash
+      null, // nftId
+      null, // nftContract
+      null, // nftImageUrl
+      null, // nftName
+      true, // isBatchWithdraw
+      assets, // batchAssets
     );
 
     GoRouter.of(context).push('/account/cloak_confirm');
@@ -854,10 +975,12 @@ class _HomeState extends State<HomePageInner> {
                         _doQuickDeposit(context);
                       },
                       child: Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
+                        padding: const EdgeInsets.symmetric(
+                            vertical: 14, horizontal: 16),
                         child: Row(
                           children: [
-                            Icon(Icons.flash_on, size: 20, color: t.colorScheme.background),
+                            Icon(Icons.flash_on,
+                                size: 20, color: t.colorScheme.background),
                             const SizedBox(width: 10),
                             Expanded(
                               child: Text(
@@ -869,7 +992,8 @@ class _HomeState extends State<HomePageInner> {
                                 ),
                               ),
                             ),
-                            Icon(Icons.chevron_right, size: 20, color: t.colorScheme.background),
+                            Icon(Icons.chevron_right,
+                                size: 20, color: t.colorScheme.background),
                           ],
                         ),
                       ),
@@ -905,10 +1029,12 @@ class _HomeState extends State<HomePageInner> {
                           color: cardColor,
                           borderRadius: BorderRadius.circular(14),
                         ),
-                        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
+                        padding: const EdgeInsets.symmetric(
+                            vertical: 14, horizontal: 16),
                         child: Row(
                           children: [
-                            Icon(Icons.open_in_new, size: 20, color: t.colorScheme.onSurface),
+                            Icon(Icons.open_in_new,
+                                size: 20, color: t.colorScheme.onSurface),
                             const SizedBox(width: 10),
                             Expanded(
                               child: Text(
@@ -920,7 +1046,8 @@ class _HomeState extends State<HomePageInner> {
                                 ),
                               ),
                             ),
-                            Icon(Icons.chevron_right, size: 20, color: t.colorScheme.onSurface),
+                            Icon(Icons.chevron_right,
+                                size: 20, color: t.colorScheme.onSurface),
                           ],
                         ),
                       ),
@@ -954,28 +1081,29 @@ class _HomeState extends State<HomePageInner> {
     final hash = activeVaultHash ?? '';
     if (hash.isEmpty) return;
 
-    GoRouter.of(context).push('/account/quick_send', extra: SendContext(
-      hash,                           // address (vault hash → auto-converted by Rust)
-      7,                              // pools
-      Amount(0, false),               // amount
-      MemoData(false, '', 'AUTH:$hash|'), // memo
-      null,                           // fx
-      'This Vault',                   // display
-      false,                          // fromThread
-      null,                           // threadIndex
-      null,                           // threadCid
-      null,                           // tokenSymbol
-      null,                           // tokenContract
-      null,                           // tokenPrecision
-      null,                           // vaultHash
-      null,                           // nftId
-      null,                           // nftContract
-      null,                           // nftImageUrl
-      null,                           // nftName
-      false,                          // isBatchWithdraw
-      null,                           // batchAssets
-      true,                           // isVaultDeposit
-    ));
+    GoRouter.of(context).push('/account/quick_send',
+        extra: SendContext(
+          hash, // address (vault hash → auto-converted by Rust)
+          7, // pools
+          Amount(0, false), // amount
+          MemoData(false, '', 'AUTH:$hash|'), // memo
+          null, // fx
+          'This Vault', // display
+          false, // fromThread
+          null, // threadIndex
+          null, // threadCid
+          null, // tokenSymbol
+          null, // tokenContract
+          null, // tokenPrecision
+          null, // vaultHash
+          null, // nftId
+          null, // nftContract
+          null, // nftImageUrl
+          null, // nftName
+          false, // isBatchWithdraw
+          null, // batchAssets
+          true, // isVaultDeposit
+        ));
   }
 
   /// External Deposit: modern modal with explicit step-by-step instructions.
@@ -994,12 +1122,65 @@ class _HomeState extends State<HomePageInner> {
   }
 }
 
+class _ProtocolCompatibilityBanner extends StatelessWidget {
+  const _ProtocolCompatibilityBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<String?>(
+      valueListenable: CloakWalletManager.protocolCompatibilityError,
+      builder: (context, error, _) {
+        final message = error?.trim();
+        if (message == null || message.isEmpty) {
+          return const SizedBox.shrink();
+        }
+
+        final colors = Theme.of(context).colorScheme;
+        return Semantics(
+          liveRegion: true,
+          label: message,
+          child: Container(
+            width: double.infinity,
+            margin: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: colors.errorContainer,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(Icons.warning_amber_rounded,
+                    color: colors.onErrorContainer),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    message,
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: colors.onErrorContainer,
+                          fontWeight: FontWeight.w600,
+                        ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
 class _QuickActionTile extends StatelessWidget {
   final String label;
   final String asset;
   final VoidCallback onTap;
   final double? tileSize;
-  const _QuickActionTile({required this.label, required this.asset, required this.onTap, this.tileSize});
+  const _QuickActionTile(
+      {required this.label,
+      required this.asset,
+      required this.onTap,
+      this.tileSize});
 
   @override
   Widget build(BuildContext context) {
@@ -1064,7 +1245,8 @@ class _QuickActionTile extends StatelessWidget {
                       Text? fitted;
                       for (final fs in candidates) {
                         final tp = TextPainter(
-                          text: TextSpan(text: label, style: base?.copyWith(fontSize: fs)),
+                          text: TextSpan(
+                              text: label, style: base?.copyWith(fontSize: fs)),
                           maxLines: 1,
                           textDirection: TextDirection.ltr,
                         )..layout(maxWidth: box.maxWidth);
@@ -1074,18 +1256,21 @@ class _QuickActionTile extends StatelessWidget {
                             textAlign: TextAlign.center,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: base?.copyWith(fontSize: fs, color: onSurf.withOpacity(0.9)),
+                            style: base?.copyWith(
+                                fontSize: fs, color: onSurf.withOpacity(0.9)),
                           );
                           break;
                         }
                       }
-                      return fitted ?? Text(
-                        label,
-                        textAlign: TextAlign.center,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: base?.copyWith(color: onSurf.withOpacity(0.9)),
-                      );
+                      return fitted ??
+                          Text(
+                            label,
+                            textAlign: TextAlign.center,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style:
+                                base?.copyWith(color: onSurf.withOpacity(0.9)),
+                          );
                     }),
                   ],
                 ),
@@ -1102,7 +1287,10 @@ class _SegmentedToggle extends StatelessWidget {
   final int selectedIndex;
   final ValueChanged<int> onChanged;
   final List<String> labels;
-  const _SegmentedToggle({required this.selectedIndex, required this.onChanged, required this.labels});
+  const _SegmentedToggle(
+      {required this.selectedIndex,
+      required this.onChanged,
+      required this.labels});
 
   @override
   Widget build(BuildContext context) {
@@ -1110,8 +1298,10 @@ class _SegmentedToggle extends StatelessWidget {
     final zashi = t.extension<ZashiThemeExt>();
     final selectedColor = zashi?.balanceAmountColor ?? const Color(0xFFBDBDBD);
     final unselectedColor = t.colorScheme.onSurface.withOpacity(0.5);
-    final gradTop = zashi?.quickGradTop ?? t.colorScheme.onSurface.withOpacity(0.12);
-    final gradBottom = zashi?.quickGradBottom ?? t.colorScheme.onSurface.withOpacity(0.08);
+    final gradTop =
+        zashi?.quickGradTop ?? t.colorScheme.onSurface.withOpacity(0.12);
+    final gradBottom =
+        zashi?.quickGradBottom ?? t.colorScheme.onSurface.withOpacity(0.08);
     final indicatorBorder = zashi?.quickBorderColor ?? t.dividerColor;
     final isDark = t.brightness == Brightness.dark;
 
@@ -1149,21 +1339,27 @@ class _SegmentedToggle extends StatelessWidget {
               ),
               // Labels
               Row(
-                children: List.generate(tabCount, (i) => Expanded(
-                  child: GestureDetector(
-                    behavior: HitTestBehavior.opaque,
-                    onTap: () => onChanged(i),
-                    child: Center(
-                      child: Text(
-                        labels[i],
-                        style: TextStyle(
-                          color: selectedIndex == i ? selectedColor : unselectedColor,
-                          fontWeight: selectedIndex == i ? FontWeight.w700 : FontWeight.w500,
-                        ),
-                      ),
-                    ),
-                  ),
-                )),
+                children: List.generate(
+                    tabCount,
+                    (i) => Expanded(
+                          child: GestureDetector(
+                            behavior: HitTestBehavior.opaque,
+                            onTap: () => onChanged(i),
+                            child: Center(
+                              child: Text(
+                                labels[i],
+                                style: TextStyle(
+                                  color: selectedIndex == i
+                                      ? selectedColor
+                                      : unselectedColor,
+                                  fontWeight: selectedIndex == i
+                                      ? FontWeight.w700
+                                      : FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                          ),
+                        )),
               ),
             ],
           );
@@ -1182,13 +1378,22 @@ String? _getTokenLogoUrl(String symbol, String contract) {
 
 Color _getHomeTokenColor(String symbol) {
   switch (symbol) {
-    case 'CLOAK': return Colors.purple;
-    case 'TLOS': return Colors.blue;
-    case 'USDT': return Colors.green;
-    case 'USDC': return Colors.blue.shade700;
-    case 'BTC': case 'WBTC': return Colors.orange;
-    case 'ETH': case 'WETH': return Colors.indigo;
-    default: return Colors.grey.shade600;
+    case 'CLOAK':
+      return Colors.purple;
+    case 'TLOS':
+      return Colors.blue;
+    case 'USDT':
+      return Colors.green;
+    case 'USDC':
+      return Colors.blue.shade700;
+    case 'BTC':
+    case 'WBTC':
+      return Colors.orange;
+    case 'ETH':
+    case 'WETH':
+      return Colors.indigo;
+    default:
+      return Colors.grey.shade600;
   }
 }
 
@@ -1214,7 +1419,8 @@ class _HomeTokenIcon extends StatefulWidget {
 class _HomeTokenIconState extends State<_HomeTokenIcon> {
   bool _imageLoadFailed = false;
 
-  bool get _hasImage => widget.logoUrl != null && widget.logoUrl!.isNotEmpty && !_imageLoadFailed;
+  bool get _hasImage =>
+      widget.logoUrl != null && widget.logoUrl!.isNotEmpty && !_imageLoadFailed;
 
   @override
   void didUpdateWidget(_HomeTokenIcon oldWidget) {
@@ -1347,13 +1553,15 @@ class _ShieldedTokenRow extends StatelessWidget {
                   children: [
                     Text(
                       symbol,
-                      style: (t.textTheme.bodyLarge ?? const TextStyle()).copyWith(
+                      style:
+                          (t.textTheme.bodyLarge ?? const TextStyle()).copyWith(
                         fontWeight: FontWeight.w600,
                       ),
                     ),
                     Text(
                       contract,
-                      style: (t.textTheme.bodySmall ?? const TextStyle()).copyWith(
+                      style:
+                          (t.textTheme.bodySmall ?? const TextStyle()).copyWith(
                         color: Colors.grey[500],
                       ),
                     ),
@@ -1364,14 +1572,18 @@ class _ShieldedTokenRow extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
                   Text(
-                    appStore.hideBalances ? '\u2013 \u2013.\u2013 \u2013 \u2013 \u2013' : amount,
-                    style: (t.textTheme.bodyMedium ?? const TextStyle()).copyWith(
+                    appStore.hideBalances
+                        ? '\u2013 \u2013.\u2013 \u2013 \u2013 \u2013'
+                        : amount,
+                    style:
+                        (t.textTheme.bodyMedium ?? const TextStyle()).copyWith(
                       fontWeight: FontWeight.w600,
                     ),
                   ),
                   Text(
                     symbol,
-                    style: (t.textTheme.bodySmall ?? const TextStyle()).copyWith(
+                    style:
+                        (t.textTheme.bodySmall ?? const TextStyle()).copyWith(
                       color: Colors.grey[500],
                     ),
                   ),
@@ -1403,26 +1615,11 @@ class _TokensTabContent extends StatelessWidget {
       color: headerColor,
     );
 
-    // Parse FT data
-    final ftRaw = CloakWalletManager.getBalancesJson();
-    final List<_ParsedFt> fts = [];
-    if (ftRaw != null && ftRaw.isNotEmpty) {
-      try {
-        final List<dynamic> parsed = jsonDecode(ftRaw);
-        for (final entry in parsed) {
-          final str = entry.toString();
-          final atIdx = str.lastIndexOf('@');
-          if (atIdx < 0) continue;
-          final quantityPart = str.substring(0, atIdx);
-          final contract = str.substring(atIdx + 1);
-          final spaceIdx = quantityPart.lastIndexOf(' ');
-          if (spaceIdx < 0) continue;
-          final amount = quantityPart.substring(0, spaceIdx);
-          final symbol = quantityPart.substring(spaceIdx + 1);
-          fts.add(_ParsedFt(symbol: symbol, contract: contract, amount: amount));
-        }
-      } catch (_) {}
-    }
+    // Keep zero-value change notes in the wallet, but never present them as
+    // owned token balances. Parsing is exact so one-unit dust remains visible.
+    final fts = parsePositiveShieldedFtBalances(
+      CloakWalletManager.getBalancesJson(),
+    );
 
     // Sort: CLOAK first, then alphabetically by symbol
     fts.sort((a, b) {
@@ -1459,25 +1656,26 @@ class _TokensTabContent extends StatelessWidget {
               amount: fts[i].amount,
               logoUrl: _getTokenLogoUrl(fts[i].symbol, fts[i].contract),
               fallbackColor: _getHomeTokenColor(fts[i].symbol),
-              onTap: CloakWalletManager.isViewOnly ? null : () {
-                final ft = fts[i];
-                final dotIdx = ft.amount.indexOf('.');
-                final precision = dotIdx >= 0 ? ft.amount.length - dotIdx - 1 : 0;
-                GoRouter.of(context).push('/account/quick_send', extra: SendContext(
-                  '',        // address
-                  7,         // pools
-                  Amount(0, false),
-                  null,      // memo
-                  null,      // fx
-                  null,      // display
-                  false,     // fromThread
-                  null,      // threadIndex
-                  null,      // threadCid
-                  ft.symbol,
-                  ft.contract,
-                  precision,
-                ));
-              },
+              onTap: CloakWalletManager.isViewOnly
+                  ? null
+                  : () {
+                      final ft = fts[i];
+                      GoRouter.of(context).push('/account/quick_send',
+                          extra: SendContext(
+                            '', // address
+                            7, // pools
+                            Amount(0, false),
+                            null, // memo
+                            null, // fx
+                            null, // display
+                            false, // fromThread
+                            null, // threadIndex
+                            null, // threadCid
+                            ft.symbol,
+                            ft.contract,
+                            ft.precision,
+                          ));
+                    },
             ),
           ],
         const SizedBox(height: 80),
@@ -1522,7 +1720,9 @@ class _NftsTabContentState extends State<_NftsTabContent> {
       } catch (_) {}
     }
 
-    setState(() { _nfts = nfts; });
+    setState(() {
+      _nfts = nfts;
+    });
 
     // Fetch metadata for NFTs without names
     if (nfts.any((n) => n.name == null)) {
@@ -1533,9 +1733,14 @@ class _NftsTabContentState extends State<_NftsTabContent> {
   }
 
   Future<void> _loadMetadata(List<_ParsedNft> nfts) async {
-    final ids = nfts.where((n) => n.contract == 'atomicassets' && n.name == null).map((n) => n.nftId).toList();
+    final ids = nfts
+        .where((n) => n.contract == 'atomicassets' && n.name == null)
+        .map((n) => n.nftId)
+        .toList();
     if (ids.isEmpty) {
-      setState(() { _metadataLoaded = true; });
+      setState(() {
+        _metadataLoaded = true;
+      });
       return;
     }
     final metaMap = await AtomicAssetsService.instance.fetchMultiple(ids);
@@ -1568,7 +1773,8 @@ class _NftsTabContentState extends State<_NftsTabContent> {
           padding: const EdgeInsets.all(24),
           child: Column(
             children: [
-              Icon(Icons.diamond_outlined, size: 48, color: onSurface.withOpacity(0.15)),
+              Icon(Icons.diamond_outlined,
+                  size: 48, color: onSurface.withOpacity(0.15)),
               const SizedBox(height: 12),
               Text(
                 'No NFTs yet',
@@ -1635,7 +1841,8 @@ class _NftsTabContentState extends State<_NftsTabContent> {
   }
 
   Widget _buildNftCard(_ParsedNft nft, Color onSurface, bool isDark) {
-    final displayName = nft.name ?? 'NFT #${nft.nftId.length > 8 ? '${nft.nftId.substring(0, 8)}...' : nft.nftId}';
+    final displayName = nft.name ??
+        'NFT #${nft.nftId.length > 8 ? '${nft.nftId.substring(0, 8)}...' : nft.nftId}';
     final subtitle = nft.collectionName ?? nft.contract;
 
     return GestureDetector(
@@ -1651,7 +1858,9 @@ class _NftsTabContentState extends State<_NftsTabContent> {
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
-            color: isDark ? Colors.white.withOpacity(0.10) : Colors.black.withOpacity(0.12),
+            color: isDark
+                ? Colors.white.withOpacity(0.10)
+                : Colors.black.withOpacity(0.12),
           ),
         ),
         child: ClipRRect(
@@ -1672,7 +1881,10 @@ class _NftsTabContentState extends State<_NftsTabContent> {
                       gradient: LinearGradient(
                         begin: Alignment.topCenter,
                         end: Alignment.bottomCenter,
-                        colors: [Colors.transparent, Colors.black.withOpacity(0.8)],
+                        colors: [
+                          Colors.transparent,
+                          Colors.black.withOpacity(0.8)
+                        ],
                       ),
                     ),
                     padding: const EdgeInsets.fromLTRB(10, 20, 10, 10),
@@ -1692,24 +1904,24 @@ class _NftsTabContentState extends State<_NftsTabContent> {
                         ),
                         const SizedBox(height: 2),
                         _metadataLoaded
-                          ? Text(
-                              subtitle,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                color: Colors.white.withOpacity(0.55),
-                                fontSize: 10,
-                                height: 1.3,
+                            ? Text(
+                                subtitle,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: Colors.white.withOpacity(0.55),
+                                  fontSize: 10,
+                                  height: 1.3,
+                                ),
+                              )
+                            : Container(
+                                height: 10,
+                                width: 60,
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withOpacity(0.15),
+                                  borderRadius: BorderRadius.circular(3),
+                                ),
                               ),
-                            )
-                          : Container(
-                              height: 10,
-                              width: 60,
-                              decoration: BoxDecoration(
-                                color: Colors.white.withOpacity(0.15),
-                                borderRadius: BorderRadius.circular(3),
-                              ),
-                            ),
                       ],
                     ),
                   ),
@@ -1723,22 +1935,21 @@ class _NftsTabContentState extends State<_NftsTabContent> {
   }
 }
 
-class _ParsedFt {
-  final String symbol;
-  final String contract;
-  final String amount;
-  const _ParsedFt({required this.symbol, required this.contract, required this.amount});
-}
-
 class _ParsedNft {
   final String nftId;
   final String contract;
   final String? imageUrl;
   final String? name;
   final String? collectionName;
-  const _ParsedNft({required this.nftId, required this.contract, this.imageUrl, this.name, this.collectionName});
+  const _ParsedNft(
+      {required this.nftId,
+      required this.contract,
+      this.imageUrl,
+      this.name,
+      this.collectionName});
 
-  _ParsedNft withMetadata({String? name, String? collectionName, String? imageUrl}) {
+  _ParsedNft withMetadata(
+      {String? name, String? collectionName, String? imageUrl}) {
     return _ParsedNft(
       nftId: nftId,
       contract: contract,
@@ -1759,9 +1970,15 @@ class _VaultTokensTabContent extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = Theme.of(context);
     final dividerColor = t.dividerColor;
-    final tokens = activeVaultTokens;
+    final fts =
+        (activeVaultTokens?.fts ?? const <Map<String, dynamic>>[]).where((ft) {
+      final rawAmount = ft['rawAmount'];
+      if (rawAmount is int) return rawAmount > 0;
+      final parsed = parseFixedAssetAmount(ft['amount']?.toString() ?? '');
+      return parsed != null && parsed.units > 0;
+    }).toList();
 
-    if (tokens == null || tokens.fts.isEmpty) {
+    if (fts.isEmpty) {
       return Padding(
         padding: const EdgeInsets.symmetric(vertical: 8),
         child: Text(
@@ -1772,8 +1989,6 @@ class _VaultTokensTabContent extends StatelessWidget {
         ),
       );
     }
-
-    final fts = tokens.fts;
 
     return Column(
       children: [
@@ -1788,29 +2003,34 @@ class _VaultTokensTabContent extends StatelessWidget {
             symbol: fts[i]['symbol'] as String? ?? 'CLOAK',
             contract: fts[i]['contract'] as String? ?? '',
             amount: fts[i]['amount'] as String? ?? '0',
-            logoUrl: _getTokenLogoUrl(fts[i]['symbol'] as String? ?? 'CLOAK', fts[i]['contract'] as String? ?? ''),
-            fallbackColor: _getHomeTokenColor(fts[i]['symbol'] as String? ?? 'CLOAK'),
-            onTap: CloakWalletManager.isViewOnly ? null : () {
-              final sym = fts[i]['symbol'] as String? ?? 'CLOAK';
-              final con = fts[i]['contract'] as String? ?? '';
-              final amt = fts[i]['amount'] as String? ?? '0';
-              final dotIdx = amt.indexOf('.');
-              final precision = dotIdx >= 0 ? amt.length - dotIdx - 1 : 0;
-              GoRouter.of(context).push('/account/quick_send', extra: SendContext(
-                '',        // address
-                7,         // pools
-                Amount(0, false),
-                null,      // memo
-                null,      // fx
-                null,      // display
-                false,     // fromThread
-                null,      // threadIndex
-                null,      // threadCid
-                sym,
-                con,
-                precision,
-              ));
-            },
+            logoUrl: _getTokenLogoUrl(fts[i]['symbol'] as String? ?? 'CLOAK',
+                fts[i]['contract'] as String? ?? ''),
+            fallbackColor:
+                _getHomeTokenColor(fts[i]['symbol'] as String? ?? 'CLOAK'),
+            onTap: CloakWalletManager.isViewOnly
+                ? null
+                : () {
+                    final sym = fts[i]['symbol'] as String? ?? 'CLOAK';
+                    final con = fts[i]['contract'] as String? ?? '';
+                    final amt = fts[i]['amount'] as String? ?? '0';
+                    final precision =
+                        parseFixedAssetAmount(amt)?.precision ?? 0;
+                    GoRouter.of(context).push('/account/quick_send',
+                        extra: SendContext(
+                          '', // address
+                          7, // pools
+                          Amount(0, false),
+                          null, // memo
+                          null, // fx
+                          null, // display
+                          false, // fromThread
+                          null, // threadIndex
+                          null, // threadCid
+                          sym,
+                          con,
+                          precision,
+                        ));
+                  },
           ),
         ],
         const SizedBox(height: 80),
@@ -1842,7 +2062,9 @@ class _VaultNftsTabContentState extends State<_VaultNftsTabContent> {
     final tokens = activeVaultTokens;
 
     if (tokens == null) {
-      setState(() { _initialized = false; });
+      setState(() {
+        _initialized = false;
+      });
       return;
     }
 
@@ -1853,7 +2075,8 @@ class _VaultNftsTabContentState extends State<_VaultNftsTabContent> {
       final nftId = nft['id']?.toString() ?? nft.keys.first;
       final contract = nft['contract']?.toString() ?? '';
       final imageUrl = nft['imageUrl']?.toString();
-      parsed.add(_ParsedNft(nftId: nftId, contract: contract, imageUrl: imageUrl));
+      parsed.add(
+          _ParsedNft(nftId: nftId, contract: contract, imageUrl: imageUrl));
     }
 
     setState(() {
@@ -1870,9 +2093,14 @@ class _VaultNftsTabContentState extends State<_VaultNftsTabContent> {
   }
 
   Future<void> _loadMetadata(List<_ParsedNft> nfts) async {
-    final ids = nfts.where((n) => n.contract == 'atomicassets' && n.name == null).map((n) => n.nftId).toList();
+    final ids = nfts
+        .where((n) => n.contract == 'atomicassets' && n.name == null)
+        .map((n) => n.nftId)
+        .toList();
     if (ids.isEmpty) {
-      setState(() { _metadataLoaded = true; });
+      setState(() {
+        _metadataLoaded = true;
+      });
       return;
     }
     final metaMap = await AtomicAssetsService.instance.fetchMultiple(ids);
@@ -1912,7 +2140,8 @@ class _VaultNftsTabContentState extends State<_VaultNftsTabContent> {
           padding: const EdgeInsets.all(24),
           child: Column(
             children: [
-              Icon(Icons.diamond_outlined, size: 48, color: onSurface.withOpacity(0.15)),
+              Icon(Icons.diamond_outlined,
+                  size: 48, color: onSurface.withOpacity(0.15)),
               const SizedBox(height: 12),
               Text(
                 'No NFTs in vault',
@@ -1981,7 +2210,8 @@ class _VaultNftsTabContentState extends State<_VaultNftsTabContent> {
   }
 
   Widget _buildVaultNftCard(_ParsedNft nft, Color onSurface, bool isDark) {
-    final displayName = nft.name ?? 'NFT #${nft.nftId.length > 8 ? '${nft.nftId.substring(0, 8)}...' : nft.nftId}';
+    final displayName = nft.name ??
+        'NFT #${nft.nftId.length > 8 ? '${nft.nftId.substring(0, 8)}...' : nft.nftId}';
     final subtitle = nft.collectionName ?? nft.contract;
 
     return GestureDetector(
@@ -1996,7 +2226,9 @@ class _VaultNftsTabContentState extends State<_VaultNftsTabContent> {
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
-            color: isDark ? Colors.white.withOpacity(0.10) : Colors.black.withOpacity(0.12),
+            color: isDark
+                ? Colors.white.withOpacity(0.10)
+                : Colors.black.withOpacity(0.12),
           ),
         ),
         child: ClipRRect(
@@ -2017,7 +2249,10 @@ class _VaultNftsTabContentState extends State<_VaultNftsTabContent> {
                       gradient: LinearGradient(
                         begin: Alignment.topCenter,
                         end: Alignment.bottomCenter,
-                        colors: [Colors.transparent, Colors.black.withOpacity(0.8)],
+                        colors: [
+                          Colors.transparent,
+                          Colors.black.withOpacity(0.8)
+                        ],
                       ),
                     ),
                     padding: const EdgeInsets.fromLTRB(10, 20, 10, 10),
@@ -2037,24 +2272,24 @@ class _VaultNftsTabContentState extends State<_VaultNftsTabContent> {
                         ),
                         const SizedBox(height: 2),
                         _metadataLoaded
-                          ? Text(
-                              subtitle,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                color: Colors.white.withOpacity(0.55),
-                                fontSize: 10,
-                                height: 1.3,
+                            ? Text(
+                                subtitle,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: Colors.white.withOpacity(0.55),
+                                  fontSize: 10,
+                                  height: 1.3,
+                                ),
+                              )
+                            : Container(
+                                height: 10,
+                                width: 60,
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withOpacity(0.15),
+                                  borderRadius: BorderRadius.circular(3),
+                                ),
                               ),
-                            )
-                          : Container(
-                              height: 10,
-                              width: 60,
-                              decoration: BoxDecoration(
-                                color: Colors.white.withOpacity(0.15),
-                                borderRadius: BorderRadius.circular(3),
-                              ),
-                            ),
                       ],
                     ),
                   ),
@@ -2174,7 +2409,8 @@ class _ExternalDepositSheetState extends State<_ExternalDepositSheet> {
                   balanceColor: balanceColor,
                   fontFamily: balanceFontFamily,
                   cardColor: cardColor,
-                  trailing: Icon(Icons.check, size: 16, color: balanceColor.withOpacity(0.35)),
+                  trailing: Icon(Icons.check,
+                      size: 16, color: balanceColor.withOpacity(0.35)),
                 ),
                 const SizedBox(height: 16),
 
@@ -2184,20 +2420,25 @@ class _ExternalDepositSheetState extends State<_ExternalDepositSheet> {
                   decoration: BoxDecoration(
                     color: const Color(0xFF4CAF50).withOpacity(0.1),
                     borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: const Color(0xFF4CAF50).withOpacity(0.3)),
+                    border: Border.all(
+                        color: const Color(0xFF4CAF50).withOpacity(0.3)),
                   ),
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const Padding(
                         padding: EdgeInsets.only(top: 1),
-                        child: Icon(Icons.check_circle_outline, size: 16, color: Color(0xFF4CAF50)),
+                        child: Icon(Icons.check_circle_outline,
+                            size: 16, color: Color(0xFF4CAF50)),
                       ),
                       const SizedBox(width: 10),
                       Expanded(
                         child: Text(
                           'After your deposit confirms, use your CLOAK wallet to authenticate and pull the assets into your shielded balance.',
-                          style: TextStyle(color: const Color(0xFF4CAF50), fontSize: 12, height: 1.4),
+                          style: TextStyle(
+                              color: const Color(0xFF4CAF50),
+                              fontSize: 12,
+                              height: 1.4),
                         ),
                       ),
                     ],
@@ -2207,9 +2448,11 @@ class _ExternalDepositSheetState extends State<_ExternalDepositSheet> {
 
                 // "What are vaults for?" expandable info
                 GestureDetector(
-                  onTap: () => setState(() => _vaultInfoExpanded = !_vaultInfoExpanded),
+                  onTap: () =>
+                      setState(() => _vaultInfoExpanded = !_vaultInfoExpanded),
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 12, vertical: 10),
                     decoration: BoxDecoration(
                       color: Colors.white.withOpacity(0.04),
                       borderRadius: BorderRadius.circular(10),
@@ -2219,7 +2462,8 @@ class _ExternalDepositSheetState extends State<_ExternalDepositSheet> {
                       children: [
                         Row(
                           children: [
-                            Icon(Icons.help_outline, size: 16, color: balanceColor.withOpacity(0.6)),
+                            Icon(Icons.help_outline,
+                                size: 16, color: balanceColor.withOpacity(0.6)),
                             const SizedBox(width: 8),
                             Expanded(
                               child: Text(
@@ -2235,7 +2479,9 @@ class _ExternalDepositSheetState extends State<_ExternalDepositSheet> {
                             AnimatedRotation(
                               turns: _vaultInfoExpanded ? 0.5 : 0.0,
                               duration: const Duration(milliseconds: 200),
-                              child: Icon(Icons.expand_more, size: 20, color: balanceColor.withOpacity(0.4)),
+                              child: Icon(Icons.expand_more,
+                                  size: 20,
+                                  color: balanceColor.withOpacity(0.4)),
                             ),
                           ],
                         ),
@@ -2255,7 +2501,9 @@ class _ExternalDepositSheetState extends State<_ExternalDepositSheet> {
                               ),
                             ),
                           ),
-                          crossFadeState: _vaultInfoExpanded ? CrossFadeState.showSecond : CrossFadeState.showFirst,
+                          crossFadeState: _vaultInfoExpanded
+                              ? CrossFadeState.showSecond
+                              : CrossFadeState.showFirst,
                           duration: const Duration(milliseconds: 250),
                         ),
                       ],
@@ -2355,7 +2603,8 @@ class _ExternalDepositSheetState extends State<_ExternalDepositSheet> {
                       onTap: () => _copyToClipboard(copyValue, copyLabel ?? ''),
                       child: Padding(
                         padding: const EdgeInsets.all(4),
-                        child: Icon(Icons.copy, size: 16, color: balanceColor.withOpacity(0.5)),
+                        child: Icon(Icons.copy,
+                            size: 16, color: balanceColor.withOpacity(0.5)),
                       ),
                     ),
                   ),
